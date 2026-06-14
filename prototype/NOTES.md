@@ -99,6 +99,66 @@ The two metrics **diverge exactly as the thesis predicts**:
 - Auto-policy (greedy) stands in for the player; numbers (c, k, inflation, costs) are
   illustrative — tune via the knobs.
 
+## Calibration pass (fourth pass — real numbers + ~28-node graph)
+
+`references.md` §3–4 now anchors the swing numbers to reality, and `GRAPH` was expanded
+from 17 to **~28 authored nodes mirroring `documents/graph.md`**. Two knobs were recalibrated:
+
+- **`c` 2e5 → 5e3** ($/kg landed). Real anchors: Falcon Heavy ~$5.8k/kg, Starship target
+  ~$400/kg (refs §3). The old 2e5 was ~40× too high.
+- **`capital_factor` 1e9 → 5e7**. With realistic (lower) `c`, F is dominated by black nodes'
+  *intrinsic* cost, not shipping, so far less surplus is freed each window. At 1e9 a single
+  tier-1 localization (3e11) was unaffordable → nothing localized → autonomy stuck near 0.
+  5e7 is the **knee**: below it affordability stops binding and the MES gate on black nodes
+  takes over (curve identical for cf ≤ 5e7). That knee is the right place to sit — the wall
+  is industrial, not budgetary.
+
+### Headline finding — thesis survives realistic numbers
+
+- **Autonomy plateaus 67–78% (<100%)** across seeds 1/3/7/11/42/99, plateau detected w5–8.
+- **Survival runway pinned at 0.5 windows in *every single run*** — every c (400…200k), every
+  M, fusion on/off, however high autonomy climbs. Pharma+chips are critical AND black → worst-
+  covered critical node ≈ 0% local → Liebig pins the runway. This is the most robust result in
+  the model and the cleanest statement of the D-025 gap.
+- **F/M creeps toward/past 1.0** in fragile runs (seed 3 → 1.05; subsidy-cut M=5e11 → 1.11) →
+  Act-2 mortality pressure. Fusion ON holds F/M lower (seed 7: 0.67 vs 1.01) but autonomy is
+  *identical* (77–78%) — "delay/cushion, not solution" (§11) confirmed on the calibrated graph.
+
+### The big calibration finding (→ D-037)
+
+At honest Starship-era `c`, **shipping bulk is cheap** → Tsiolkovsky tyranny is a *weaker*
+squeeze than D-012 assumed. The "fantastic expensiveness" comes almost entirely from the
+**intrinsic cost + unreachable MES of the black nodes** (a $15–20B fab, a 200–500 t/yr API
+plant — refs §4), not from mass-to-orbit. This *strengthens* the core thesis (the wall is
+industrial, can't be engineered away by cheaper rockets) but shifts the emphasis of §4 away
+from the rocket equation. Worth a design note / possible §4 revision.
+
+## Launch capacity as capital (fifth pass — D-038)
+
+The magic `c` ($/kg) was removed. Launch capacity is now a **capital asset**: shipping cost/window
+= `fuel_per_kg·W` (marginal, $400/kg) + `launch_maint` on built capacity `K` (sunk, paid even idle,
+because the fleet has ~0 Earth reuse). `K` is an explicit lever (auto-policy builds it to cover the
+window's import mass). Params: `fuel_per_kg=400`, `launch_capex_per_kg=4e4`, `launch_maint_frac=0.08`.
+
+### What emerges (and why it's the honest model)
+
+- **Effective $/kg is derived, not set — and it's ~$1M, not $400.** Trace shows it swinging
+  $61k → $1.2M across the game (150–3000× the fuel floor). The amortized $400/kg is a fantasy for
+  Mars; once you pay for capacity idle 25/26 months, the real effective cost is ~$1M/kg. The convex
+  cost I'd sketched as a formula now **emerges** from honest capital — nothing imposed.
+- **The idle trap is visible** (seed 7, w15–21): an import surge forces K up to 2.14M kg/window;
+  autonomy then recovers and import mass drops, but K is sunk + maintained → effective $/kg climbs
+  back up as the same maintenance spreads over less mass. "Built for a burst, now idle but still
+  paid for" — exactly the synodic-window burst problem.
+- **Thesis intact:** autonomy plateaus 67–77% (<100%) across seeds 1/3/7/11/42; **runway pinned at
+  0.5 every window of every seed**; F/M creeps to 0.8–1.05 (Act-2 pressure, now partly from the
+  capacity maintenance tail). Fusion still only cushions F/M, never moves autonomy.
+
+This gives D-012 (Tsiolkovsky / synodic windows) real teeth: the squeeze isn't the rocket equation
+(Starship beats it) — it's the capital cost of bursty launch capacity with no reuse, in the single
+money ledger (D-027 intact, no mass budget `B`). Parallel to D-032: ship any tonnage, the wall is
+the idle-capacity cost, not a blockade.
+
 ## Things to tune / watch (for the next pass)
 
 - **`c` (cost per kg):** the swing parameter. How much mass a trillion buys.

@@ -15,7 +15,7 @@ import tty
 
 from economy import (
     Params, State, step, GRAPH, mes,
-    needs, import_floor, autonomy_by_mass, survival_runway,
+    needs, autonomy_by_mass, survival_runway,
 )
 
 B = "\x1b[1m"; D = "\x1b[2m"; R = "\x1b[0m"
@@ -72,13 +72,14 @@ class Sim:
         print(f"{B}OUTLAND — песочница экономики (граф узлов){R}  "
               f"{D}вопрос: автономия растёт, самодостаточность — нет?{R}\n")
 
-        print(f"{B}Крутилки{R}  c={p.c:,.0f}/кг  k={p.k:.2f}  инфляция={p.inflation:.0%}  "
-              f"M={p.M:,.0f}")
+        eff = self.history[-1]["eff_per_kg"] if self.history else 0
+        print(f"{B}Крутилки{R}  топливо={p.fuel_per_kg:,.0f}/кг  эфф.$/кг={eff:,.0f}  "
+              f"пуск.K={s.launch_K:,.0f}кг/окно  k={p.k:.2f}  инфл={p.inflation:.0%}  M={p.M:,.0f}")
         ev_on = f"{G}вкл{R}" if p.enable_events else f"{D}выкл{R}"
         fu_on = f"{G}вкл{R}" if p.enable_fusion else f"{D}выкл{R}"
         fus = {"none": f"{D}—{R}", "saving": f"{Y}копит {s.fusion_fund/p.M:.1f}/{p.fusion_cost_M:.0f}M{R}",
                "online": f"{G}ОНЛАЙН{R}"}[s.fusion]
-        print(f"{D}[1/2]c [3/4]k [5/6]инфл [7/8]M{R}   "
+        print(f"{D}[1/2]топл [3/4]k [5/6]инфл [7/8]M{R}   "
               f"термояд[f]:{fu_on} {fus}   события[e]:{ev_on}\n")
 
         # nodes
@@ -136,8 +137,8 @@ class Sim:
 
     def knob(self, ch):
         p = self.p
-        if ch == "1": p.c = max(1e3, p.c * 0.8)
-        elif ch == "2": p.c *= 1.25
+        if ch == "1": p.fuel_per_kg = max(100, p.fuel_per_kg * 0.8)
+        elif ch == "2": p.fuel_per_kg *= 1.25
         elif ch == "3": p.k = max(1.1, p.k - 0.1)
         elif ch == "4": p.k += 0.1
         elif ch == "5": p.inflation = max(0.0, p.inflation - 0.01)

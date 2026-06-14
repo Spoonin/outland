@@ -47,11 +47,14 @@ the maintenance tails of localized nodes. Mandatory first claim on the subsidy;
 what's left is capital. Written `F`.
 _Avoid_: mass budget, B, running cost
 
-**Cost-per-kg**:
-The money to land one kg on Mars (the Tsiolkovsky tyranny). Enters every catalog
-price as `цена = земная_стоимость + масса × c`. Mass bites only through this; there
-is no separate mass ledger. Written `c`.
-_Avoid_: shipping cost, freight
+**Launch capacity** (delivery capital):
+Shipping is NOT a fixed price `c` (D-038 abolished the magic constant). Landing mass
+is bought via a **capital asset** in the single money ledger: capex to build launch
+capacity `K` (kg/window) + per-window maintenance paid even when idle (Earth reuse ≈ 0).
+Effective $/kg is *derived* (`fuel·W + maint·K` ÷ shipped mass), emergently ~$1M, not
+the $400 fuel floor. Player-driven tech ladder: expendable (Tsiolkovsky dead end) →
+reusable+ISRU (Starship — cheapens, doesn't solve). Written `K`. See D-038/D-039, §4.2/§4.5.
+_Avoid_: cost-per-kg, `c`, shipping cost, freight, mass budget, B
 
 **Demand**:
 A node's total per-window need, compared against MES to decide localizability.
