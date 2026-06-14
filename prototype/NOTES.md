@@ -16,8 +16,8 @@ python3 prototype/sim.py
 ```
 
 Keys: `[t]` step one synodic window · `[r]` run to end · `[n]` reset ·
-`[q]` quit · `[1/2]` c−/+ · `[3/4]` k−/+ · `[5/6]` wear−/+ · `[7/8]` subsidy M−/+ ·
-`[9/0]` pop0−/+ · `[e]` toggle events · `[f]` toggle fusion megaproject
+`[q]` quit · `[1/2]` c−/+ · `[3/4]` k−/+ · `[5/6]` inflation−/+ · `[7/8]` subsidy M−/+ ·
+`[e]` toggle events · `[f]` toggle fusion megaproject
 (changing a knob resets the run).
 
 ## Preliminary answer (default params, headless run)
@@ -61,6 +61,43 @@ gradual and self-inflicted, autonomy never reaches 100%.
 
 Verdict: the model reproduces all three thesis behaviours — gradual plateau below
 100%, event-driven collapse spiral, and a megaproject that only buys time.
+
+## Refined model — node graph (third pass, per grill decisions)
+
+`economy.py` was rewritten from the tier-ladder to a **graph of ~17 authored nodes**
+(D-026) so the curve-relevant grill decisions are actually modelled:
+
+- **D-029 derived demand / aggregation** — demand = consumption + derived (a localized
+  node loads its inputs); shared upstream (catalyst, chips, water) aggregates demand
+  from its consumers. This is the real feedback loop, absent from the tier version.
+- **D-031 Earth inflation + events** — inflation erodes the subsidy's real value every
+  window; Earth events cut the subsidy or spike prices (mortality shocks).
+- **D-030 population lever** — colonists imported from surplus (one-time cost + permanent
+  demand tail); births only if the `maternity` infra node is localized.
+- **D-025 two metrics** — autonomy (by mass) AND self-sufficiency as a **survival runway**
+  (windows survivable if imports cut), gated by Liebig's law on the worst-covered critical
+  node.
+
+### Headline finding (default params, seeds 3/7)
+
+The two metrics **diverge exactly as the thesis predicts**:
+
+- **Autonomy** ramps over Act 1 to a plateau **~78%** (< 100%; black nodes never localize).
+- **Self-sufficiency runway stays pinned at ~0.5 windows the entire game**, no matter how
+  high autonomy climbs — because pharma & chips are critical *and* black, so the worst-
+  covered critical node is always ~0% local. "Autonomy 78%, but cut imports → dead in half
+  a synod." That gap is the whole game.
+- `F/M` creeps up (inflation + growth + maintenance tails + derived demand pulling in
+  catalyst/chips); Earth events spike it past 1.0 → mortality; bulk breakdowns (water/food)
+  crater autonomy temporarily (fragility/cascade). Fusion ON holds `F/M` lower than OFF.
+
+### Still simplified (deliberately out of scope)
+
+- D-035 paid survey (about *knowledge*, not the money curve) — auto-policy has perfect info.
+- D-028 skill-pipeline MES gate folded into the single process-MES gate.
+- The runway is a Liebig proxy, not a full import=0 sub-simulation.
+- Auto-policy (greedy) stands in for the player; numbers (c, k, inflation, costs) are
+  illustrative — tune via the knobs.
 
 ## Things to tune / watch (for the next pass)
 

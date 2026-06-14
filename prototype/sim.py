@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 """
-PROTOTYPE — throwaway TUI shell over economy.py.
+PROTOTYPE — throwaway TUI shell over the refined economy.py (node graph).
 
 Run:  python3 prototype/sim.py
 
-Drive the Outland economy by hand and watch whether autonomy plateaus below
-100% and collapse arrives gradually. The logic lives in economy.py; this file
-is just the screen + keystrokes and gets deleted once the question is answered.
+Drive the colony window-by-window and watch the two metrics diverge: autonomy
+(by mass, seductive) climbs while self-sufficiency (survival runway) stays pinned
+near the floor — the D-025 gap. Logic lives in economy.py; this shell is throwaway.
 """
 
 import sys
 import termios
 import tty
 
-from economy import Params, State, step, mes, import_floor, autonomy_by_mass
+from economy import (
+    Params, State, step, GRAPH, mes,
+    needs, import_floor, autonomy_by_mass, survival_runway,
+)
 
-B = "\x1b[1m"
-D = "\x1b[2m"
-R = "\x1b[0m"
-G = "\x1b[32m"
-Y = "\x1b[33m"
-RED = "\x1b[31m"
+B = "\x1b[1m"; D = "\x1b[2m"; R = "\x1b[0m"
+G = "\x1b[32m"; Y = "\x1b[33m"; RED = "\x1b[31m"
 
 
 def getch() -> str:
@@ -34,22 +33,19 @@ def getch() -> str:
     return ch
 
 
-def bar(frac: float, width: int = 24) -> str:
+def bar(frac, width=24):
     frac = max(0.0, min(1.0, frac))
     n = int(round(frac * width))
     return "█" * n + "·" * (width - n)
 
 
-def spark(vals, width=40) -> str:
+def spark(vals, width=40):
     if not vals:
         return ""
     blocks = "▁▂▃▄▅▆▇█"
     lo, hi = min(vals), max(vals)
     rng = hi - lo or 1.0
-    out = []
-    for v in vals[-width:]:
-        out.append(blocks[int((v - lo) / rng * (len(blocks) - 1))])
-    return "".join(out)
+    return "".join(blocks[int((v - lo) / rng * (len(blocks) - 1))] for v in vals[-width:])
 
 
 class Sim:
@@ -61,108 +57,93 @@ class Sim:
         self.s = State.new(self.p)
         self.history = []
 
-    def run_to_end(self):
-        while self.s.window < self.p.max_windows and not self.s.collapsed:
-            self.history.append(step(self.s))
-
     def one(self):
         if self.s.window < self.p.max_windows and not self.s.collapsed:
             self.history.append(step(self.s))
 
-    # ---- render ----
+    def run_to_end(self):
+        while self.s.window < self.p.max_windows and not self.s.collapsed:
+            self.history.append(step(self.s))
+
     def render(self):
         p, s = self.p, self.s
+        nd = needs(s)
         print("\x1b[2J\x1b[H", end="")
-        print(f"{B}OUTLAND — численная песочница экономики{R}  "
-              f"{D}(прототип; вопрос: гнётся ли кривая к провалу постепенно?){R}\n")
+        print(f"{B}OUTLAND — песочница экономики (граф узлов){R}  "
+              f"{D}вопрос: автономия растёт, самодостаточность — нет?{R}\n")
 
-        # knobs
-        print(f"{B}Крутилки{R}  "
-              f"c={p.c:,.0f}/кг  k={p.k:.2f}  износ(tail)={p.tail_max:.2f}  "
-              f"M={p.M:,.0f}  pop0={p.pop0:,.0f}")
-        print(f"{D}  [1/2] c-/+   [3/4] k-/+   [5/6] износ-/+   "
-              f"[7/8] субсидия M-/+   [9/0] pop0-/+   (смена крутилки = сброс){R}\n")
-
-        # tiers map
-        tiers = []
-        for t in range(p.tiers):
-            m = mes(p, t)
-            if m == float("inf"):
-                mark = f"{RED}⚫{R}"
-            elif s.localized[t]:
-                mark = f"{G}🟢{R}"
-            elif s.pop >= m:
-                mark = f"{Y}🟡{R}"
-            else:
-                mark = f"{RED}🔴{R}"
-            tiers.append(f"T{t+1}{mark}")
-        print(f"{B}Тиры{R} (1=балк … {p.black_from}+=чёрные): " + " ".join(tiers))
-        fus = {
-            "none": f"{D}—{R}",
-            "saving": f"{Y}копит {s.fusion_fund/p.M:.1f}/{p.fusion_cost_M:.0f}M{R}",
-            "online": f"{G}ОНЛАЙН{R}",
-        }[s.fusion]
+        print(f"{B}Крутилки{R}  c={p.c:,.0f}/кг  k={p.k:.2f}  инфляция={p.inflation:.0%}  "
+              f"M={p.M:,.0f}")
         ev_on = f"{G}вкл{R}" if p.enable_events else f"{D}выкл{R}"
         fu_on = f"{G}вкл{R}" if p.enable_fusion else f"{D}выкл{R}"
-        print(f"{B}Термояд{R}: {fus}   {B}события{R}[e]: {ev_on}   "
-              f"{B}мегапроект{R}[f]: {fu_on}\n")
+        fus = {"none": f"{D}—{R}", "saving": f"{Y}копит {s.fusion_fund/p.M:.1f}/{p.fusion_cost_M:.0f}M{R}",
+               "online": f"{G}ОНЛАЙН{R}"}[s.fusion]
+        print(f"{D}[1/2]c [3/4]k [5/6]инфл [7/8]M{R}   "
+              f"термояд[f]:{fu_on} {fus}   события[e]:{ev_on}\n")
+
+        # nodes
+        cells = []
+        for n in GRAPH:
+            if n.black:
+                glyph = f"{RED}⚫{R}"
+            elif s.localized[n.name]:
+                glyph = f"{G}🟢{R}"
+            elif nd[n.name] >= mes(p, n):
+                glyph = f"{Y}🟡{R}"
+            else:
+                glyph = f"{RED}🔴{R}"
+            cells.append(f"{glyph}{n.name[:9]:<9}")
+        for i in range(0, len(cells), 5):
+            print("  " + " ".join(cells[i:i + 5]))
+        print(f"  {D}🟢лок 🟡можно 🔴импорт ⚫чёрный (нелокализуемо){R}\n")
 
         # table
-        print(f"{B}{'окно':>4} {'год':>5} {'насел':>7} {'автоном':>8} "
-              f"{'F/M':>6} {'своб':>10}  события{R}")
-        for r in self.history[-16:]:
-            f_m = r["F"] / p.M
-            col = G if f_m < 0.75 else (Y if f_m < 1.0 else RED)
-            ev = [f"{Y}{e}{R}" for e in r.get("events", [])]
+        print(f"{B}{'ок':>3}{'насел':>7}{'автон':>7}{'запас':>6}{'F/M':>6}  события{R}")
+        for r in self.history[-12:]:
+            fm = r["F"] / p.M
+            col = G if fm < 0.75 else (Y if fm < 1.0 else RED)
+            ev = [f"{Y}{e}{R}" for e in r["events"]]
             if r["localized_this"]:
-                ev.append(f"{G}+лок T{','.join(map(str, r['localized_this']))}{R}")
+                ev.append(f"{G}+{','.join(x[:5] for x in r['localized_this'])}{R}")
             if r["reverted"]:
-                ev.append(f"{RED}-гаснет T{','.join(map(str, r['reverted']))}{R}")
+                ev.append(f"{RED}-{','.join(x[:5] for x in r['reverted'])}{R}")
             if r["mortality"]:
                 ev.append(f"{RED}†{r['mortality']}{R}")
             if r["collapsed"]:
-                ev.append(f"{RED}{B}КОЛЛАПС{R}")
-            print(f"{r['window']:>4} {r['year']:>5} {r['pop']:>7} "
-                  f"{r['autonomy']*100:>7.1f}% {col}{f_m:>6.2f}{R} "
-                  f"{r['free']/1e9:>8.0f}Б  " + "  ".join(ev))
+                ev.append(f"{RED}{B}КРАХ{R}")
+            print(f"{r['window']:>3}{r['pop']:>7}{r['autonomy']*100:>6.0f}%{r['runway']:>6}"
+                  f"{col}{fm:>6.2f}{R}  " + "  ".join(ev))
 
-        # current derived
-        aut = autonomy_by_mass(s)
-        f = import_floor(s)
+        aut = autonomy_by_mass(s, nd)
+        rw = survival_runway(s, nd)
         print()
-        print(f"{B}автономия{R} {bar(aut)} {aut*100:5.1f}%   "
-              f"{D}(плато ниже 100% = тезис){R}")
-        print(f"{B}F / M    {R} {bar(f/p.M)} {f/p.M*100:5.0f}%   "
-              f"{D}(пол импорта съедает субсидию){R}")
+        print(f"{B}автономия      {R}{bar(aut)} {aut*100:5.1f}%  {D}(соблазн — по массе){R}")
+        print(f"{B}самодостат-сть {R}{bar(rw/4.0)} {rw} окон  {D}(правда — запас хода при обрыве){R}")
         auts = [r["autonomy"] * 100 for r in self.history]
-        print(f"{B}кривая   {R} {spark(auts)}")
+        rws = [r["runway"] for r in self.history]
+        print(f"{B}кривая автон   {R}{spark(auts)}")
+        print(f"{B}кривая запаса  {R}{spark(rws)}")
 
-        # verdict
         print()
         if s.collapsed:
-            print(f"{RED}{B}► Колония схлопнулась на окне {s.window} "
-                  f"(год ~{s.window*2.17:.0f}).{R}")
+            print(f"{RED}{B}► Колония схлопнулась на окне {s.window}.{R}")
         elif s.plateaued_at > 0:
-            print(f"{Y}► Автономия вышла на плато ~{aut*100:.0f}% с окна "
-                  f"{s.plateaued_at}; 100% недостижимо.{R}")
+            print(f"{Y}► Автономия на плато ~{aut*100:.0f}% (с окна {s.plateaued_at}); "
+                  f"самодостаточность ~{rw} окон — разрыв и есть тезис.{R}")
         if s.window >= p.max_windows:
-            print(f"{D}► Достигнут конец партии ({p.max_windows} окон).{R}")
-
+            print(f"{D}► Конец партии ({p.max_windows} окон).{R}")
         print(f"\n{D}[t] шаг   [r] до конца   [n] сброс   [q] выход{R}")
 
-    # ---- knobs ----
-    def knob(self, ch) -> bool:
+    def knob(self, ch):
         p = self.p
-        if ch == "1": p.c = max(1e4, p.c * 0.8)
+        if ch == "1": p.c = max(1e3, p.c * 0.8)
         elif ch == "2": p.c *= 1.25
         elif ch == "3": p.k = max(1.1, p.k - 0.1)
         elif ch == "4": p.k += 0.1
-        elif ch == "5": p.tail_max = max(0.0, p.tail_max - 0.03)
-        elif ch == "6": p.tail_max = min(0.9, p.tail_max + 0.03)
+        elif ch == "5": p.inflation = max(0.0, p.inflation - 0.01)
+        elif ch == "6": p.inflation += 0.01
         elif ch == "7": p.M = max(1e10, p.M * 0.8)
         elif ch == "8": p.M *= 1.25
-        elif ch == "9": p.pop0 = max(100, p.pop0 - 200)
-        elif ch == "0": p.pop0 += 200
         elif ch == "e": p.enable_events = not p.enable_events
         elif ch == "f": p.enable_fusion = not p.enable_fusion
         else:
