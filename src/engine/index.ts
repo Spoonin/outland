@@ -30,6 +30,25 @@ export {
   launchCost,
 } from './logistics';
 export type { LaunchTech, TechSpec, LaunchParams, Fleet, LaunchCost } from './logistics';
+export {
+  defaultCatalog,
+  defaultColonyParams,
+  consumption,
+  newColony,
+  previewOrder,
+  priceMult as colonyPriceMult,
+  commitWindow,
+} from './colony';
+export type {
+  ResourceSpec,
+  ResourceCatalog,
+  ColonyParams,
+  ColonyState,
+  Transit,
+  EarthOrder,
+  OrderPreview,
+  ColonyReport,
+} from './colony';
 export { greedyAllocate } from './policy';
 export {
   mes,
