@@ -4,6 +4,22 @@ export { GRAPH, NODES, CONSUMERS } from './graph';
 export { makeRng, rngFromState } from './rng';
 export { serializeState, deserializeState } from './persist';
 export type { SerializedState } from './persist';
+export {
+  RESOURCES,
+  LIFE_SUPPORT,
+  emptyStocks,
+  resolveEnergy,
+  applyFlows,
+  runwayFromStocks,
+} from './resources';
+export type {
+  ResourceKind,
+  Stocks,
+  EnergyDemand,
+  EnergyAllocation,
+  ResourceFlows,
+  FlowResult,
+} from './resources';
 export { greedyAllocate } from './policy';
 export {
   mes,
