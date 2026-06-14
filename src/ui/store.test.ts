@@ -39,6 +39,31 @@ describe('GameStore (UI pub/sub over the engine)', () => {
     expect(store.snapshot().window).toBe(0);
   });
 
+  it('manifest playthrough: pick → commit advances window and localizes', () => {
+    const store = new GameStore(defaultParams({ enableEvents: false }));
+    const plan = store.plan();
+    const pick = plan.eligible.slice(0, 2).map((e) => e.name); // e.g. water, oxygen
+    pick.forEach((n) => store.toggleLocalize(n));
+    expect(pick.every((n) => store.isPicked(n))).toBe(true);
+    store.setColonists(50);
+    store.commit();
+    expect(store.latest()?.window).toBe(1);
+    for (const n of pick) expect(store.latest()?.localizedThis).toContain(n);
+    expect(store.snapshot().autonomy).toBeGreaterThan(0);
+    // draft cleared after commit
+    expect(store.draftColonistCount).toBe(0);
+    expect(store.isPicked(pick[0]!)).toBe(false);
+  });
+
+  it('exposes Earth inflation eroding real M (D-031)', () => {
+    const store = new GameStore(defaultParams({ enableEvents: false }));
+    expect(store.snapshot().erosionPct).toBe(0); // window 0
+    for (let i = 0; i < 10; i++) store.advance();
+    const snap = store.snapshot();
+    expect(snap.erosionPct).toBeGreaterThan(20); // ~26% by window 10 at 3%/window
+    expect(snap.realM).toBeLessThan(snap.M);
+  });
+
   it('black nodes always report status "black"', () => {
     const store = new GameStore(defaultParams({ enableEvents: false }));
     const snap = store.snapshot();

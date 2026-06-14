@@ -1,7 +1,14 @@
 // Pure simulation functions (SDD §6–7). Mirrors prototype/economy.py.
 // Built incrementally across Phase 1 parts A–F.
 
-import type { GameState, Node, NodeStatus, Params, StepReport } from './types';
+import type {
+  GameState,
+  Node,
+  NodeStatus,
+  Params,
+  StepReport,
+  WindowDecision,
+} from './types';
 import { GRAPH, NODES, CONSUMERS } from './graph';
 import { makeRng } from './rng';
 import { greedyAllocate } from './policy';
@@ -105,6 +112,47 @@ export function nodeStatus(s: GameState, nd: Record<string, number>, node: Node)
   return 'import';
 }
 
+export interface EligibleNode {
+  name: string;
+  tier: number;
+  demand: number;
+  cost: number; // localization capex
+}
+
+export interface PlanView {
+  M: number;
+  projectedF: number; // import floor + capacity maintenance at next-window prices
+  projectedFree: number; // M − F − projected capacity capex
+  shipMass: number;
+  colonistCost: number;
+  eligible: EligibleNode[]; // buildable now (demand ≥ MES, not black, not localized)
+}
+
+/**
+ * Deterministic planning preview for the window manifest (mechanics §7.2 "plan under uncertainty").
+ * Uses next-window inflation but no RNG — events/lag realize only on commit (step()).
+ */
+export function planView(s: GameState): PlanView {
+  const p = s.p;
+  const nd = needs(s);
+  const priceMult = Math.pow(1.0 + p.inflation, s.window + 1);
+  const { fImp, shipMass } = importBreakdown(s, nd, priceMult);
+  const capex = shipMass > s.launchK ? (shipMass - s.launchK) * p.launchCapexPerKg : 0.0;
+  const maint = p.launchMaintFrac * p.launchCapexPerKg * Math.max(s.launchK, shipMass);
+  const projectedF = fImp + maint;
+  const eligible: EligibleNode[] = GRAPH.filter(
+    (n) => !n.black && !s.localized[n.name] && nd[n.name]! >= mes(p, n),
+  ).map((n) => ({ name: n.name, tier: n.tier, demand: nd[n.name]!, cost: localizationCost(p, n) }));
+  return {
+    M: p.M,
+    projectedF,
+    projectedFree: p.M - projectedF - capex,
+    shipMass,
+    colonistCost: p.colonistCost,
+    eligible,
+  };
+}
+
 /** Fresh game state: pop0, nothing localized, seeded RNG (SDD §4). */
 export function newState(p: Params): GameState {
   const localized: Record<string, boolean> = {};
@@ -129,8 +177,38 @@ export function newState(p: Params): GameState {
   };
 }
 
-/** Advance one synodic window (SDD §7). Mutates state; returns a report. */
-export function step(s: GameState): StepReport {
+/** Localization capex for a node: capitalFactor · MES (Infinity for black). */
+export function localizationCost(p: Params, node: Node): number {
+  return p.capitalFactor * mes(p, node);
+}
+
+/** Player-directed localization: try each requested node in order, if eligible & affordable. */
+function directedAllocate(
+  s: GameState,
+  capital: number,
+  nd: Record<string, number>,
+  localize: string[],
+): { localizedThis: string[]; capitalLeft: number } {
+  const p = s.p;
+  const localizedThis: string[] = [];
+  for (const name of localize) {
+    const n = NODES[name];
+    if (!n || s.localized[name] || n.black || nd[name]! < mes(p, n)) continue;
+    const cost = localizationCost(p, n);
+    if (cost > capital) continue;
+    s.localized[name] = true;
+    s.age[name] = 0;
+    capital -= cost;
+    localizedThis.push(name);
+  }
+  return { localizedThis, capitalLeft: capital };
+}
+
+/**
+ * Advance one synodic window (SDD §7). Mutates state; returns a report.
+ * `decision` = player allocation; omit → greedy auto-policy (golden tests, AI baseline).
+ */
+export function step(s: GameState, decision?: WindowDecision): StepReport {
   const p = s.p;
   const rng = s.rng;
   s.window += 1;
@@ -198,12 +276,24 @@ export function step(s: GameState): StepReport {
 
   // 6. localize / population, or mortality
   if (free >= 0) {
-    const alloc = greedyAllocate(s, free, priceMult, nd);
-    localizedThis = alloc.localizedThis;
-    // population lever (D-030): import colonists from leftover surplus
-    const spare = alloc.capitalLeft - p.colonistReserve * p.M;
-    if (spare > p.colonistCost) {
-      s.pop += (spare * p.colonistFrac) / p.colonistCost;
+    if (decision) {
+      // player-directed allocation (Phase 3)
+      const alloc = directedAllocate(s, free, nd, decision.localize);
+      localizedThis = alloc.localizedThis;
+      const affordable = Math.min(
+        Math.max(0, Math.floor(decision.colonists)),
+        Math.floor(alloc.capitalLeft / p.colonistCost),
+      );
+      s.pop += affordable;
+    } else {
+      // greedy auto-policy
+      const alloc = greedyAllocate(s, free, priceMult, nd);
+      localizedThis = alloc.localizedThis;
+      // population lever (D-030): import colonists from leftover surplus
+      const spare = alloc.capitalLeft - p.colonistReserve * p.M;
+      if (spare > p.colonistCost) {
+        s.pop += (spare * p.colonistFrac) / p.colonistCost;
+      }
     }
     // births only if medical infra localized
     if (s.localized['medical_infra']) s.pop *= 1.0 + p.birthRate;

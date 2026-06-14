@@ -45,6 +45,10 @@ export class DashboardPanel extends LitElement {
       opacity: 0.45;
       font-size: 0.85rem;
     }
+    .erode {
+      color: #c98a5a;
+      opacity: 0.9;
+    }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -87,7 +91,10 @@ export class DashboardPanel extends LitElement {
           <div>термояд: ${s.fusion}</div>
         </div>
         <div class="dim">
-          <div>субсидия M: ${money(s.M)}</div>
+          <div>
+            субсидия M: ${money(s.M)} · реальная ~${money(s.realM)}
+            <span class="erode">(−${s.erosionPct.toFixed(0)}% инфляция ${(s.inflationPct * 100).toFixed(0)}%/окно)</span>
+          </div>
           <div>пол импорта F: ${money(s.F)} (F/M ${s.fm.toFixed(2)})</div>
           <div>эфф. $/кг: ${money(s.effPerKg)} · пуск.K: ${s.launchK.toLocaleString('en-US')} кг/окно</div>
         </div>

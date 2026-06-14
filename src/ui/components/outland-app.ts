@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { GameStore } from '../store';
 import './dashboard-panel';
+import './window-manifest';
 
 /** Root shell (mechanics §8.1): hosts the store + dashboard. Spokes land in Phase 3+. */
 @customElement('outland-app')
@@ -71,15 +72,18 @@ export class OutlandApp extends LitElement {
     return html`
       <h1>OUTLAND</h1>
       <dashboard-panel .snapshot=${snap}></dashboard-panel>
-      <div class="controls">
-        <button @click=${() => this.store.advance()} ?disabled=${snap.ended}>Ход ▸</button>
-        <button @click=${() => this.store.reset()}>Сброс</button>
-      </div>
       ${snap.ended
         ? html`<div class="ended">
-            ${snap.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'}
-          </div>`
-        : null}
+              ${snap.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'}
+            </div>
+            <div class="controls"><button @click=${() => this.store.reset()}>Новая партия</button></div>`
+        : html`<window-manifest .store=${this.store}></window-manifest>
+            <div class="controls">
+              <button @click=${() => this.store.advance()} title="без решения — жадная авто-политика">
+                Авто-ход
+              </button>
+              <button @click=${() => this.store.reset()}>Сброс</button>
+            </div>`}
     `;
   }
 }

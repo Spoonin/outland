@@ -115,6 +115,12 @@ export interface GameState {
   launchK: number; // built launch capacity (kg/window), sunk + maintained (D-038)
 }
 
+/** Player's allocation for a window (Phase 3). Omit → greedy auto-policy stands in. */
+export interface WindowDecision {
+  localize: string[]; // node names to attempt to localize this window, in priority order
+  colonists: number; // colonists to import this window
+}
+
 /** Per-window result returned by step() (SDD §7). */
 export interface StepReport {
   window: number;

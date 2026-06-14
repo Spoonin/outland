@@ -12,6 +12,9 @@ export {
   autonomyByMass,
   survivalRunway,
   nodeStatus,
+  localizationCost,
+  planView,
   newState,
   step,
 } from './sim';
+export type { EligibleNode, PlanView } from './sim';
