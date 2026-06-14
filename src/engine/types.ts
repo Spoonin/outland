@@ -55,7 +55,11 @@ export interface Params {
   fusionDiscount: number;
   fusionMaintM: number;
   maxWindows: number;
+  cancelErosion: number; // inflation erosion of real M past which Earth cancels the project (§7.4)
 }
+
+/** Game ending (§7.4): none = ongoing. */
+export type EndReason = 'none' | 'collapse' | 'cancellation' | 'stall';
 
 /** Calibrated defaults (D-037/D-038); identical to economy.py Params. */
 export function defaultParams(overrides: Partial<Params> = {}): Params {
@@ -90,6 +94,7 @@ export function defaultParams(overrides: Partial<Params> = {}): Params {
     fusionDiscount: 0.3,
     fusionMaintM: 0.1,
     maxWindows: 40,
+    cancelErosion: 0.5,
     ...overrides,
   };
 }

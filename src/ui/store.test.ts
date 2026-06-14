@@ -78,6 +78,18 @@ describe('GameStore (UI pub/sub over the engine)', () => {
     expect(store.focus).toBeNull();
   });
 
+  it('debrief names the survival runway and the black ceiling (D-025/§7.5)', () => {
+    const store = new GameStore(defaultParams({ enableEvents: false, maxWindows: 5 }));
+    for (let i = 0; i < 5; i++) store.advance();
+    const d = store.debrief();
+    expect(d.reason).not.toBe('none');
+    expect(d.runwayWindows).toBe(0.5);
+    expect(d.runwayMonths).toBe(13);
+    expect(d.blackCeiling).toContain('pharma');
+    expect(d.blackCeiling).toContain('electronics');
+    expect(d.autonomyCurve.length).toBe(5);
+  });
+
   it('black nodes always report status "black"', () => {
     const store = new GameStore(defaultParams({ enableEvents: false }));
     const snap = store.snapshot();

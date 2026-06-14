@@ -9,6 +9,7 @@ import {
   nodeStatus,
   nodeEconomics,
   priceMultNow,
+  endReason,
   planView,
   GRAPH,
   NODES,
@@ -19,6 +20,7 @@ import {
   type PlanView,
   type Node,
   type NodeEconomics,
+  type EndReason,
 } from '../engine';
 
 export interface NodeView {
@@ -50,6 +52,22 @@ export interface Snapshot {
   collapsed: boolean;
   ended: boolean;
   nodes: NodeView[];
+}
+
+/** End-of-game retrospective (mechanics §7.5, D-025/D-036) — meaning delivery. */
+export interface Debrief {
+  reason: EndReason;
+  windows: number;
+  year: number;
+  peakAutonomy: number;
+  finalAutonomy: number;
+  runwayWindows: number; // self-sufficiency — NAMED here for the first time (D-025)
+  runwayMonths: number;
+  finalFM: number;
+  erosionPct: number;
+  blackCeiling: string[]; // critical black nodes that capped autonomy
+  autonomyCurve: number[]; // per-window %
+  fmCurve: number[];
 }
 
 type Listener = () => void;
@@ -177,6 +195,31 @@ export class GameStore {
 
   latest(): StepReport | undefined {
     return this.history[this.history.length - 1];
+  }
+
+  endReason(): EndReason {
+    return endReason(this.state);
+  }
+
+  /** Retrospective shown at game end (§7.5). Survival runway is named here for the first time. */
+  debrief(): Debrief {
+    const last = this.latest();
+    const runwayWindows = last?.runway ?? 0.5;
+    const autonomyCurve = this.history.map((r) => r.autonomy * 100);
+    return {
+      reason: endReason(this.state),
+      windows: this.state.window,
+      year: Math.round(this.state.window * 2.17 * 10) / 10,
+      peakAutonomy: autonomyCurve.length ? Math.max(...autonomyCurve) : 0,
+      finalAutonomy: last ? last.autonomy * 100 : 0,
+      runwayWindows,
+      runwayMonths: Math.round(runwayWindows * 26),
+      finalFM: last ? last.F / this.state.p.M : 0,
+      erosionPct: (1 - 1 / priceMultNow(this.state)) * 100,
+      blackCeiling: GRAPH.filter((n) => n.black && n.crit >= 0.5).map((n) => n.name),
+      autonomyCurve,
+      fmCurve: this.history.map((r) => r.F / this.state.p.M),
+    };
   }
 
   getHistory(): readonly StepReport[] {

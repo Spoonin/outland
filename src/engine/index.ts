@@ -15,6 +15,8 @@ export {
   localizationCost,
   planView,
   priceMultNow,
+  subsidyErosion,
+  endReason,
   nodeEconomics,
   newState,
   step,

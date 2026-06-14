@@ -2,6 +2,7 @@
 // Built incrementally across Phase 1 parts A–F.
 
 import type {
+  EndReason,
   GameState,
   Node,
   NodeStatus,
@@ -107,6 +108,24 @@ export function survivalRunway(s: GameState, nd: Record<string, number>): number
 /** Cumulative Earth-inflation multiplier at the current window (D-031). */
 export function priceMultNow(s: GameState): number {
   return Math.pow(1.0 + s.p.inflation, s.window);
+}
+
+/** Cumulative erosion of the subsidy's real value, 0..1 (D-031 — the trillion shrinks). */
+export function subsidyErosion(s: GameState): number {
+  return 1.0 - 1.0 / priceMultNow(s);
+}
+
+/**
+ * Classify the game ending (§7.4, D-017): collapse (pop crash) / cancellation (Earth pulls
+ * funding as inflation erodes the subsidy past cancelErosion) / stall (asymptotic calm —
+ * survived to the horizon, frozen below 100% autonomy, perpetual import). 'none' = ongoing.
+ */
+export function endReason(s: GameState): EndReason {
+  if (s.collapsed) return 'collapse';
+  if (s.window >= s.p.maxWindows) {
+    return subsidyErosion(s) >= s.p.cancelErosion ? 'cancellation' : 'stall';
+  }
+  return 'none';
 }
 
 export interface NodeEconomics {

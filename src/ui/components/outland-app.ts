@@ -4,6 +4,7 @@ import { GameStore } from '../store';
 import './dashboard-panel';
 import './window-manifest';
 import './object-tree';
+import './debrief-panel';
 
 /** Root shell (mechanics §8.1): hosts the store + dashboard. Spokes land in Phase 3+. */
 @customElement('outland-app')
@@ -79,9 +80,7 @@ export class OutlandApp extends LitElement {
       ></dashboard-panel>
       ${focus ? html`<object-tree .store=${this.store} .root=${focus}></object-tree>` : nothing}
       ${snap.ended
-        ? html`<div class="ended">
-              ${snap.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'}
-            </div>
+        ? html`<debrief-panel .debrief=${this.store.debrief()}></debrief-panel>
             <div class="controls"><button @click=${() => this.store.reset()}>Новая партия</button></div>`
         : html`<window-manifest .store=${this.store}></window-manifest>
             <div class="controls">
