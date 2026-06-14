@@ -11,6 +11,7 @@ export {
   launchMaint,
   autonomyByMass,
   survivalRunway,
+  nodeStatus,
   newState,
   step,
 } from './sim';

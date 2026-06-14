@@ -1,7 +1,7 @@
 // Pure simulation functions (SDD §6–7). Mirrors prototype/economy.py.
 // Built incrementally across Phase 1 parts A–F.
 
-import type { GameState, Node, Params, StepReport } from './types';
+import type { GameState, Node, NodeStatus, Params, StepReport } from './types';
 import { GRAPH, NODES, CONSUMERS } from './graph';
 import { makeRng } from './rng';
 import { greedyAllocate } from './policy';
@@ -95,6 +95,14 @@ export function survivalRunway(s: GameState, nd: Record<string, number>): number
     worst = Math.min(worst, local / d);
   }
   return Math.round((0.5 + worst * 3.0) * 10) / 10; // 0.5-window stockpile + best-case scaling
+}
+
+/** Visible status of a node given current demand (D-014, SDD): drives 🟢🟡🔴⚫ in the UI. */
+export function nodeStatus(s: GameState, nd: Record<string, number>, node: Node): NodeStatus {
+  if (node.black) return 'black';
+  if (s.localized[node.name]) return 'local';
+  if (nd[node.name]! >= mes(s.p, node)) return 'buildable';
+  return 'import';
 }
 
 /** Fresh game state: pop0, nothing localized, seeded RNG (SDD §4). */

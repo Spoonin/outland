@@ -96,6 +96,9 @@ export function defaultParams(overrides: Partial<Params> = {}): Params {
 
 export type FusionState = 'none' | 'saving' | 'online';
 
+/** Visible node status (D-014): 🟢 local, 🟡 buildable (demand≥MES), 🔴 import, ⚫ black. */
+export type NodeStatus = 'local' | 'buildable' | 'import' | 'black';
+
 /** Full mutable game state. One step() = one synodic window. */
 export interface GameState {
   p: Params;
