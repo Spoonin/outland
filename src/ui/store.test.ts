@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { GameStore } from './store';
+import { GameStore, type KV } from './store';
 import { defaultParams } from '../engine';
+
+function memKV(): KV {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k) => m.get(k) ?? null,
+    setItem: (k, v) => void m.set(k, v),
+    removeItem: (k) => void m.delete(k),
+  };
+}
 
 describe('GameStore (UI pub/sub over the engine)', () => {
   it('advances windows and notifies subscribers', () => {
@@ -88,6 +97,33 @@ describe('GameStore (UI pub/sub over the engine)', () => {
     expect(d.blackCeiling).toContain('pharma');
     expect(d.blackCeiling).toContain('electronics');
     expect(d.autonomyCurve.length).toBe(5);
+  });
+
+  it('autosaves to storage and reloads (Phase 6)', () => {
+    const kv = memKV();
+    const a = new GameStore(defaultParams({ enableEvents: false }), kv);
+    a.advance();
+    a.advance();
+    expect(a.latest()?.window).toBe(2);
+    expect(a.hasSave()).toBe(true);
+
+    // fresh store, no params → autoloads the save
+    const b = new GameStore(undefined, kv);
+    expect(b.latest()?.window).toBe(2);
+    expect(b.getHistory().length).toBe(2);
+    // and continues from where it left off
+    b.advance();
+    expect(b.latest()?.window).toBe(3);
+  });
+
+  it('reset overwrites the save with a fresh game', () => {
+    const kv = memKV();
+    const a = new GameStore(defaultParams({ enableEvents: false }), kv);
+    a.advance();
+    a.reset();
+    const b = new GameStore(undefined, kv);
+    expect(b.snapshot().window).toBe(0);
+    expect(b.getHistory().length).toBe(0);
   });
 
   it('black nodes always report status "black"', () => {

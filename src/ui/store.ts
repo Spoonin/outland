@@ -11,6 +11,8 @@ import {
   priceMultNow,
   endReason,
   planView,
+  serializeState,
+  deserializeState,
   GRAPH,
   NODES,
   type GameState,
@@ -21,6 +23,7 @@ import {
   type Node,
   type NodeEconomics,
   type EndReason,
+  type SerializedState,
 } from '../engine';
 
 export interface NodeView {
@@ -72,6 +75,38 @@ export interface Debrief {
 
 type Listener = () => void;
 
+/** Minimal Web Storage subset, injectable for tests / node. */
+export interface KV {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+interface SaveBlob {
+  v: 1;
+  state: SerializedState;
+  history: StepReport[];
+}
+
+const SAVE_KEY = 'outland.save.v1';
+
+const memoryKV: KV = (() => {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k) => m.get(k) ?? null,
+    setItem: (k, v) => void m.set(k, v),
+    removeItem: (k) => void m.delete(k),
+  };
+})();
+
+function defaultStorage(): KV {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : memoryKV;
+  } catch {
+    return memoryKV;
+  }
+}
+
 export class GameStore {
   private state: GameState;
   private history: StepReport[] = [];
@@ -80,9 +115,47 @@ export class GameStore {
   private draftColonists = 0;
   private focusNode: string | null = null;
   private expanded = new Set<string>();
+  private storage: KV;
 
-  constructor(params: Params = defaultParams()) {
-    this.state = newState(params);
+  /** With explicit params → fresh game (tests). Without → autoload save if present (the app). */
+  constructor(params?: Params, storage: KV = defaultStorage()) {
+    this.storage = storage;
+    if (params) {
+      this.state = newState(params);
+    } else {
+      const loaded = this.tryLoad();
+      if (loaded) {
+        this.state = loaded.state;
+        this.history = loaded.history;
+      } else {
+        this.state = newState(defaultParams());
+      }
+    }
+  }
+
+  private tryLoad(): { state: GameState; history: StepReport[] } | null {
+    try {
+      const raw = this.storage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      const blob = JSON.parse(raw) as SaveBlob;
+      if (blob.v !== 1) return null;
+      return { state: deserializeState(blob.state), history: blob.history };
+    } catch {
+      return null;
+    }
+  }
+
+  private persist(): void {
+    try {
+      const blob: SaveBlob = { v: 1, state: serializeState(this.state), history: this.history };
+      this.storage.setItem(SAVE_KEY, JSON.stringify(blob));
+    } catch {
+      /* storage unavailable / quota — non-fatal */
+    }
+  }
+
+  hasSave(): boolean {
+    return this.storage.getItem(SAVE_KEY) !== null;
   }
 
   subscribe(fn: Listener): () => void {
@@ -131,6 +204,7 @@ export class GameStore {
     );
     this.draftLocalize.clear();
     this.draftColonists = 0;
+    this.persist();
     this.emit();
   }
 
@@ -180,6 +254,7 @@ export class GameStore {
   advance(): void {
     if (this.ended) return;
     this.history.push(step(this.state));
+    this.persist();
     this.emit();
   }
 
@@ -190,6 +265,7 @@ export class GameStore {
     this.draftColonists = 0;
     this.focusNode = null;
     this.expanded.clear();
+    this.persist();
     this.emit();
   }
 

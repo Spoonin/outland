@@ -4,6 +4,7 @@
 export interface Rng {
   random(): number; // [0, 1)
   choice<T>(arr: readonly T[]): T;
+  state(): number; // serializable internal state (for save/load continuity)
 }
 
 /** A node in the authored dependency graph (graph.ts / graph.md, D-026). */

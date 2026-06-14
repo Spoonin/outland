@@ -1,7 +1,9 @@
 // Public engine API (SDD §3).
 export * from './types';
 export { GRAPH, NODES, CONSUMERS } from './graph';
-export { makeRng } from './rng';
+export { makeRng, rngFromState } from './rng';
+export { serializeState, deserializeState } from './persist';
+export type { SerializedState } from './persist';
 export { greedyAllocate } from './policy';
 export {
   mes,

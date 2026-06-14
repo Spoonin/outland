@@ -12,5 +12,11 @@ export function makeRng(seed: number): Rng {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
   const choice = <T>(arr: readonly T[]): T => arr[Math.floor(random() * arr.length)]!;
-  return { random, choice };
+  const state = (): number => a >>> 0;
+  return { random, choice, state };
+}
+
+/** Reconstruct an RNG from a persisted internal state (save/load continuity). */
+export function rngFromState(state: number): Rng {
+  return makeRng(state >>> 0);
 }

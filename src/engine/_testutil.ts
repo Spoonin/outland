@@ -3,7 +3,7 @@ import { GRAPH } from './graph';
 import { defaultParams, type GameState, type Params, type Rng } from './types';
 
 /** A no-op deterministic RNG for tests that don't exercise events. */
-export const stubRng: Rng = { random: () => 0, choice: (a) => a[0]! };
+export const stubRng: Rng = { random: () => 0, choice: (a) => a[0]!, state: () => 0 };
 
 /** Build a GameState with all nodes unlocalized, age 0, given pop/overrides. */
 export function mkState(over: Partial<GameState> = {}, p: Params = defaultParams()): GameState {
