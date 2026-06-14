@@ -3,13 +3,18 @@ import { customElement, state } from 'lit/decorators.js';
 import { ColonyStore } from '../colonyStore';
 import './colony-status';
 import './earth-tab';
+import './mars-tab';
 
-/** v2 root (colony-sim): live status + Earth ordering. Mars tab (V4) and debrief (V6) follow. */
+const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
+const kg = (v: number) => Math.round(v).toLocaleString('en-US');
+
+/** v2 root (colony-sim): status + Земля/Марс planning tabs + shared commit footer. */
 @customElement('colony-app')
 export class ColonyApp extends LitElement {
   private store = new ColonyStore();
   private unsub?: () => void;
   @state() private tick = 0;
+  @state() private tab: 'earth' | 'mars' = 'earth';
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -35,11 +40,76 @@ export class ColonyApp extends LitElement {
       letter-spacing: 0.08em;
       margin: 0 0 1rem;
     }
-    .ended {
-      color: #d1b65a;
-      margin: 1rem 0;
+    .toptabs {
+      display: flex;
+      gap: 0.5rem;
+      margin: 1rem 0 0;
     }
-    button {
+    .toptabs button {
+      font: inherit;
+      font-size: 1rem;
+      background: #1a1a22;
+      color: #b8b8c0;
+      border: 1px solid #2a2a34;
+      border-radius: 6px;
+      padding: 0.5rem 1.25rem;
+      cursor: pointer;
+    }
+    .toptabs button.active {
+      background: #24242e;
+      color: #fff;
+      border-color: #5ad17a;
+    }
+    .footer {
+      margin-top: 1.25rem;
+      padding: 0.85rem 1rem;
+      background: #14141a;
+      border: 1px solid #2a2a34;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    .line {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .neg {
+      color: #d96a6a;
+    }
+    .ok {
+      color: #5ad17a;
+    }
+    .ebar {
+      height: 0.6rem;
+      background: #26262e;
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 0.3rem 0 0.6rem;
+    }
+    .efill {
+      height: 100%;
+      background: #5ad17a;
+    }
+    .efill.short {
+      background: #d96a6a;
+    }
+    button.commit {
+      font: inherit;
+      margin-top: 0.6rem;
+      background: #14361f;
+      color: #d8f0d8;
+      border: 1px solid #5ad17a;
+      padding: 0.55rem 1.5rem;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button.commit:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      border-color: #555;
+      color: #999;
+    }
+    button.reset {
       font: inherit;
       background: #1c1c24;
       color: #d8d8d8;
@@ -50,19 +120,58 @@ export class ColonyApp extends LitElement {
     }
   `;
 
+  private footer() {
+    const st = this.store.status();
+    const plan = this.store.plan();
+    const ePct = st.energyDemand > 0 ? Math.min(100, (st.energyGen / st.energyDemand) * 100) : 100;
+    const eShort = st.energyDeficit > 0;
+    return html`<div class="footer">
+      <div class="line">
+        <span>⚡ энергия ${st.energyGen} / ${st.energyDemand}</span>
+        <span class=${eShort ? 'neg' : 'ok'}>${eShort ? `браунаут −${st.energyDeficit}` : 'баланс ок'}</span>
+      </div>
+      <div class="ebar"><div class="efill ${eShort ? 'short' : ''}" style="width:${ePct}%"></div></div>
+      <div class="line">
+        <span>стоимость окна (завоз + стройка)</span>
+        <span class=${plan.overBudget ? 'neg' : 'ok'}>${money(plan.totalCost)} / ${money(plan.budget)}</span>
+      </div>
+      <div class="line">
+        <span>масса завоза</span>
+        <span class=${plan.earth.capped ? 'neg' : 'ok'}>
+          ${kg(plan.earth.mass)} / ${kg(plan.earth.throughput)} кг (пропускная)
+        </span>
+      </div>
+      ${plan.earth.capped ? html`<div class="neg">⚠ масса &gt; пропускной способности — строй площадки или режь завоз</div>` : nothing}
+      ${plan.overBudget ? html`<div class="neg">⚠ план дороже субсидии окна</div>` : nothing}
+      ${plan.materialsShort.length ? html`<div class="neg">⚠ не хватает материалов на стройку: ${plan.materialsShort.join(', ')}</div>` : nothing}
+      ${plan.prereqMissing.length ? html`<div class="neg">⚠ нет пререквизитов: ${plan.prereqMissing.join(', ')}</div>` : nothing}
+      <button class="commit" ?disabled=${!plan.feasible || st.ended} @click=${() => this.store.commit()}>
+        Коммит ▸ ход (≈2.2 года)
+      </button>
+    </div>`;
+  }
+
   render() {
     void this.tick;
-    const status = this.store.status();
+    const st = this.store.status();
     return html`
       <h1>OUTLAND</h1>
-      <colony-status .status=${status}></colony-status>
-      ${status.ended
-        ? html`<div class="ended">
-              ${status.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'} (дебриф — в V6)
+      <colony-status .status=${st}></colony-status>
+      ${st.ended
+        ? html`<div style="color:#d1b65a;margin:1rem 0">
+              ${st.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'} (дебриф — в V6)
             </div>
-            <button @click=${() => this.store.reset()}>Новая партия</button>`
-        : html`<earth-tab .store=${this.store}></earth-tab>`}
-      ${nothing}
+            <button class="reset" @click=${() => this.store.reset()}>Новая партия</button>`
+        : html`
+            <div class="toptabs">
+              <button class=${this.tab === 'earth' ? 'active' : ''} @click=${() => (this.tab = 'earth')}>🌍 Земля — завоз</button>
+              <button class=${this.tab === 'mars' ? 'active' : ''} @click=${() => (this.tab = 'mars')}>🔴 Марс — стройка</button>
+            </div>
+            ${this.tab === 'earth'
+              ? html`<earth-tab .store=${this.store}></earth-tab>`
+              : html`<mars-tab .store=${this.store}></mars-tab>`}
+            ${this.footer()}
+          `}
     `;
   }
 }

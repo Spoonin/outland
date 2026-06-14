@@ -177,8 +177,6 @@ export class EarthTab extends LitElement {
     void this.tick;
     const store = this.store;
     if (!store) return nothing;
-    const pv = store.preview();
-    const blocked = pv.overBudget || pv.capped || store.ended;
     return html`
       <div class="tabs">
         ${TABS.map(
@@ -186,20 +184,6 @@ export class EarthTab extends LitElement {
         )}
       </div>
       ${this.body()}
-      <div class="summary">
-        <div class="line">
-          <span>стоимость заказа</span>
-          <span class=${pv.overBudget ? 'neg' : 'ok'}>${money(pv.total)} / ${money(pv.budget)}</span>
-        </div>
-        <div class="line">
-          <span>масса завоза</span>
-          <span class=${pv.capped ? 'neg' : 'ok'}>${kg(pv.mass)} / ${kg(pv.throughput)} (пропускная)</span>
-        </div>
-        <div class="line"><span class="sub">эфф. $/кг доставки</span><span class="sub">${money(pv.effPerKg)}</span></div>
-        ${pv.capped ? html`<div class="neg">⚠ масса превышает пропускную способность — строй площадки или режь завоз</div>` : nothing}
-        ${pv.overBudget ? html`<div class="neg">⚠ заказ дороже субсидии окна</div>` : nothing}
-        <button class="commit" ?disabled=${blocked} @click=${() => store.commit()}>Коммит ▸ ход (≈2.2 года)</button>
-      </div>
     `;
   }
 }

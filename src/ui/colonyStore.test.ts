@@ -33,6 +33,28 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(food.windows).toBeCloseTo(2, 1); // ~2 windows of food at start
   });
 
+  it('Mars build queue feeds the commit plan and builds structures', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    // need materials in stock to build — order them, land them first
+    store.setRes('steel', 50_000);
+    store.setRes('glass', 50_000);
+    store.commit(); // ship materials
+    store.commit(); // they land
+    store.addBuild('solar_plant');
+    expect(store.buildQueue()).toContain('solar_plant');
+    expect(store.plan().marsCost).toBeGreaterThan(0);
+    store.commit();
+    expect(store.builtCount('solar_plant')).toBe(1);
+    expect(store.buildQueue().length).toBe(0); // queue cleared after commit
+  });
+
+  it('plan flags missing prerequisite (nuclear needs waste pad)', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    store.addBuild('nuclear_plant');
+    expect(store.plan().prereqMissing).toContain('nuclear_plant');
+    expect(store.plan().feasible).toBe(false);
+  });
+
   it('autosaves and reloads', () => {
     const kv = memKV();
     const a = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), kv);

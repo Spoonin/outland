@@ -6,6 +6,11 @@ import {
   previewOrder,
   commitWindow,
   consumption,
+  marsPlanCost,
+  marsPlanMaterials,
+  prereqMet,
+  resolveColonyEnergy,
+  STRUCTURES,
   RESOURCES,
   type ColonyState,
   type ColonyParams,
@@ -14,6 +19,7 @@ import {
   type ColonyReport,
   type ResourceKind,
   type Stocks,
+  type Structure,
 } from '../engine';
 
 export interface ResourceCover {
@@ -32,8 +38,23 @@ export interface ColonyStatus {
   budget: number;
   runway: number; // min cover among life-support
   cover: ResourceCover[];
+  energyGen: number;
+  energyDemand: number;
+  energyDeficit: number;
   ended: boolean;
   collapsed: boolean;
+}
+
+/** Combined window plan (Earth order + Mars build) — feasibility for the shared commit footer. */
+export interface CommitPlan {
+  earth: OrderPreview;
+  marsCost: number;
+  totalCost: number;
+  budget: number;
+  overBudget: boolean;
+  materialsShort: ResourceKind[];
+  prereqMissing: string[];
+  feasible: boolean;
 }
 
 type Listener = () => void;
@@ -68,6 +89,7 @@ export class ColonyStore {
   private draftRes: Partial<Record<ResourceKind, number>> = {};
   private draftPads = 0;
   private draftColonists = 0;
+  private draftBuild: string[] = [];
 
   constructor(params?: ColonyParams, storage: KV = defaultStorage()) {
     this.storage = storage;
@@ -120,12 +142,64 @@ export class ColonyStore {
     return previewOrder(this.state, this.order());
   }
 
+  // ---- Mars build queue ---------------------------------------------------
+
+  structures(): readonly Structure[] {
+    return STRUCTURES;
+  }
+  buildQueue(): readonly string[] {
+    return this.draftBuild;
+  }
+  queuedCount(id: string): number {
+    return this.draftBuild.filter((x) => x === id).length;
+  }
+  builtCount(id: string): number {
+    return this.state.built[id] ?? 0;
+  }
+  addBuild(id: string): void {
+    this.draftBuild.push(id);
+    this.emit();
+  }
+  removeBuild(id: string): void {
+    const i = this.draftBuild.lastIndexOf(id);
+    if (i >= 0) this.draftBuild.splice(i, 1);
+    this.emit();
+  }
+  prereqMet(id: string): boolean {
+    return prereqMet(this.state, id);
+  }
+
+  /** Combined Earth+Mars plan for the shared commit footer. */
+  plan(): CommitPlan {
+    const earth = this.preview();
+    const marsCost = marsPlanCost(this.state, this.draftBuild);
+    const need = marsPlanMaterials(this.draftBuild);
+    const materialsShort = (Object.keys(need) as ResourceKind[]).filter(
+      (r) => this.state.stocks[r] < (need[r] ?? 0),
+    );
+    const prereqMissing = [...new Set(this.draftBuild.filter((id) => !prereqMet(this.state, id)))];
+    const totalCost = earth.total + marsCost;
+    const overBudget = totalCost > this.state.p.M;
+    return {
+      earth,
+      marsCost,
+      totalCost,
+      budget: this.state.p.M,
+      overBudget,
+      materialsShort,
+      prereqMissing,
+      feasible:
+        !earth.capped && !overBudget && materialsShort.length === 0 && prereqMissing.length === 0,
+    };
+  }
+
   commit(): void {
     if (this.ended) return;
-    this.last = commitWindow(this.state, this.order());
+    this.last = commitWindow(this.state, this.order(), [...this.draftBuild]);
     this.draftRes = {};
     this.draftPads = 0;
     this.draftColonists = 0;
+    this.draftBuild = [];
     this.persist();
     this.emit();
   }
@@ -136,6 +210,7 @@ export class ColonyStore {
     this.draftRes = {};
     this.draftPads = 0;
     this.draftColonists = 0;
+    this.draftBuild = [];
     this.persist();
     this.emit();
   }
@@ -152,6 +227,7 @@ export class ColonyStore {
       return { kind: r, stock, perWindow, windows: perWindow > 0 ? stock / perWindow : Infinity };
     });
     const runway = Math.min(...cover.map((c) => c.windows));
+    const energy = resolveColonyEnergy(s.built, s.p.popEnergyPerCapita * s.pop);
     return {
       window: s.window,
       year: Math.round(s.window * 2.17 * 10) / 10,
@@ -161,6 +237,9 @@ export class ColonyStore {
       budget: s.p.M,
       runway: Number.isFinite(runway) ? Math.round(runway * 10) / 10 : Infinity,
       cover,
+      energyGen: energy.generation,
+      energyDemand: energy.generation + energy.deficit,
+      energyDeficit: energy.deficit,
       ended: this.ended,
       collapsed: s.collapsed,
     };
