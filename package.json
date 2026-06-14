@@ -1,0 +1,23 @@
+{
+  "name": "outland",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Outland — игра-аргумент о невозможности автономной марсианской колонии",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "lit": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
+  }
+}
