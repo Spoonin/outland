@@ -35,9 +35,11 @@ _Avoid_: price drift, devaluation
 
 **Earth event**:
 A stochastic Earth-side shock (economic crisis, political shift) that cuts or
-slashes the subsidy. The mechanism behind the "cancellation" ending — the lifeline
-frays for reasons outside the colony's control, not as a judgment of its progress.
-_Avoid_: political risk, sponsor event
+slashes the subsidy, or temporarily spikes prices / restricts supply (a transient
+"embargo"). The mechanism behind the "cancellation" ending and behind import price
+shocks — the lifeline frays for reasons outside the colony's control, never as a
+permanent un-buyable status (see import-escape).
+_Avoid_: political risk, sponsor event, embargo (that's a transient form of this)
 
 **Import floor**:
 The **money** cost, each window, of everything imported: un-localized demand plus
@@ -76,8 +78,16 @@ _Avoid_: minimum scale, breakeven scale, critical mass
 
 **Specialist**:
 A trained person required to operate a node — an input like any other, itself
-MES-gated by a training pipeline. Lose one with no backup and the node can go dark.
+MES-gated by a training pipeline. Modeled as **statistical skill pools** ("12
+chemical engineers, 3 needed per catalyst node"), not named individuals; names are
+optional flavor only. Lose enough with no backup and the node goes dark.
 _Avoid_: worker, expert, staff, operator
+
+**Bus factor**:
+A critical node's redundancy — how many spare specialists cover it before it goes
+dark. **Visible** to the player (headcount/coverage is shown, unlike hidden MES);
+only the *risk/consequence* of running thin is left to be felt.
+_Avoid_: redundancy, coverage (when meaning this specific indicator)
 
 **Human import floor**:
 The permanent import of *experts* when the colony is too small to sustain their
@@ -102,6 +112,15 @@ Growing the colony is therefore a budget trade-off, and staying small is
 sometimes optimal.
 _Avoid_: settler, migrant, headcount (when meaning the person; "population" is the count)
 
+## Presentation
+
+**Diegetic framing**:
+The game's only narrative layer: in-world **statistics**, **Earth news** (which surface
+inflation and Earth events), and **colony reports**. No authored characters or story
+arcs. The game **never interprets or editorializes** — it states facts (including the
+debrief's survival runway) and leaves the conclusion entirely to the player.
+_Avoid_: narrative, story mode, epilogue (when implying authored interpretation)
+
 ## Play verbs & states
 
 **Localize**:
@@ -114,6 +133,28 @@ _Avoid_: produce locally, in-source, onshore
 The per-node decision to localize a node or keep importing it. Importing is always
 available (the import-escape), so production need not be built strictly bottom-up.
 _Avoid_: build-vs-import
+
+**Import-escape**:
+The invariant that **every** node can always be bought — there are no permanently
+un-buyable nodes. The only thing that can be impossible is local *production* (a
+black node); access via money is universal. The thesis is economic impossibility
+(ruinous eternal expense), not denial/blockade. "Embargo" is only a transient
+Earth-event price/supply shock, never a permanent node status.
+_Avoid_: blockade, denial, un-buyable
+
+**Fog**:
+The player's incomplete knowledge of the (deterministic) graph — nodes, recipes,
+and the true ceiling are hidden until revealed. The non-determinism is in the
+*knowledge*, not the truth.
+_Avoid_: fog of war, unknown
+
+**Survey**:
+Paid reconnaissance — spend **money** plus a window's lag to reveal a node's recipe
+and tighten its optimistic estimate, one node at a time (deeper = cumulatively
+expensive). Distinct from the **free passive reveal** (committing to localize a node
+uncovers its next tier). Skimping on surveys under the budget squeeze is what baits
+the late surprise.
+_Avoid_: scout, recon, R&D (when meaning this action)
 
 **Maintenance tail**:
 The residual, permanent import a localized node still needs — spares plus feedstock
@@ -129,9 +170,12 @@ _Avoid_: tiers/levels (those are depth); "available/unavailable"
 
 **Megaproject**:
 A large, expensive import that relaxes a constraint which was never the true
-bottleneck (energy, launch cost) — a deliberate multi-window player commitment that
-**delays** collapse but never closes the self-sufficiency gap, and adds its own
-black-node-tied tail. Flagship: the fusion plant.
+bottleneck (energy, launch cost) — a deliberate player commitment, funded by
+**saving surplus over many windows**, that **delays** collapse but never closes the
+self-sufficiency gap, and adds its own black-node-tied tail. Its effect is sold via
+an **optimistic projection** (same bias as hidden-MES node estimates) — the player
+*believes* it's the breakthrough; the true ceiling shows only after it's built and
+run. Flagship: the fusion plant.
 _Avoid_: false savior (that's the design role; the thing is a Megaproject), wonder-weapon
 
 **Synodic window**:
