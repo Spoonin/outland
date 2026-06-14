@@ -60,6 +60,10 @@ export class DashboardPanel extends LitElement {
       overflow: hidden;
       text-overflow: ellipsis;
       font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .cell:hover {
+      color: #fff;
     }
     .tier {
       opacity: 0.35;
@@ -104,7 +108,13 @@ export class DashboardPanel extends LitElement {
 
       <div class="grid">
         ${s.nodes.map(
-          (n: NodeView) => html`<span class="cell"
+          (n: NodeView) => html`<span
+            class="cell"
+            title="открыть дерево объекта"
+            @click=${() =>
+              this.dispatchEvent(
+                new CustomEvent('node-focus', { detail: n.name, bubbles: true, composed: true }),
+              )}
             >${GLYPH[n.status]} ${n.name} <span class="tier">T${n.tier}</span></span
           >`,
         )}

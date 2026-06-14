@@ -14,7 +14,9 @@ export {
   nodeStatus,
   localizationCost,
   planView,
+  priceMultNow,
+  nodeEconomics,
   newState,
   step,
 } from './sim';
-export type { EligibleNode, PlanView } from './sim';
+export type { EligibleNode, PlanView, NodeEconomics } from './sim';

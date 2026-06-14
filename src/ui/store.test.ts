@@ -64,6 +64,20 @@ describe('GameStore (UI pub/sub over the engine)', () => {
     expect(snap.realM).toBeLessThan(snap.M);
   });
 
+  it('object-tree drill-down: focus, expand, econ, localize hookup', () => {
+    const store = new GameStore(defaultParams({ enableEvents: false }));
+    store.setFocus('food');
+    expect(store.focus).toBe('food');
+    store.toggleExpand('food');
+    expect(store.isExpanded('food')).toBe(true);
+    // econ of a black input is intrinsic-cost dominated
+    const cat = store.econOf('catalyst');
+    expect(cat.unitEarth).toBeGreaterThan(cat.unitShipping);
+    expect(store.canLocalize('pharma')).toBe(false); // black
+    store.setFocus(null);
+    expect(store.focus).toBeNull();
+  });
+
   it('black nodes always report status "black"', () => {
     const store = new GameStore(defaultParams({ enableEvents: false }));
     const snap = store.snapshot();

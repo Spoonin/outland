@@ -104,6 +104,44 @@ export function survivalRunway(s: GameState, nd: Record<string, number>): number
   return Math.round((0.5 + worst * 3.0) * 10) / 10; // 0.5-window stockpile + best-case scaling
 }
 
+/** Cumulative Earth-inflation multiplier at the current window (D-031). */
+export function priceMultNow(s: GameState): number {
+  return Math.pow(1.0 + s.p.inflation, s.window);
+}
+
+export interface NodeEconomics {
+  demandUnits: number; // total per-window demand (consumption + derived)
+  unitEarth: number; // intrinsic $/unit (inflation-adjusted)
+  unitShipping: number; // fuel shipping $/unit (mass·fuelPerKg, inflation-adjusted)
+  unitPrice: number; // unitEarth + unitShipping
+  importedUnits: number; // units actually imported (full, or maintenance tail if localized)
+  shipMass: number; // imported kg/window
+  fContribution: number; // money this node adds to the import floor F
+}
+
+/** Per-node import economics for the object tree / import panel (D-038 price dichotomy). */
+export function nodeEconomics(
+  s: GameState,
+  nd: Record<string, number>,
+  node: Node,
+  priceMult = 1.0,
+): NodeEconomics {
+  const p = s.p;
+  const importedUnits = nd[node.name]! * (s.localized[node.name] ? tailFrac(p, s.age[node.name]!) : 1.0);
+  const unitEarth = node.earthCost * priceMult;
+  const unitShipping = node.mass * p.fuelPerKg * priceMult;
+  const unitPrice = unitEarth + unitShipping;
+  return {
+    demandUnits: nd[node.name]!,
+    unitEarth,
+    unitShipping,
+    unitPrice,
+    importedUnits,
+    shipMass: importedUnits * node.mass,
+    fContribution: importedUnits * unitPrice,
+  };
+}
+
 /** Visible status of a node given current demand (D-014, SDD): drives 🟢🟡🔴⚫ in the UI. */
 export function nodeStatus(s: GameState, nd: Record<string, number>, node: Node): NodeStatus {
   if (node.black) return 'black';

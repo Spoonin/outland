@@ -1,8 +1,9 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { GameStore } from '../store';
 import './dashboard-panel';
 import './window-manifest';
+import './object-tree';
 
 /** Root shell (mechanics §8.1): hosts the store + dashboard. Spokes land in Phase 3+. */
 @customElement('outland-app')
@@ -69,9 +70,14 @@ export class OutlandApp extends LitElement {
   render() {
     void this.tick;
     const snap = this.store.snapshot();
+    const focus = this.store.focus;
     return html`
       <h1>OUTLAND</h1>
-      <dashboard-panel .snapshot=${snap}></dashboard-panel>
+      <dashboard-panel
+        .snapshot=${snap}
+        @node-focus=${(e: CustomEvent<string>) => this.store.setFocus(e.detail)}
+      ></dashboard-panel>
+      ${focus ? html`<object-tree .store=${this.store} .root=${focus}></object-tree>` : nothing}
       ${snap.ended
         ? html`<div class="ended">
               ${snap.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'}

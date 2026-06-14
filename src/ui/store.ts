@@ -7,13 +7,18 @@ import {
   step,
   needs,
   nodeStatus,
+  nodeEconomics,
+  priceMultNow,
   planView,
   GRAPH,
+  NODES,
   type GameState,
   type Params,
   type StepReport,
   type NodeStatus,
   type PlanView,
+  type Node,
+  type NodeEconomics,
 } from '../engine';
 
 export interface NodeView {
@@ -55,6 +60,8 @@ export class GameStore {
   private listeners = new Set<Listener>();
   private draftLocalize = new Set<string>();
   private draftColonists = 0;
+  private focusNode: string | null = null;
+  private expanded = new Set<string>();
 
   constructor(params: Params = defaultParams()) {
     this.state = newState(params);
@@ -109,6 +116,48 @@ export class GameStore {
     this.emit();
   }
 
+  // ---- object-tree drill-down (Phase 4) -----------------------------------
+
+  get focus(): string | null {
+    return this.focusNode;
+  }
+
+  setFocus(name: string | null): void {
+    this.focusNode = name;
+    this.emit();
+  }
+
+  isExpanded(name: string): boolean {
+    return this.expanded.has(name);
+  }
+
+  toggleExpand(name: string): void {
+    if (this.expanded.has(name)) this.expanded.delete(name);
+    else this.expanded.add(name);
+    this.emit();
+  }
+
+  /** Live demand map (cheap; recomputed per call). */
+  needsNow(): Record<string, number> {
+    return needs(this.state);
+  }
+
+  nodeOf(name: string): Node | undefined {
+    return NODES[name];
+  }
+
+  statusOf(name: string, nd: Record<string, number> = this.needsNow()): NodeStatus {
+    return nodeStatus(this.state, nd, NODES[name]!);
+  }
+
+  econOf(name: string, nd: Record<string, number> = this.needsNow()): NodeEconomics {
+    return nodeEconomics(this.state, nd, NODES[name]!, priceMultNow(this.state));
+  }
+
+  canLocalize(name: string, nd: Record<string, number> = this.needsNow()): boolean {
+    return this.statusOf(name, nd) === 'buildable';
+  }
+
   /** Greedy auto-advance (no player decision) — kept for testing / a "skip" affordance. */
   advance(): void {
     if (this.ended) return;
@@ -121,6 +170,8 @@ export class GameStore {
     this.history = [];
     this.draftLocalize.clear();
     this.draftColonists = 0;
+    this.focusNode = null;
+    this.expanded.clear();
     this.emit();
   }
 
