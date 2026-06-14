@@ -20,6 +20,16 @@ export type {
   ResourceFlows,
   FlowResult,
 } from './resources';
+export {
+  defaultLaunchParams,
+  techSpec,
+  maxLaunches,
+  throughputMass,
+  launchesNeeded,
+  padBuildCost,
+  launchCost,
+} from './logistics';
+export type { LaunchTech, TechSpec, LaunchParams, Fleet, LaunchCost } from './logistics';
 export { greedyAllocate } from './policy';
 export {
   mes,
