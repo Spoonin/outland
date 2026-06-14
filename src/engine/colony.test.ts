@@ -93,3 +93,37 @@ describe('commit window — transit lag, consumption, runway, mortality', () => 
     expect(collapsed).toBe(true);
   });
 });
+
+describe('Mars structures — build, energy, local production (V4, D-044)', () => {
+  it('builds structures from money + local materials, consuming stock', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.stocks.steel = 100_000; // seed materials so build is feasible
+    s.stocks.glass = 100_000;
+    const r = commitWindow(s, emptyOrder, ['solar_plant', 'farm']);
+    expect(r.built).toEqual(['solar_plant', 'farm']);
+    expect(s.built['farm']).toBe(1);
+    expect(s.stocks.steel).toBeLessThan(100_000); // materials consumed
+  });
+
+  it('refuses a structure whose prerequisite is missing (nuclear needs waste pad)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.stocks.steel = 200_000;
+    s.stocks.metals = 100_000;
+    const r = commitWindow(s, emptyOrder, ['nuclear_plant']); // no waste_pad
+    expect(r.built).toEqual([]); // infeasible → nothing built
+    expect(s.built['nuclear_plant']).toBeUndefined();
+  });
+
+  it('local food production extends the runway (autonomy climbs)', () => {
+    const base = newColony(defaultColonyParams({ startStockWindows: 2 }));
+    const baseRun = commitWindow(base, emptyOrder).runway;
+
+    const farmed = newColony(defaultColonyParams({ startStockWindows: 2 }));
+    farmed.stocks.steel = 100_000;
+    farmed.stocks.glass = 100_000;
+    // power + farm online; farm overproduces food vs consumption → food no longer the drain
+    farmed.built = { solar_plant: 2, farm: 1 };
+    const farmedRun = commitWindow(farmed, emptyOrder).runway;
+    expect(farmedRun).toBeGreaterThan(baseRun);
+  });
+});

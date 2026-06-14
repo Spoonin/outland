@@ -38,7 +38,18 @@ export {
   previewOrder,
   priceMult as colonyPriceMult,
   commitWindow,
+  marsPlanCost,
+  marsPlanMaterials,
+  prereqMet,
 } from './colony';
+export {
+  STRUCTURES,
+  STRUCT_BY_ID,
+  energyGeneration,
+  resolveColonyEnergy,
+  structureFlows,
+} from './structures';
+export type { Structure, BuiltCounts, EnergyResolution } from './structures';
 export type {
   ResourceSpec,
   ResourceCatalog,

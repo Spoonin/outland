@@ -5,7 +5,6 @@
 
 import {
   applyFlows,
-  runwayFromStocks,
   emptyStocks,
   RESOURCES,
   type Stocks,
@@ -19,6 +18,12 @@ import {
   type Fleet,
   type LaunchParams,
 } from './logistics';
+import {
+  STRUCT_BY_ID,
+  resolveColonyEnergy,
+  structureFlows,
+  type BuiltCounts,
+} from './structures';
 
 /** Per-resource catalog: earth price ($/kg) + per-capita life-support consumption (kg/window). */
 export interface ResourceSpec {
@@ -36,6 +41,7 @@ export interface ColonyParams {
   colonistCost: number; // money per colonist
   colonistMass: number; // kg per colonist (life-support kit + body)
   mortFactor: number; // shortfall → death sensitivity
+  popEnergyPerCapita: number; // life-support energy draw per colonist (priority 0)
   catalog: ResourceCatalog;
   launch: LaunchParams;
   startPads: number;
@@ -55,6 +61,7 @@ export interface ColonyState {
   inTransit: Transit;
   fleet: Fleet;
   collapsed: boolean;
+  built: BuiltCounts; // structures built on Mars (id → count)
   p: ColonyParams;
 }
 
@@ -93,6 +100,7 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     colonistCost: 3.0e8,
     colonistMass: 2000,
     mortFactor: 0.8,
+    popEnergyPerCapita: 0.05,
     catalog: defaultCatalog(),
     launch: defaultLaunchParams(),
     startPads: 5,
@@ -134,8 +142,37 @@ export function newColony(p: ColonyParams): ColonyState {
     inTransit: { stocks: emptyStocks(0), colonists: 0 },
     fleet: { pads: p.startPads, tech: 'classic' },
     collapsed: false,
+    built: {},
     p,
   };
+}
+
+// ---- Mars build helpers (for the Mars tab) -----------------------------
+
+/** Money to build the queued structures (inflation-adjusted). */
+export function marsPlanCost(s: ColonyState, build: string[]): number {
+  const mult = priceMult(s);
+  return build.reduce((sum, id) => sum + (STRUCT_BY_ID[id]?.capex ?? 0) * mult, 0);
+}
+
+/** Aggregate local materials a build queue consumes. */
+export function marsPlanMaterials(build: string[]): Partial<Stocks> {
+  const need: Partial<Stocks> = {};
+  for (const id of build) {
+    const st = STRUCT_BY_ID[id];
+    if (!st) continue;
+    for (const r of Object.keys(st.buildMaterials) as ResourceKind[]) {
+      need[r] = (need[r] ?? 0) + (st.buildMaterials[r] ?? 0);
+    }
+  }
+  return need;
+}
+
+/** Can a structure be built now? (prereq already standing). */
+export function prereqMet(s: ColonyState, id: string): boolean {
+  const st = STRUCT_BY_ID[id];
+  if (!st) return false;
+  return !st.prereq || (s.built[st.prereq] ?? 0) > 0;
 }
 
 // ---- order preview (for the UI manifest) --------------------------------
@@ -202,36 +239,75 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
 export interface ColonyReport {
   window: number;
   pop: number;
-  runway: number;
+  runway: number; // production-aware: windows of cover if imports cut (Infinity = self-sufficient)
   stocks: Stocks;
   landed: Transit; // what arrived this window
   deficit: Partial<Stocks>;
   mortality: number;
   spent: number;
   capped: boolean;
+  built: string[]; // structures completed this window
+  energyGen: number;
+  energyDemand: number;
+  energyDeficit: number;
   collapsed: boolean;
 }
 
+const LIFE_R: ResourceKind[] = ['food', 'water', 'o2'];
+
+/** Production-aware runway: stock / (net consumption − local production), min over life-support. */
+function colonyRunway(
+  stocks: Stocks,
+  cons: Partial<Stocks>,
+  production: Partial<Stocks>,
+  recycle: Partial<Stocks>,
+): number {
+  let worst = Infinity;
+  for (const r of LIFE_R) {
+    const netCons = (cons[r] ?? 0) * (1 - (recycle[r] ?? 0));
+    const drain = netCons - (production[r] ?? 0);
+    if (drain <= 0) continue; // locally self-sufficient for this resource
+    worst = Math.min(worst, stocks[r] / drain);
+  }
+  return worst === Infinity ? Infinity : Math.round(worst * 10) / 10;
+}
+
 /**
- * Commit one synodic window: charge & ship the order (capped at throughput/budget), land the
- * PREVIOUS window's convoy, consume life-support, resolve stocks, apply mortality, advance pop.
+ * Commit one synodic window: charge & ship the order + build Mars structures (within throughput
+ * & budget), land the PREVIOUS convoy, resolve energy (priority brownout), run structure
+ * production/consumption + life-support, resolve stocks, apply mortality, advance pop.
  */
-export function commitWindow(s: ColonyState, order: EarthOrder): ColonyReport {
+export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] = []): ColonyReport {
   const p = s.p;
   s.window += 1;
   const pv = previewOrder(s, order);
 
-  // affordability: if over budget or capped, the order is trimmed to what's feasible is the UI's
-  // job; the engine ships only within throughput and only if affordable (else nothing ships).
-  const feasible = !pv.overBudget && !pv.capped;
-  const spent = feasible ? pv.total : 0;
+  // Mars build plan: cost, materials, prerequisites
+  const marsCost = marsPlanCost(s, build);
+  const matNeed = marsPlanMaterials(build);
+  const materialsOk = (Object.keys(matNeed) as ResourceKind[]).every(
+    (r) => s.stocks[r] >= (matNeed[r] ?? 0),
+  );
+  const prereqsOk = build.every((id) => prereqMet(s, id));
 
-  // build pads now (capacity for future windows)
-  if (feasible && order.padsToBuild > 0) s.fleet.pads += Math.floor(order.padsToBuild);
+  const feasible =
+    !pv.overBudget && !pv.capped && pv.total + marsCost <= p.M && materialsOk && prereqsOk;
+  const spent = feasible ? pv.total + marsCost : 0;
+  const builtThis: string[] = [];
 
-  // land the PREVIOUS convoy (lag), then queue this order as the new convoy
+  // capture the PREVIOUS convoy (it lands this window) BEFORE re-queuing
   const landed = s.inTransit;
+
   if (feasible) {
+    if (order.padsToBuild > 0) s.fleet.pads += Math.floor(order.padsToBuild);
+    // build structures: consume local materials, raise counts
+    for (const r of Object.keys(matNeed) as ResourceKind[]) s.stocks[r] -= matNeed[r] ?? 0;
+    for (const id of build) {
+      if (STRUCT_BY_ID[id]) {
+        s.built[id] = (s.built[id] ?? 0) + 1;
+        builtThis.push(id);
+      }
+    }
     const shipped = emptyStocks(0);
     for (const r of RESOURCES) shipped[r] = Math.max(0, order.resources[r] ?? 0);
     s.inTransit = { stocks: shipped, colonists: Math.max(0, Math.floor(order.colonists)) };
@@ -239,22 +315,33 @@ export function commitWindow(s: ColonyState, order: EarthOrder): ColonyReport {
     s.inTransit = { stocks: emptyStocks(0), colonists: 0 };
   }
 
-  // colonists arrive
+  // colonists from the landed convoy arrive
   s.pop += landed.colonists;
 
-  // consume life-support, fold in arrivals
+  // energy (priority brownout) → scales structure output
+  const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
+  const energy = resolveColonyEnergy(s.built, lifeSupportDemand);
+  const sf = structureFlows(s.built, energy.served);
+
+  // life-support + structure consumption; arrivals + structure production
   const cons = consumption(s);
+  const combinedCons: Partial<Stocks> = { ...cons };
+  for (const r of Object.keys(sf.consumption) as ResourceKind[]) {
+    combinedCons[r] = (combinedCons[r] ?? 0) + (sf.consumption[r] ?? 0);
+  }
+  const recycle = recycleMap(p);
   const { stocks, deficit } = applyFlows(s.stocks, {
     arrivals: landed.stocks,
-    consumption: cons,
-    recycleEff: recycleMap(p),
+    production: sf.production,
+    consumption: combinedCons,
+    recycleEff: recycle,
   });
   s.stocks = stocks;
 
   // mortality from the worst life-support shortfall (Liebig)
   let worstRatio = 0;
-  for (const r of ['food', 'water', 'o2'] as ResourceKind[]) {
-    const need = cons[r] ?? 0;
+  for (const r of LIFE_R) {
+    const need = combinedCons[r] ?? 0;
     if (need > 0 && deficit[r]) worstRatio = Math.max(worstRatio, deficit[r]! / need);
   }
   const mortality = s.pop * Math.min(0.9, p.mortFactor * worstRatio);
@@ -264,13 +351,17 @@ export function commitWindow(s: ColonyState, order: EarthOrder): ColonyReport {
   return {
     window: s.window,
     pop: Math.round(s.pop),
-    runway: runwayFromStocks(s.stocks, cons, recycleMap(p)),
+    runway: colonyRunway(s.stocks, cons, sf.production, recycle),
     stocks: { ...s.stocks },
     landed,
     deficit,
     mortality: Math.round(mortality),
     spent,
     capped: pv.capped,
+    built: builtThis,
+    energyGen: energy.generation,
+    energyDemand: energy.generation + energy.deficit,
+    energyDeficit: energy.deficit,
     collapsed: s.collapsed,
   };
 }
