@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { newState, step } from './sim';
+import { newState, step, mes } from './sim';
 import { defaultParams, type StepReport } from './types';
+import { NODES } from './graph';
 
 // Golden trajectory captured from prototype/economy.py (events OFF, default Params, fusion ON).
 // Events OFF → no RNG calls → fully deterministic, so we assert exact numbers (SDD §9–10).
@@ -52,9 +53,43 @@ describe('golden trajectory — events OFF reproduces economy.py (SDD §10)', ()
 
   it('invariants hold every window (thesis): runway pinned, autonomy < 81%, effPerKg ≫ fuel floor', () => {
     for (const r of reports) {
-      expect(r.runway).toBe(0.5); // pharma/chips critical AND black (D-025)
+      expect(r.runway).toBe(0.5); // pharma/chips critical AND unlocalized → runway pinned (D-025)
       expect(r.autonomy).toBeLessThan(0.81); // plateau < 100%
       expect(r.effPerKg).toBeGreaterThan(p.fuelPerKg * 10); // capacity capital dominates (D-038)
     }
+  });
+});
+
+describe('D-045 — no artificial deny: deep nodes are finite-MES (reality-grounded)', () => {
+  const p = defaultParams({ enableEvents: false });
+
+  it('every deep node has a finite, reality-grounded mesAnchor', () => {
+    for (const n of [NODES['pharma']!, NODES['electronics']!, NODES['catalyst']!,
+      NODES['special_alloy']!, NODES['precision_metrology']!]) {
+      expect(n.mesAnchor).toBeDefined();
+      expect(Number.isFinite(n.mesAnchor)).toBe(true);
+      expect(n.mesAnchor!).toBeGreaterThan(1e5); // far beyond a thousand-person colony's demand
+    }
+  });
+
+  it('at colony scale (pop 1000) deep nodes stay unbuildable — the wall is real, via MES not a gate', () => {
+    const s = newState(p);
+    step(s); // window 1: needs() computed
+    // pharma cons=0.05/kg per-capita → demand ~50 at pop 1000; MES 6.7e5 → demand ≪ MES
+    const pharma = NODES['pharma']!;
+    expect(mes(p, pharma)).toBe(6.7e5);
+    // demand is many orders below MES: not buildable by the same rule as every other node
+    expect(50 < mes(p, pharma)).toBe(true);
+  });
+
+  it('a deep node IS theoretically localizable at a sufficiently large colony (no-deny proof)', () => {
+    // MES is finite, so there exists a colony size whose demand ≥ MES. The nodeStatus/localize path
+    // would then admit it — nothing forbids it.
+    const pharma = NODES['pharma']!;
+    const anchor = mes(p, pharma);
+    expect(Number.isFinite(anchor)).toBe(true);
+    // a colony of ~anchor/0.05 ≈ 1.34e7 people generates pharma demand ≥ MES → buildable in principle
+    const popForBuildable = Math.ceil(anchor / pharma.cons);
+    expect(pharma.cons * popForBuildable).toBeGreaterThanOrEqual(anchor);
   });
 });

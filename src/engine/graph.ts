@@ -10,10 +10,11 @@ const node = (
   earthCost: number,
   cons: number,
   inputs: ReadonlyArray<readonly [string, number]> = [],
-  opts: { black?: boolean; crit?: number } = {},
+  opts: { black?: boolean; crit?: number; mesAnchor?: number } = {},
 ): Node => ({
   name, tier, mass, earthCost, cons, inputs,
   black: opts.black ?? false,
+  mesAnchor: opts.mesAnchor,
   crit: opts.crit ?? 0,
 });
 
@@ -45,12 +46,19 @@ export const GRAPH: readonly Node[] = [
   node('solar_panel', 5, 25, 300, 0.2, [['silica_glass', 0.3], ['electronics', 0.1], ['special_alloy', 0.05]], { crit: 0.6 }),
   node('medical_infra', 5, 30, 500, 0.0, [['electronics', 0.05], ['machinery', 0.1], ['pharma', 0.05]], { crit: 0.7 }), // → births
   node('precision_mech', 5, 5, 400, 0.0, [['special_alloy', 0.05], ['precision_metrology', 0.02]], { crit: 0.4 }),
-  // black nodes: deep, light, DEAR intrinsic; never localize
-  node('special_alloy', 6, 12, 1.5e8, 0.0, [], { black: true, crit: 0.4 }),
-  node('catalyst', 6, 0.5, 8.0e7, 0.0, [], { black: true, crit: 0.9 }),
-  node('precision_metrology', 6, 1, 1.2e8, 0.0, [], { black: true, crit: 0.5 }),
-  node('electronics', 7, 0.2, 2.5e8, 0.05, [], { black: true, crit: 0.9 }),
-  node('pharma', 7, 0.3, 2.0e8, 0.05, [], { black: true, crit: 1.0 }),
+  // Deep nodes: light, DEAR intrinsic, finite-but-huge MES from physical reality (references §4,
+  // D-045). `black` flags them as "no current build path" at colony scale (demand ≪ MES), but the
+  // MES is a real number — they ARE localizable at a sufficiently large colony. Nothing forbidden.
+  //   pharma:        API plant breakeven ~200 t/yr ÷ ~0.3 kg per-capita ≈ 6.7e5
+  //   electronics:   chip fab serves world market vs. colony grams ≈ 1e6
+  //   catalyst:      PGM-scarce (dispersed on Mars) but importable feedstock (D-032) ≈ 3e5
+  //   special_alloy: specialty metallurgy line ≈ 2e5
+  //   precision_metrology: calibration/metrology chain ≈ 2e5
+  node('special_alloy', 6, 12, 1.5e8, 0.0, [], { black: true, crit: 0.4, mesAnchor: 2.0e5 }),
+  node('catalyst', 6, 0.5, 8.0e7, 0.0, [], { black: true, crit: 0.9, mesAnchor: 3.0e5 }),
+  node('precision_metrology', 6, 1, 1.2e8, 0.0, [], { black: true, crit: 0.5, mesAnchor: 2.0e5 }),
+  node('electronics', 7, 0.2, 2.5e8, 0.05, [], { black: true, crit: 0.9, mesAnchor: 1.0e6 }),
+  node('pharma', 7, 0.3, 2.0e8, 0.05, [], { black: true, crit: 1.0, mesAnchor: 6.7e5 }),
 ];
 
 /** Index by name. */

@@ -14,9 +14,13 @@ import { GRAPH, NODES, CONSUMERS } from './graph';
 import { makeRng } from './rng';
 import { greedyAllocate } from './policy';
 
-/** Minimum effective scale of a node: Infinity for black, else mes0·k^(tier-1) (SDD §6). */
+/**
+ * Minimum effective scale of a node (SDD §6, D-045). Deep nodes get a finite, reality-grounded
+ * `mesAnchor` (references §4) instead of Infinity — nothing is forbidden, only ruinous to produce
+ * locally at colony scale. Absent anchor → tier formula mes0·k^(tier-1).
+ */
 export function mes(p: Params, node: Node): number {
-  return node.black ? Infinity : p.mes0 * Math.pow(p.k, node.tier - 1);
+  return node.mesAnchor ?? p.mes0 * Math.pow(p.k, node.tier - 1);
 }
 
 /** Maintenance tail: a localized node still imports this fraction, rising with age to tailMax. */
@@ -161,11 +165,15 @@ export function nodeEconomics(
   };
 }
 
-/** Visible status of a node given current demand (D-014, SDD): drives 🟢🟡🔴⚫ in the UI. */
+/**
+ * Visible status of a node (D-014, D-045): drives 🟢🟡🔴⚫. ⚫ now means "no current build path"
+ * (demand ≪ the node's finite MES) — a computed hint, not a hard deny. Localized beats the black
+ * hint: if a deep node were ever localized at huge scale, it shows 🟢 local, not ⚫.
+ */
 export function nodeStatus(s: GameState, nd: Record<string, number>, node: Node): NodeStatus {
-  if (node.black) return 'black';
   if (s.localized[node.name]) return 'local';
   if (nd[node.name]! >= mes(s.p, node)) return 'buildable';
+  if (node.black) return 'black'; // demand < MES and flagged deep → no current build path
   return 'import';
 }
 
@@ -197,8 +205,10 @@ export function planView(s: GameState): PlanView {
   const capex = shipMass > s.launchK ? (shipMass - s.launchK) * p.launchCapexPerKg : 0.0;
   const maint = p.launchMaintFrac * p.launchCapexPerKg * Math.max(s.launchK, shipMass);
   const projectedF = fImp + maint;
+  // Eligible = localizable now: not yet localized, demand ≥ MES. Deep nodes are excluded here by
+  // their finite mesAnchor (demand ≪ MES at colony scale) — no hard `black` gate (D-045).
   const eligible: EligibleNode[] = GRAPH.filter(
-    (n) => !n.black && !s.localized[n.name] && nd[n.name]! >= mes(p, n),
+    (n) => !s.localized[n.name] && nd[n.name]! >= mes(p, n),
   ).map((n) => ({ name: n.name, tier: n.tier, demand: nd[n.name]!, cost: localizationCost(p, n) }));
   return {
     M: p.M,
@@ -250,7 +260,9 @@ function directedAllocate(
   const localizedThis: string[] = [];
   for (const name of localize) {
     const n = NODES[name];
-    if (!n || s.localized[name] || n.black || nd[name]! < mes(p, n)) continue;
+    // Eligible by MES only (D-045): deep nodes' huge finite mesAnchor keeps them out at colony scale;
+    // nothing is forbidden outright. They become localizable if the colony ever grows past their MES.
+    if (!n || s.localized[name] || nd[name]! < mes(p, n)) continue;
     const cost = localizationCost(p, n);
     if (cost > capital) continue;
     s.localized[name] = true;

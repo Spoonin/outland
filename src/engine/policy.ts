@@ -23,7 +23,8 @@ export function greedyAllocate(
     let best: Node | null = null;
     let bestRatio = 0.0;
     for (const n of GRAPH) {
-      if (s.localized[n.name] || n.black || nd[n.name]! < mes(p, n)) continue;
+      // MES gate only (D-045): deep nodes stay out via their huge finite mesAnchor, not a hard gate.
+      if (s.localized[n.name] || nd[n.name]! < mes(p, n)) continue;
       const cap = p.capitalFactor * mes(p, n);
       if (cap > capital) continue;
       // localizing saves intrinsic + marginal fuel shipping (capacity maint is sunk)

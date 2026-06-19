@@ -15,7 +15,11 @@ export interface Node {
   readonly earthCost: number; // intrinsic $/unit (no shipping)
   readonly cons: number; // per-capita consumption (0 = pure intermediate)
   readonly inputs: ReadonlyArray<readonly [string, number]>; // BOM: [input name, qty/unit]
-  readonly black: boolean; // MES = Infinity, never localizes
+  // `black` is now a UI HINT ("no current build path": demand ≪ MES at any sane colony size),
+  // NOT a hard gate. Deep nodes are unbuildable only because their finite mesAnchor dwarfs colony
+  // demand — never because the game forbids them. See mes() in sim.ts (D-045, references §4).
+  readonly black: boolean;
+  readonly mesAnchor?: number; // reality-grounded MES override (references §4); absent → tier formula
   readonly crit: number; // criticality weight (survival runway); >=0.5 counts in Liebig
 }
 

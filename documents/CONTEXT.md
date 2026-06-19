@@ -76,7 +76,8 @@ _Avoid_: indirect demand, induced load
 The smallest viable scale of a *capability* — whether a production process or a
 skill/training pipeline. One law applied on two fronts: a node is localizable only
 if demand ≥ its process-MES **and** the colony can sustain the skill pipeline for
-its specialists. A black node's MES exceeds any reachable colony size.
+its specialists. A black node's MES is a finite, reality-grounded number (references §4) so large
+that it dwarfs any reachable colony size — unbuildable in practice, never forbidden (D-045).
 _Avoid_: minimum scale, breakeven scale, critical mass
 
 **Specialist**:
@@ -167,9 +168,10 @@ _Avoid_: upkeep cost, overhead
 
 **Node status (green / yellow / red / black)**:
 🟢 localized and efficient (D ≥ MES) · 🟡 localized but sub-scale (D < MES, expensive)
-· 🔴 imported but localizable in principle · ⚫ never localizable (MES beyond the
-colony). 🟢/🟡 are **discovered by operating**, not labelled in advance (MES is hidden).
-_Avoid_: tiers/levels (those are depth); "available/unavailable"
+· 🔴 imported but localizable in principle · ⚫ no current build path (D ≪ MES — MES is
+finite and reality-grounded, D-045; nothing is forbidden, but demand is far below break-even at
+any sane colony size). 🟢/🟡 are **discovered by operating**, not labelled in advance (MES is hidden).
+_Avoid_: tiers/levels (those are depth); "available/unavailable"; "never localizable" (the MES is finite)
 
 **Megaproject**:
 A large, expensive import that relaxes a constraint which was never the true
