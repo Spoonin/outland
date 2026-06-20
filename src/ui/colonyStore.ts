@@ -11,6 +11,8 @@ import {
   marsPlanMaterials,
   prereqMet,
   resolveColonyEnergy,
+  serializeColony,
+  loadColony,
   STRUCTURES,
   RESOURCES,
   type ColonyState,
@@ -69,7 +71,7 @@ export interface KV {
   removeItem(key: string): void;
 }
 
-const SAVE_KEY = 'outland.colony.v1';
+const SAVE_KEY = 'outland.colony'; // versioning handled inside the save blob (D-051), not the key
 const memoryKV: KV = (() => {
   const m = new Map<string, string>();
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v), removeItem: (k) => void m.delete(k) };
@@ -289,16 +291,14 @@ export class ColonyStore {
   private tryLoad(): ColonyState | null {
     try {
       const raw = this.storage.getItem(SAVE_KEY);
-      if (!raw) return null;
-      const o = JSON.parse(raw) as { v: 1; state: ColonyState };
-      return o.v === 1 ? o.state : null;
+      return raw ? loadColony(raw, defaultColonyParams()) : null; // migrate+hydrate+validate (D-051)
     } catch {
       return null;
     }
   }
   private persist(): void {
     try {
-      this.storage.setItem(SAVE_KEY, JSON.stringify({ v: 1, state: this.state }));
+      this.storage.setItem(SAVE_KEY, JSON.stringify(serializeColony(this.state)));
     } catch {
       /* non-fatal */
     }
