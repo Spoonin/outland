@@ -157,6 +157,21 @@ export class ColonyStore {
   launch(): LaunchParams {
     return this.state.p.launch;
   }
+  /** Marginal delivery cost per kg = cheapest usable pad class's launchCost/payload (D-038). */
+  deliveryPerKg(): { perKg: number; tech: LaunchTech } {
+    const lp = this.state.p.launch;
+    const usable: LaunchTech[] = this.state.fleet.refuelUnlocked ? ['classic', 'refuel'] : ['classic'];
+    let best: LaunchTech = 'classic';
+    let bestV = Infinity;
+    for (const t of usable) {
+      const v = (t === 'refuel' ? lp.refuel : lp.classic).launchCost / (t === 'refuel' ? lp.refuel : lp.classic).payload;
+      if (v < bestV) {
+        bestV = v;
+        best = t;
+      }
+    }
+    return { perKg: bestV, tech: best };
+  }
   get colonists(): number {
     return this.draftColonists;
   }

@@ -94,7 +94,7 @@ export function defaultCatalog(): ResourceCatalog {
   const cat = Object.fromEntries(RESOURCES.map((r) => [r, { ...z }])) as ResourceCatalog;
   // life-support (TOY numbers — playable/tunable; real calibration in a later balance pass.
   // NB at honest scale, importing food for 1000+ is mass-impossible → farms mandatory, V4).
-  cat.food = { earthPerKg: 5, perCapita: 50, recycle: 0 };
+  cat.food = { earthPerKg: 50, perCapita: 50, recycle: 0 }; // сублимат/космо-рацион (не сырьё)
   cat.water = { earthPerKg: 1, perCapita: 100, recycle: 0.9 };
   cat.o2 = { earthPerKg: 2, perCapita: 20, recycle: 0.95 };
   cat.n2 = { earthPerKg: 1, perCapita: 5, recycle: 0.0 };

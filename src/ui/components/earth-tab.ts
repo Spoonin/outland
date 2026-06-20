@@ -136,9 +136,11 @@ export class EarthTab extends LitElement {
     const store = this.store;
     const qty = store.resQty(r);
     const spec = store.catalog()[r];
+    const del = store.deliveryPerKg();
+    const lineCost = qty * (spec.earthPerKg + del.perKg);
     return html`<div class="card">
       <div class="h">
-        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)}</span>
+        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)} кг</span>
       </div>
       <input
         type="range"
@@ -148,7 +150,10 @@ export class EarthTab extends LitElement {
         .value=${String(qty)}
         @input=${(e: Event) => store.setRes(r, Number((e.target as HTMLInputElement).value))}
       />
-      <div class="sub">${money(spec.earthPerKg)}/кг${spec.perCapita ? ` · потр. ${spec.perCapita}/чел` : ''}${spec.recycle ? ` · η ${(spec.recycle * 100).toFixed(0)}%` : ''}</div>
+      <div class="sub">
+        товар ${money(spec.earthPerKg)}/кг + доставка ~${money(del.perKg)}/кг (${del.tech})${spec.perCapita ? ` · потр. ${spec.perCapita}/чел` : ''}${spec.recycle ? ` · η ${(spec.recycle * 100).toFixed(0)}%` : ''}
+      </div>
+      ${qty > 0 ? html`<div class="sub">≈ ${money(lineCost)} за позицию</div>` : nothing}
     </div>`;
   }
 
