@@ -7,7 +7,6 @@ import {
   commitWindow,
   consumption,
   emptyOrder,
-  marsPlanCost,
   marsPlanMaterials,
   prereqMet,
   resolveColonyEnergy,
@@ -55,11 +54,11 @@ export interface ColonyStatus {
   collapsed: boolean;
 }
 
-/** Combined window plan (Earth order + Mars build) — feasibility for the shared commit footer. */
+/** Combined window plan (Earth order + Mars build) — feasibility for the shared commit footer.
+ * Mars construction costs no money (command economy, D-054) — only materials + prerequisites. */
 export interface CommitPlan {
   earth: OrderPreview;
-  marsCost: number;
-  totalCost: number;
+  totalCost: number; // = Earth order cost (the only money spend)
   budget: number;
   overBudget: boolean;
   materialsShort: ResourceKind[];
@@ -217,17 +216,15 @@ export class ColonyStore {
   /** Combined Earth+Mars plan for the shared commit footer. */
   plan(): CommitPlan {
     const earth = this.preview();
-    const marsCost = marsPlanCost(this.state, this.draftBuild);
     const need = marsPlanMaterials(this.draftBuild);
     const materialsShort = (Object.keys(need) as ResourceKind[]).filter(
       (r) => this.state.stocks[r] < (need[r] ?? 0),
     );
     const prereqMissing = [...new Set(this.draftBuild.filter((id) => !prereqMet(this.state, id)))];
-    const totalCost = earth.total + marsCost;
+    const totalCost = earth.total; // Mars build is money-free (D-054)
     const overBudget = totalCost > this.state.p.M;
     return {
       earth,
-      marsCost,
       totalCost,
       budget: this.state.p.M,
       overBudget,

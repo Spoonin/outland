@@ -42,7 +42,7 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     store.commit(); // they land
     store.addBuild('solar_plant');
     expect(store.buildQueue()).toContain('solar_plant');
-    expect(store.plan().marsCost).toBeGreaterThan(0);
+    expect(store.plan().feasible).toBe(true); // materials in stock, prereq ok, money-free build
     store.commit();
     expect(store.builtCount('solar_plant')).toBe(1);
     expect(store.buildQueue().length).toBe(0); // queue cleared after commit

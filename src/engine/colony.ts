@@ -335,17 +335,16 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   s.window += 1;
   const pv = previewOrder(s, order);
 
-  // Mars build plan: cost, materials, prerequisites
-  const marsCost = marsPlanCost(s, build);
+  // Mars build plan: materials + prerequisites only — command economy, no money capex (D-054).
+  // The dollar (subsidy) is Earth-side procurement; building on Mars costs local materials + labour.
   const matNeed = marsPlanMaterials(build);
   const materialsOk = (Object.keys(matNeed) as ResourceKind[]).every(
     (r) => s.stocks[r] >= (matNeed[r] ?? 0),
   );
   const prereqsOk = build.every((id) => prereqMet(s, id));
 
-  const feasible =
-    !pv.overBudget && !pv.capped && pv.total + marsCost <= p.M && materialsOk && prereqsOk;
-  const spent = feasible ? pv.total + marsCost : 0;
+  const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk;
+  const spent = feasible ? pv.total : 0; // only the Earth order costs money
   const builtThis: string[] = [];
 
   // capture the PREVIOUS convoy (it lands this window) BEFORE re-queuing

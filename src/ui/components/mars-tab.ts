@@ -3,7 +3,6 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
 import type { Structure } from '../../engine';
 
-const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
 
 /** Mars build tab (colony-sim §6): queue structures with prereqs, energy, local production. */
@@ -116,9 +115,8 @@ export class MarsTab extends LitElement {
         <span class="counts">построено ${built}${queued ? ` · +${queued}` : ''}</span>
       </div>
       <div class="spec">
-        ${money(s.capex)} за шт.
         ${matEntries.length
-          ? html`<br />материалы (на ${units}):
+          ? html`материалы (на ${units}):
               ${matEntries.map(([r, q]) => {
                 const need = q * units;
                 const have = Math.round(stocks[r as keyof typeof stocks] ?? 0);
