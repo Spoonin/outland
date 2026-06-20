@@ -71,6 +71,9 @@ export class MarsTab extends LitElement {
       color: #d96a6a;
       font-size: 0.78rem;
     }
+    .short {
+      color: #d96a6a;
+    }
     .ctrl {
       display: flex;
       align-items: center;
@@ -102,19 +105,31 @@ export class MarsTab extends LitElement {
     const locked = !store.prereqMet(s.id);
     const queued = store.queuedCount(s.id);
     const built = store.builtCount(s.id);
-    const mats = Object.entries(s.buildMaterials).map(([r, q]) => `${r} ${kg(q)}`).join(', ');
+    const stocks = store.stocks();
+    const units = Math.max(1, queued); // материалы нужны на всю очередь
     const prod = Object.entries(s.produces).map(([r, q]) => `${r} +${kg(q)}`).join(', ');
-    const cons = Object.entries(s.consumes).map(([r, q]) => `${r} −${kg(q)}`).join(', ');
+    const cons = Object.entries(s.consumes).map(([r, q]) => `${r} −${kg(q)}/окно`).join(', ');
+    const matEntries = Object.entries(s.buildMaterials) as [string, number][];
     return html`<div class="card ${locked ? 'locked' : ''}">
       <div class="h">
         <span class="name">${s.icon} ${s.name}</span>
         <span class="counts">построено ${built}${queued ? ` · +${queued}` : ''}</span>
       </div>
       <div class="spec">
-        ${money(s.capex)}${mats ? ` · материалы: ${mats}` : ''}<br />
-        энергия:
+        ${money(s.capex)} за шт.
+        ${matEntries.length
+          ? html`<br />материалы (на ${units}):
+              ${matEntries.map(([r, q]) => {
+                const need = q * units;
+                const have = Math.round(stocks[r as keyof typeof stocks] ?? 0);
+                const short = have < need;
+                return html`<span class=${short ? 'short' : ''}>${r} ${kg(need)} (склад ${kg(have)})</span>${' '}`;
+              })}`
+          : nothing}
+        <br />энергия:
         ${s.energy >= 0 ? html`<span class="gen">+${s.energy}</span>` : html`<span class="draw">${s.energy}</span>`}
         ${prod ? html`· выпуск: ${prod}` : nothing} ${cons ? html`· потр.: ${cons}` : nothing}
+        · ЗИП ${kg(s.upkeepSpares)}/окно
       </div>
       ${locked ? html`<div class="lock">🔒 нужен сначала: ${s.prereq}</div>` : nothing}
       <div class="ctrl">
