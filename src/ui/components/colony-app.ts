@@ -143,8 +143,8 @@ export class ColonyApp extends LitElement {
     const eShort = st.energyDeficit > 0;
     return html`<div class="footer">
       <div class="line">
-        <span>⚡ энергия ${st.energyGen} / ${st.energyDemand}</span>
-        <span class=${eShort ? 'neg' : 'ok'}>${eShort ? `браунаут −${st.energyDeficit}` : 'баланс ок'}</span>
+        <span>⚡ энергия ${Math.round(st.energyGen)} / ${Math.round(st.energyDemand)}</span>
+        <span class=${eShort ? 'neg' : 'ok'}>${eShort ? `браунаут −${Math.round(st.energyDeficit)}` : 'баланс ок'}</span>
       </div>
       <div class="ebar"><div class="efill ${eShort ? 'short' : ''}" style="width:${ePct}%"></div></div>
       <div class="line">
