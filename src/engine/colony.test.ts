@@ -5,10 +5,11 @@ import {
   previewOrder,
   commitWindow,
   consumption,
+  emptyOrder,
   type EarthOrder,
 } from './colony';
 
-const emptyOrder: EarthOrder = { resources: {}, padsToBuild: 0, colonists: 0 };
+const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
 describe('colony v2 — consumption & startup (D-042/colony-sim)', () => {
   it('life-support consumption scales with population', () => {
@@ -28,7 +29,7 @@ describe('colony v2 — consumption & startup (D-042/colony-sim)', () => {
 describe('order preview (manifest math)', () => {
   it('sums goods cost+mass, flags over-throughput', () => {
     const s = newColony(defaultColonyParams());
-    const pv = previewOrder(s, { resources: { food: 100_000 }, padsToBuild: 0, colonists: 0 });
+    const pv = previewOrder(s, ord({ resources: { food: 100_000 } }));
     expect(pv.mass).toBe(100_000);
     expect(pv.goodsCost).toBeGreaterThan(0);
     // 5 pads × 5 × 16800 = 420k kg throughput → 100k ok
@@ -37,20 +38,20 @@ describe('order preview (manifest math)', () => {
 
   it('flags capped when convoy exceeds throughput', () => {
     const s = newColony(defaultColonyParams());
-    const pv = previewOrder(s, { resources: { water: 5_000_000 }, padsToBuild: 0, colonists: 0 });
+    const pv = previewOrder(s, ord({ resources: { water: 5_000_000 } }));
     expect(pv.capped).toBe(true); // 5M > 420k throughput
   });
 
   it('building pads raises throughput in the preview', () => {
     const s = newColony(defaultColonyParams());
-    const base = previewOrder(s, emptyOrder).throughput;
-    const more = previewOrder(s, { resources: {}, padsToBuild: 5, colonists: 0 }).throughput;
+    const base = previewOrder(s, emptyOrder()).throughput;
+    const more = previewOrder(s, ord({ padsToBuild: { classic: 5, refuel: 0 } })).throughput;
     expect(more).toBeGreaterThan(base);
   });
 
   it('inflation raises costs over time', () => {
     const s = newColony(defaultColonyParams());
-    const order: EarthOrder = { resources: { food: 100_000 }, padsToBuild: 0, colonists: 0 };
+    const order: EarthOrder = ord({ resources: { food: 100_000 } });
     const t0 = previewOrder(s, order).goodsCost;
     s.window = 10;
     const t10 = previewOrder(s, order).goodsCost;
@@ -62,10 +63,10 @@ describe('commit window — transit lag, consumption, runway, mortality', () => 
   it('ordered goods land the NEXT window (Tsiolkovsky lag)', () => {
     const s = newColony(defaultColonyParams());
     const before = s.stocks.food;
-    commitWindow(s, { resources: { food: 200_000 }, padsToBuild: 0, colonists: 0 });
+    commitWindow(s, ord({ resources: { food: 200_000 } }));
     // window 1: consumed food, nothing landed yet (order in transit)
     expect(s.stocks.food).toBeLessThan(before);
-    const r2 = commitWindow(s, emptyOrder);
+    const r2 = commitWindow(s, emptyOrder());
     // window 2: the 200k food convoy lands
     expect(r2.landed.stocks.food).toBe(200_000);
   });
@@ -73,23 +74,23 @@ describe('commit window — transit lag, consumption, runway, mortality', () => 
   it('colonists arrive after the lag and grow population', () => {
     const s = newColony(defaultColonyParams({ startStockWindows: 5 })); // well-fed: isolate colonist mechanic
     const p0 = s.pop;
-    commitWindow(s, { resources: {}, padsToBuild: 0, colonists: 50 });
+    commitWindow(s, ord({ colonists: 50 }));
     expect(s.pop).toBeCloseTo(p0, 0); // not yet (in transit), minus any mortality
-    commitWindow(s, emptyOrder);
+    commitWindow(s, emptyOrder());
     expect(s.pop).toBeGreaterThan(p0 - 1); // colonists landed
   });
 
   it('runway falls as stocks deplete without resupply (thesis seed)', () => {
     const s = newColony(defaultColonyParams({ startStockWindows: 2 }));
-    const r1 = commitWindow(s, emptyOrder);
-    const r2 = commitWindow(s, emptyOrder);
+    const r1 = commitWindow(s, emptyOrder());
+    const r2 = commitWindow(s, emptyOrder());
     expect(r2.runway).toBeLessThan(r1.runway); // depleting → runway shrinks
   });
 
   it('starvation when life-support runs dry → mortality → collapse', () => {
     const s = newColony(defaultColonyParams({ startStockWindows: 0.3 }));
     let collapsed = false;
-    for (let i = 0; i < 10 && !collapsed; i++) collapsed = commitWindow(s, emptyOrder).collapsed;
+    for (let i = 0; i < 10 && !collapsed; i++) collapsed = commitWindow(s, emptyOrder()).collapsed;
     expect(collapsed).toBe(true);
   });
 });
@@ -99,7 +100,7 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
     s.stocks.steel = 100_000; // seed materials so build is feasible
     s.stocks.glass = 100_000;
-    const r = commitWindow(s, emptyOrder, ['solar_plant', 'farm']);
+    const r = commitWindow(s, emptyOrder(), ['solar_plant', 'farm']);
     expect(r.built).toEqual(['solar_plant', 'farm']);
     expect(s.built['farm']).toBe(1);
     expect(s.stocks.steel).toBeLessThan(100_000); // materials consumed
@@ -109,21 +110,45 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
     s.stocks.steel = 200_000;
     s.stocks.metals = 100_000;
-    const r = commitWindow(s, emptyOrder, ['nuclear_plant']); // no waste_pad
+    const r = commitWindow(s, emptyOrder(), ['nuclear_plant']); // no waste_pad
     expect(r.built).toEqual([]); // infeasible → nothing built
     expect(s.built['nuclear_plant']).toBeUndefined();
   });
 
+  it('refuel R&D unlock + building refuel pads raises throughput', () => {
+    const s = newColony(defaultColonyParams());
+    const before = previewOrder(s, emptyOrder()).throughput;
+    commitWindow(s, ord({ unlockRefuel: true, padsToBuild: { classic: 0, refuel: 2 } }));
+    expect(s.fleet.refuelUnlocked).toBe(true);
+    expect(s.fleet.pads.refuel).toBe(2);
+    expect(previewOrder(s, emptyOrder()).throughput).toBeGreaterThan(before);
+  });
+
+  it('cannot build refuel pads before R&D unlock', () => {
+    const s = newColony(defaultColonyParams());
+    commitWindow(s, ord({ padsToBuild: { classic: 0, refuel: 3 } })); // not unlocked
+    expect(s.fleet.pads.refuel).toBe(0);
+  });
+
+  it('a guaranteed on-pad explosion loses a pad (D-043)', () => {
+    const params = defaultColonyParams({ startStockWindows: 5 });
+    params.launch.classic.explodeProb = 1; // force it
+    const s = newColony(params);
+    const r = commitWindow(s, ord({ resources: { food: 50_000 } })); // ≥1 classic launch
+    expect(r.explosions.classic).toBeGreaterThanOrEqual(1);
+    expect(s.fleet.pads.classic).toBeLessThan(5);
+  });
+
   it('local food production extends the runway (autonomy climbs)', () => {
     const base = newColony(defaultColonyParams({ startStockWindows: 2 }));
-    const baseRun = commitWindow(base, emptyOrder).runway;
+    const baseRun = commitWindow(base, emptyOrder()).runway;
 
     const farmed = newColony(defaultColonyParams({ startStockWindows: 2 }));
     farmed.stocks.steel = 100_000;
     farmed.stocks.glass = 100_000;
     // power + farm online; farm overproduces food vs consumption → food no longer the drain
     farmed.built = { solar_plant: 2, farm: 1 };
-    const farmedRun = commitWindow(farmed, emptyOrder).runway;
+    const farmedRun = commitWindow(farmed, emptyOrder()).runway;
     expect(farmedRun).toBeGreaterThan(baseRun);
   });
 });

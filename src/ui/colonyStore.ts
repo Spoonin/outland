@@ -6,6 +6,7 @@ import {
   previewOrder,
   commitWindow,
   consumption,
+  emptyOrder,
   marsPlanCost,
   marsPlanMaterials,
   prereqMet,
@@ -20,6 +21,9 @@ import {
   type ResourceKind,
   type Stocks,
   type Structure,
+  type LaunchTech,
+  type Fleet,
+  type LaunchParams,
 } from '../engine';
 
 export interface ResourceCover {
@@ -33,8 +37,8 @@ export interface ColonyStatus {
   window: number;
   year: number;
   pop: number;
-  pads: number;
-  tech: string;
+  pads: Record<LaunchTech, number>;
+  refuelUnlocked: boolean;
   budget: number;
   runway: number; // min cover among life-support
   cover: ResourceCover[];
@@ -87,7 +91,8 @@ export class ColonyStore {
   private storage: KV;
   // draft order
   private draftRes: Partial<Record<ResourceKind, number>> = {};
-  private draftPads = 0;
+  private draftPads: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
+  private draftUnlockRefuel = false;
   private draftColonists = 0;
   private draftBuild: string[] = [];
 
@@ -115,7 +120,13 @@ export class ColonyStore {
   // ---- draft order --------------------------------------------------------
 
   order(): EarthOrder {
-    return { resources: { ...this.draftRes }, padsToBuild: this.draftPads, colonists: this.draftColonists };
+    return {
+      ...emptyOrder(),
+      resources: { ...this.draftRes },
+      padsToBuild: { ...this.draftPads },
+      unlockRefuel: this.draftUnlockRefuel,
+      colonists: this.draftColonists,
+    };
   }
   resQty(r: ResourceKind): number {
     return this.draftRes[r] ?? 0;
@@ -124,12 +135,25 @@ export class ColonyStore {
     this.draftRes[r] = Math.max(0, Math.round(qty || 0));
     this.emit();
   }
-  get pads(): number {
-    return this.draftPads;
+  padQty(tech: LaunchTech): number {
+    return this.draftPads[tech];
   }
-  setPads(n: number): void {
-    this.draftPads = Math.max(0, Math.floor(n || 0));
+  setPad(tech: LaunchTech, n: number): void {
+    this.draftPads[tech] = Math.max(0, Math.floor(n || 0));
     this.emit();
+  }
+  get unlockRefuelDraft(): boolean {
+    return this.draftUnlockRefuel;
+  }
+  toggleUnlockRefuel(): void {
+    this.draftUnlockRefuel = !this.draftUnlockRefuel;
+    this.emit();
+  }
+  fleet(): Fleet {
+    return this.state.fleet;
+  }
+  launch(): LaunchParams {
+    return this.state.p.launch;
   }
   get colonists(): number {
     return this.draftColonists;
@@ -197,7 +221,8 @@ export class ColonyStore {
     if (this.ended) return;
     this.last = commitWindow(this.state, this.order(), [...this.draftBuild]);
     this.draftRes = {};
-    this.draftPads = 0;
+    this.draftPads = { classic: 0, refuel: 0 };
+    this.draftUnlockRefuel = false;
     this.draftColonists = 0;
     this.draftBuild = [];
     this.persist();
@@ -208,7 +233,8 @@ export class ColonyStore {
     this.state = newColony(params);
     this.last = undefined;
     this.draftRes = {};
-    this.draftPads = 0;
+    this.draftPads = { classic: 0, refuel: 0 };
+    this.draftUnlockRefuel = false;
     this.draftColonists = 0;
     this.draftBuild = [];
     this.persist();
@@ -232,8 +258,8 @@ export class ColonyStore {
       window: s.window,
       year: Math.round(s.window * 2.17 * 10) / 10,
       pop: Math.round(s.pop),
-      pads: s.fleet.pads,
-      tech: s.fleet.tech,
+      pads: { ...s.fleet.pads },
+      refuelUnlocked: s.fleet.refuelUnlocked,
       budget: s.p.M,
       runway: Number.isFinite(runway) ? Math.round(runway * 10) / 10 : Infinity,
       cover,

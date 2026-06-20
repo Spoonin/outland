@@ -120,6 +120,22 @@ export class ColonyApp extends LitElement {
     }
   `;
 
+  private lastWindowStrip() {
+    const r = this.store.lastReport();
+    if (!r) return nothing;
+    const ev: string[] = [];
+    const lostC = r.explosions.classic;
+    const lostR = r.explosions.refuel;
+    if (lostC) ev.push(`💥 взрыв на площадке: −${lostC} classic`);
+    if (lostR) ev.push(`💥 взрыв на площадке: −${lostR} refuel`);
+    if (r.mortality) ev.push(`† погибло ${r.mortality}`);
+    if (r.capped) ev.push('⚠ часть завоза не влезла в пропускную способность');
+    if (!ev.length) return nothing;
+    return html`<div style="color:#d96a6a;font-size:.85rem;margin:.5rem 0">
+      окно ${r.window}: ${ev.join(' · ')}
+    </div>`;
+  }
+
   private footer() {
     const st = this.store.status();
     const plan = this.store.plan();
@@ -157,6 +173,7 @@ export class ColonyApp extends LitElement {
     return html`
       <h1>OUTLAND</h1>
       <colony-status .status=${st}></colony-status>
+      ${this.lastWindowStrip()}
       ${st.ended
         ? html`<div style="color:#d1b65a;margin:1rem 0">
               ${st.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'} (дебриф — в V6)

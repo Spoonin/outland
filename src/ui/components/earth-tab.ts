@@ -163,13 +163,41 @@ export class EarthTab extends LitElement {
         </div>
       </div>`;
     // logistics
-    return html`<div class="cards">
-      <div class="card">
-        <div class="h"><span>🛫 строить площадки</span><span class="v">+${store.pads}</span></div>
-        <input type="range" min="0" max="10" step="1" .value=${String(store.pads)}
-          @input=${(e: Event) => store.setPads(Number((e.target as HTMLInputElement).value))} />
-        <div class="sub">+5 пусков/окно за площадку · содержание идёт даже вхолостую</div>
+    return this.logistics();
+  }
+
+  private padCard(tech: 'classic' | 'refuel', title: string, sub: string): TemplateResult {
+    const store = this.store;
+    const lp = store.launch();
+    const spec = tech === 'refuel' ? lp.refuel : lp.classic;
+    const built = store.fleet().pads[tech];
+    return html`<div class="card">
+      <div class="h"><span>${title}</span><span class="v">есть ${built} · +${store.padQty(tech)}</span></div>
+      <input type="range" min="0" max="10" step="1" .value=${String(store.padQty(tech))}
+        @input=${(e: Event) => store.setPad(tech, Number((e.target as HTMLInputElement).value))} />
+      <div class="sub">
+        ${money(spec.padCapex)}/площадка · содержание ${(spec.padMaintFrac * 100).toFixed(0)}%/окно ·
+        payload ${kg(spec.payload)} кг · риск взрыва ${(spec.explodeProb * 100).toFixed(2)}%/пуск. ${sub}
       </div>
+    </div>`;
+  }
+
+  private logistics(): TemplateResult {
+    const store = this.store;
+    const lp = store.launch();
+    const unlocked = store.fleet().refuelUnlocked;
+    return html`<div class="cards">
+      ${this.padCard('classic', '🛫 Классические (одноразовые)', 'дёшево, малый груз, рискованнее')}
+      ${unlocked
+        ? this.padCard('refuel', '🚀 Орбитальная заправка', 'большой груз, дёшево/кг, безопаснее')
+        : html`<div class="card">
+            <div class="h"><span>🚀 Орбитальная заправка</span><span class="v">🔒</span></div>
+            <div class="sub">R&D: ${money(lp.refuelRnDCost)} — многоразовость + дозаправка (D-039)</div>
+            <label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
+              <input type="checkbox" .checked=${store.unlockRefuelDraft}
+                @change=${() => store.toggleUnlockRefuel()} /> заказать R&D в этом окне
+            </label>
+          </div>`}
     </div>`;
   }
 

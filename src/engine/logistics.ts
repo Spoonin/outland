@@ -1,93 +1,120 @@
-// Launch logistics (v2, D-043 / colony-sim.md §5). The concrete, tactile form of D-038's abstract
-// launch-capacity capital: explicit pads (built capital, idle 25/26 mos between windows), rockets
-// (payload/launch; Gen0 expendable → Gen1 reusable+ISRU after R&D, D-039) and fuel. Throughput per
-// window = pads × launches/pad × payload — orders can't exceed it (build pads or cut the convoy).
+// Launch logistics (v2, D-043 / colony-sim.md §5). Two pad classes the player builds and maintains:
+// CLASSIC multistage (expendable — cheap pad, small payload, dear per-launch, riskier) and REFUEL
+// (orbital-refuelling reusable — unlocked by R&D, dearer pad, big payload, cheap per-launch, safer).
+// Pads are capital: capex to build + per-window maintenance paid the whole time, even idle (D-038).
+// A launch can lose its pad to an on-pad explosion (per-launch probability; classic riskier).
 
-export type LaunchTech = 'classic' | 'reusable';
+import type { Rng } from './types';
 
-export interface TechSpec {
+export type LaunchTech = 'classic' | 'refuel';
+export const TECHS: readonly LaunchTech[] = ['classic', 'refuel'];
+
+export interface PadClass {
   payload: number; // kg landed on Mars per launch
-  launchCost: number; // money per launch (rocket + fuel); expendable Gen0 is dear, reusable Gen1 cheap
+  launchCost: number; // money per launch (rocket + fuel)
+  padCapex: number; // money to build one pad
+  padMaintFrac: number; // per-window maintenance, fraction of capex (paid even idle)
+  explodeProb: number; // per-launch chance the pad is lost to an explosion
 }
 
 export interface LaunchParams {
   launchesPerPadPerWindow: number; // 1/day × 5-day window = 5
-  padCapex: number; // money to build one pad
-  padMaintFrac: number; // per-window amortization on every built pad (paid even when idle)
-  classic: TechSpec;
-  reusable: TechSpec;
-  reusableRnDCost: number; // R&D to unlock Gen1 (D-039 mini-megaproject)
+  classic: PadClass;
+  refuel: PadClass;
+  refuelRnDCost: number; // one-time R&D to unlock the refuel class (D-039)
 }
 
 export interface Fleet {
-  pads: number;
-  tech: LaunchTech;
+  pads: Record<LaunchTech, number>;
+  refuelUnlocked: boolean;
 }
 
-/** Calibrated illustrative defaults (references §3: FH ~16.8t/$97M, Starship ~100t target). */
+/** Calibrated illustrative defaults (references §3; explosion rates per D-043 discussion). */
 export function defaultLaunchParams(overrides: Partial<LaunchParams> = {}): LaunchParams {
   return {
     launchesPerPadPerWindow: 5,
-    padCapex: 1.5e8,
-    padMaintFrac: 0.1,
-    classic: { payload: 16_800, launchCost: 9.7e7 },
-    reusable: { payload: 100_000, launchCost: 1.2e7 },
-    reusableRnDCost: 5.0e10,
+    classic: { payload: 16_800, launchCost: 9.7e7, padCapex: 1.5e8, padMaintFrac: 0.1, explodeProb: 0.0025 },
+    refuel: { payload: 100_000, launchCost: 1.2e7, padCapex: 5.0e8, padMaintFrac: 0.12, explodeProb: 0.0005 },
+    refuelRnDCost: 5.0e10,
     ...overrides,
   };
 }
 
-export function techSpec(p: LaunchParams, tech: LaunchTech): TechSpec {
-  return tech === 'reusable' ? p.reusable : p.classic;
+export function padClass(p: LaunchParams, tech: LaunchTech): PadClass {
+  return tech === 'refuel' ? p.refuel : p.classic;
 }
 
-/** Max launches a fleet can fly in one synodic window. */
-export function maxLaunches(fleet: Fleet, p: LaunchParams): number {
-  return fleet.pads * p.launchesPerPadPerWindow;
+export function newFleet(p: LaunchParams, classicPads = 5): Fleet {
+  void p;
+  return { pads: { classic: classicPads, refuel: 0 }, refuelUnlocked: false };
 }
 
-/** Max mass (kg) shippable this window = maxLaunches × payload. The throughput ceiling. */
+/** Max launches a pad type can fly in one window. */
+export function maxLaunches(fleet: Fleet, p: LaunchParams, tech: LaunchTech): number {
+  return fleet.pads[tech] * p.launchesPerPadPerWindow;
+}
+
+/** Total mass (kg) shippable this window across both pad classes. */
 export function throughputMass(fleet: Fleet, p: LaunchParams): number {
-  return maxLaunches(fleet, p) * techSpec(p, fleet.tech).payload;
+  return TECHS.reduce((sum, t) => sum + maxLaunches(fleet, p, t) * padClass(p, t).payload, 0);
 }
 
-/** Launches required to ship a given mass (whole launches, rounded up). */
-export function launchesNeeded(massKg: number, p: LaunchParams, tech: LaunchTech): number {
-  return Math.ceil(Math.max(0, massKg) / techSpec(p, tech).payload);
+/** Per-window maintenance on every built pad of every class (idle penalty, D-038). */
+export function padMaintTotal(fleet: Fleet, p: LaunchParams): number {
+  return TECHS.reduce((sum, t) => sum + fleet.pads[t] * padClass(p, t).padMaintFrac * padClass(p, t).padCapex, 0);
 }
 
-/** One-time capex to build n pads. */
-export function padBuildCost(n: number, p: LaunchParams): number {
-  return Math.max(0, n) * p.padCapex;
+export function padBuildCost(p: LaunchParams, tech: LaunchTech, n: number): number {
+  return Math.max(0, n) * padClass(p, tech).padCapex;
 }
 
-export interface LaunchCost {
-  launches: number; // launches actually flown (capped by pads)
-  shippedMass: number; // kg actually shipped (launches × payload)
-  flightCost: number; // launches × per-launch cost
-  padMaint: number; // amortization on ALL built pads (idle penalty, D-038)
-  total: number; // flightCost + padMaint (recurring; pad capex is separate)
-  effPerKg: number; // total / shippedMass — derived, balloons when pads sit idle
-  capped: boolean; // true if the requested mass exceeded throughput
+export interface ShipPlan {
+  launches: Record<LaunchTech, number>; // launches flown per class
+  deliveredMass: number; // kg actually delivered (≤ requested, capped by throughput)
+  flightCost: number; // Σ launches × per-launch cost
+  capped: boolean; // requested mass exceeded total throughput
 }
 
-/** Recurring launch cost to ship `massKg` this window with the given fleet. */
-export function launchCost(fleet: Fleet, p: LaunchParams, massKg: number): LaunchCost {
-  const spec = techSpec(p, fleet.tech);
-  const want = launchesNeeded(massKg, p, fleet.tech);
-  const cap = maxLaunches(fleet, p);
-  const launches = Math.min(want, cap);
-  const shippedMass = launches * spec.payload;
-  const flightCost = launches * spec.launchCost;
-  const padMaint = p.padMaintFrac * p.padCapex * fleet.pads;
-  const total = flightCost + padMaint;
+/** Allocate a mass to launches, cheapest-$/kg class first (refuel before classic). */
+export function shipPlan(fleet: Fleet, p: LaunchParams, massKg: number): ShipPlan {
+  const order = [...TECHS].sort(
+    (a, b) => padClass(p, a).launchCost / padClass(p, a).payload - padClass(p, b).launchCost / padClass(p, b).payload,
+  );
+  const launches: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
+  let remaining = Math.max(0, massKg);
+  let flightCost = 0;
+  let capacityUsed = 0;
+  for (const t of order) {
+    const cap = maxLaunches(fleet, p, t);
+    const need = Math.ceil(remaining / padClass(p, t).payload);
+    const n = Math.max(0, Math.min(cap, need));
+    launches[t] = n;
+    flightCost += n * padClass(p, t).launchCost;
+    const m = n * padClass(p, t).payload;
+    capacityUsed += m;
+    remaining = Math.max(0, remaining - m);
+  }
   return {
     launches,
-    shippedMass,
+    deliveredMass: Math.min(massKg, capacityUsed),
     flightCost,
-    padMaint,
-    total,
-    effPerKg: shippedMass > 0 ? total / shippedMass : 0,
-    capped: want > cap,
+    capped: remaining > 0,
   };
+}
+
+/** Roll on-pad explosions for the launches flown; returns pads lost per class (≤ pads available). */
+export function rollExplosions(
+  fleet: Fleet,
+  p: LaunchParams,
+  plan: ShipPlan,
+  rng: Rng,
+): Record<LaunchTech, number> {
+  const lost: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
+  for (const t of TECHS) {
+    const prob = padClass(p, t).explodeProb;
+    for (let i = 0; i < plan.launches[t]; i++) {
+      if (rng.random() < prob && lost[t] < fleet.pads[t]) lost[t] += 1;
+    }
+  }
+  return lost;
 }

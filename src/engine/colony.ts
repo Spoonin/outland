@@ -12,12 +12,18 @@ import {
 } from './resources';
 import {
   defaultLaunchParams,
-  launchCost,
+  newFleet,
+  shipPlan,
+  rollExplosions,
   throughputMass,
+  padMaintTotal,
   padBuildCost,
+  TECHS,
   type Fleet,
   type LaunchParams,
+  type LaunchTech,
 } from './logistics';
+import { makeRng } from './rng';
 import {
   STRUCT_BY_ID,
   resolveColonyEnergy,
@@ -47,6 +53,7 @@ export interface ColonyParams {
   startPads: number;
   startStockWindows: number; // initial life-support buffer, in windows of consumption
   maxWindows: number;
+  seed: number; // RNG seed (pad explosions)
 }
 
 export interface Transit {
@@ -62,14 +69,21 @@ export interface ColonyState {
   fleet: Fleet;
   collapsed: boolean;
   built: BuiltCounts; // structures built on Mars (id → count)
+  rngState: number; // seeded RNG state (explosions) — kept as a number so state stays JSON-able
   p: ColonyParams;
 }
 
 /** Earth order for one window (the slider manifest). */
 export interface EarthOrder {
   resources: Partial<Stocks>; // kg to order per resource
-  padsToBuild: number;
+  padsToBuild: Record<LaunchTech, number>; // pads to build this window, per class
+  unlockRefuel: boolean; // pay R&D to unlock the refuel pad class (D-039)
   colonists: number;
+}
+
+/** An empty order (no goods, no pads, no colonists). */
+export function emptyOrder(): EarthOrder {
+  return { resources: {}, padsToBuild: { classic: 0, refuel: 0 }, unlockRefuel: false, colonists: 0 };
 }
 
 // ---- params -------------------------------------------------------------
@@ -106,6 +120,7 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     startPads: 5,
     startStockWindows: 1.0,
     maxWindows: 40,
+    seed: 1,
     ...overrides,
   };
 }
@@ -140,9 +155,10 @@ export function newColony(p: ColonyParams): ColonyState {
     pop: p.pop0,
     stocks,
     inTransit: { stocks: emptyStocks(0), colonists: 0 },
-    fleet: { pads: p.startPads, tech: 'classic' },
+    fleet: newFleet(p.launch, p.startPads),
     collapsed: false,
     built: {},
+    rngState: p.seed >>> 0,
     p,
   };
 }
@@ -180,19 +196,34 @@ export function prereqMet(s: ColonyState, id: string): boolean {
 export interface OrderPreview {
   goodsCost: number;
   colonistCost: number;
-  padCapex: number;
-  launchTotal: number;
+  padCapex: number; // capex to build pads this window
+  rndCost: number; // refuel R&D unlock this window
+  launchTotal: number; // flight cost + pad maintenance (whole fleet)
   total: number;
   mass: number; // kg to ship (goods + colonists)
-  throughput: number; // max shippable with fleet (incl. pads being built)
+  throughput: number; // max shippable with fleet (incl. pads being built + refuel unlock)
   capped: boolean; // mass exceeds throughput
   overBudget: boolean;
   budget: number;
   effPerKg: number;
+  futureFleet: Fleet; // fleet after this window's pad builds / unlock (for the UI)
 }
 
 export function priceMult(s: ColonyState): number {
   return Math.pow(1 + s.p.inflation, s.window);
+}
+
+/** Apply an order's pad builds + refuel unlock to a fleet copy (no mutation). */
+function fleetAfter(s: ColonyState, order: EarthOrder): Fleet {
+  const unlocked = s.fleet.refuelUnlocked || order.unlockRefuel;
+  return {
+    refuelUnlocked: unlocked,
+    pads: {
+      classic: s.fleet.pads.classic + Math.max(0, Math.floor(order.padsToBuild.classic)),
+      // refuel pads only count if the class is (being) unlocked
+      refuel: s.fleet.pads.refuel + (unlocked ? Math.max(0, Math.floor(order.padsToBuild.refuel)) : 0),
+    },
+  };
 }
 
 export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
@@ -206,31 +237,37 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
     goodsCost += qty * p.catalog[r].earthPerKg * mult;
   }
   const colonists = Math.max(0, Math.floor(order.colonists));
-  const colonistMass = colonists * p.colonistMass;
+  const mass = goodsMass + colonists * p.colonistMass;
   const colonistCost = colonists * p.colonistCost * mult;
-  const mass = goodsMass + colonistMass;
 
-  const padsToBuild = Math.max(0, Math.floor(order.padsToBuild));
-  const padCapex = padBuildCost(padsToBuild, p.launch) * mult;
-  const futureFleet: Fleet = { pads: s.fleet.pads + padsToBuild, tech: s.fleet.tech };
+  const futureFleet = fleetAfter(s, order);
+  let padCapex = 0;
+  for (const t of TECHS) {
+    const n = futureFleet.pads[t] - s.fleet.pads[t];
+    if (n > 0) padCapex += padBuildCost(p.launch, t, n);
+  }
+  padCapex *= mult;
+  const rndCost = order.unlockRefuel && !s.fleet.refuelUnlocked ? p.launch.refuelRnDCost * mult : 0;
+
+  const plan = shipPlan(futureFleet, p.launch, mass);
+  const launchTotal = (plan.flightCost + padMaintTotal(futureFleet, p.launch)) * mult;
   const throughput = throughputMass(futureFleet, p.launch);
-  const lc = launchCost(futureFleet, p.launch, mass);
-  const launchTotal = lc.total * mult;
 
-  const total = goodsCost + colonistCost + padCapex + launchTotal;
-  const budget = p.M;
+  const total = goodsCost + colonistCost + padCapex + rndCost + launchTotal;
   return {
     goodsCost,
     colonistCost,
     padCapex,
+    rndCost,
     launchTotal,
     total,
     mass,
     throughput,
     capped: mass > throughput,
-    overBudget: total > budget,
-    budget,
+    overBudget: total > p.M,
+    budget: p.M,
     effPerKg: mass > 0 ? (launchTotal + padCapex) / mass : 0,
+    futureFleet,
   };
 }
 
@@ -247,6 +284,7 @@ export interface ColonyReport {
   spent: number;
   capped: boolean;
   built: string[]; // structures completed this window
+  explosions: Record<LaunchTech, number>; // pads lost to on-pad explosions this window
   energyGen: number;
   energyDemand: number;
   energyDeficit: number;
@@ -298,8 +336,11 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // capture the PREVIOUS convoy (it lands this window) BEFORE re-queuing
   const landed = s.inTransit;
 
+  const explosions: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
+
   if (feasible) {
-    if (order.padsToBuild > 0) s.fleet.pads += Math.floor(order.padsToBuild);
+    // apply pad builds + refuel unlock (futureFleet already computed in the preview)
+    s.fleet = { refuelUnlocked: pv.futureFleet.refuelUnlocked, pads: { ...pv.futureFleet.pads } };
     // build structures: consume local materials, raise counts
     for (const r of Object.keys(matNeed) as ResourceKind[]) s.stocks[r] -= matNeed[r] ?? 0;
     for (const id of build) {
@@ -311,6 +352,16 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     const shipped = emptyStocks(0);
     for (const r of RESOURCES) shipped[r] = Math.max(0, order.resources[r] ?? 0);
     s.inTransit = { stocks: shipped, colonists: Math.max(0, Math.floor(order.colonists)) };
+
+    // on-pad explosions for this window's launches → pads lost for FUTURE windows (D-043)
+    const plan = shipPlan(s.fleet, p.launch, pv.mass);
+    const rng = makeRng(s.rngState);
+    const lost = rollExplosions(s.fleet, p.launch, plan, rng);
+    s.rngState = rng.state();
+    for (const t of TECHS) {
+      s.fleet.pads[t] = Math.max(0, s.fleet.pads[t] - lost[t]);
+      explosions[t] = lost[t];
+    }
   } else {
     s.inTransit = { stocks: emptyStocks(0), colonists: 0 };
   }
@@ -359,6 +410,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     spent,
     capped: pv.capped,
     built: builtThis,
+    explosions,
     energyGen: energy.generation,
     energyDemand: energy.generation + energy.deficit,
     energyDeficit: energy.deficit,

@@ -1,65 +1,90 @@
 import { describe, it, expect } from 'vitest';
 import {
   defaultLaunchParams,
+  newFleet,
   maxLaunches,
   throughputMass,
-  launchesNeeded,
+  padMaintTotal,
   padBuildCost,
-  launchCost,
+  shipPlan,
+  rollExplosions,
   type Fleet,
 } from './logistics';
+import { makeRng } from './rng';
 
 const p = defaultLaunchParams();
 
-describe('throughput (D-043, colony-sim §5)', () => {
-  it('5 pads → 25 launches/window', () => {
-    expect(maxLaunches({ pads: 5, tech: 'classic' }, p)).toBe(25);
+describe('throughput & pads (D-043, two classes)', () => {
+  it('5 classic pads → 25 launches → 420t throughput', () => {
+    const f = newFleet(p, 5);
+    expect(maxLaunches(f, p, 'classic')).toBe(25);
+    expect(throughputMass(f, p)).toBe(25 * 16_800);
   });
 
-  it('throughput mass = launches × payload', () => {
-    expect(throughputMass({ pads: 5, tech: 'classic' }, p)).toBe(25 * 16_800);
+  it('refuel pads add big-payload capacity', () => {
+    const f: Fleet = { pads: { classic: 5, refuel: 1 }, refuelUnlocked: true };
+    expect(throughputMass(f, p)).toBe(25 * 16_800 + 5 * 100_000);
   });
 
-  it('reusable tech lifts payload (Starship vs Falcon Heavy)', () => {
-    const classic = throughputMass({ pads: 5, tech: 'classic' }, p);
-    const reusable = throughputMass({ pads: 5, tech: 'reusable' }, p);
-    expect(reusable).toBeGreaterThan(classic);
+  it('maintenance is paid on every built pad of both classes', () => {
+    const f: Fleet = { pads: { classic: 2, refuel: 1 }, refuelUnlocked: true };
+    expect(padMaintTotal(f, p)).toBe(2 * 0.1 * 1.5e8 + 1 * 0.12 * 5.0e8);
   });
 
-  it('launchesNeeded rounds up to whole launches', () => {
-    expect(launchesNeeded(16_800, p, 'classic')).toBe(1);
-    expect(launchesNeeded(16_801, p, 'classic')).toBe(2);
-    expect(launchesNeeded(0, p, 'classic')).toBe(0);
+  it('pad build cost differs by class', () => {
+    expect(padBuildCost(p, 'classic', 2)).toBe(2 * 1.5e8);
+    expect(padBuildCost(p, 'refuel', 1)).toBe(5.0e8);
   });
 });
 
-describe('cost (D-043)', () => {
-  it('pad build cost scales with count', () => {
-    expect(padBuildCost(3, p)).toBe(3 * p.padCapex);
+describe('shipPlan — cheapest-$/kg class first', () => {
+  it('fills refuel before classic (refuel far cheaper per kg)', () => {
+    const f: Fleet = { pads: { classic: 5, refuel: 2 }, refuelUnlocked: true };
+    const plan = shipPlan(f, p, 150_000); // refuel cap 2×100k=200k covers it
+    expect(plan.launches.refuel).toBeGreaterThan(0);
+    expect(plan.launches.classic).toBe(0);
+    expect(plan.capped).toBe(false);
   });
 
-  it('reusable cheaper per kg than classic at full utilisation', () => {
-    const fleetC: Fleet = { pads: 5, tech: 'classic' };
-    const fleetR: Fleet = { pads: 5, tech: 'reusable' };
-    const c = launchCost(fleetC, p, throughputMass(fleetC, p));
-    const r = launchCost(fleetR, p, throughputMass(fleetR, p));
-    expect(r.effPerKg).toBeLessThan(c.effPerKg);
+  it('falls back to classic once refuel capacity is exhausted', () => {
+    const f: Fleet = { pads: { classic: 5, refuel: 1 }, refuelUnlocked: true };
+    // refuel: 1 pad × 5 launches × 100k = 500k cap; 600k spills into classic
+    const plan = shipPlan(f, p, 600_000);
+    expect(plan.launches.refuel).toBe(5);
+    expect(plan.launches.classic).toBeGreaterThan(0);
   });
 
-  it('idle pads inflate effective $/kg (D-038 idle penalty)', () => {
-    const fleet: Fleet = { pads: 10, tech: 'classic' };
-    const busy = launchCost(fleet, p, throughputMass(fleet, p)); // all 10 pads × 5 used
-    const idle = launchCost(fleet, p, 16_800); // 1 launch, 10 pads maintained
-    expect(idle.effPerKg).toBeGreaterThan(busy.effPerKg);
-    expect(idle.padMaint).toBe(p.padMaintFrac * p.padCapex * 10);
+  it('caps at total throughput', () => {
+    const f = newFleet(p, 2); // 10 launches × 16.8t = 168t
+    const plan = shipPlan(f, p, 500_000);
+    expect(plan.capped).toBe(true);
+    expect(plan.deliveredMass).toBe(throughputMass(f, p));
+  });
+});
+
+describe('rollExplosions — pad loss', () => {
+  it('certain explosion loses a pad (prob 1)', () => {
+    const params = defaultLaunchParams({
+      classic: { ...p.classic, explodeProb: 1 },
+    });
+    const f = newFleet(params, 3);
+    const plan = shipPlan(f, params, 16_800); // 1 classic launch
+    const lost = rollExplosions(f, params, plan, makeRng(1));
+    expect(lost.classic).toBe(1);
   });
 
-  it('caps at throughput when the convoy exceeds pad capacity', () => {
-    const fleet: Fleet = { pads: 2, tech: 'classic' }; // 10 launches max
-    const huge = throughputMass(fleet, p) * 3;
-    const lc = launchCost(fleet, p, huge);
-    expect(lc.capped).toBe(true);
-    expect(lc.launches).toBe(maxLaunches(fleet, p));
-    expect(lc.shippedMass).toBe(throughputMass(fleet, p));
+  it('never loses more pads than exist', () => {
+    const params = defaultLaunchParams({ classic: { ...p.classic, explodeProb: 1 } });
+    const f = newFleet(params, 2); // 2 pads, 10 launches all explode-rolled
+    const plan = shipPlan(f, params, throughputMass(f, params));
+    const lost = rollExplosions(f, params, plan, makeRng(1));
+    expect(lost.classic).toBeLessThanOrEqual(2);
+  });
+
+  it('zero probability → no losses', () => {
+    const params = defaultLaunchParams({ classic: { ...p.classic, explodeProb: 0 } });
+    const f = newFleet(params, 5);
+    const plan = shipPlan(f, params, throughputMass(f, params));
+    expect(rollExplosions(f, params, plan, makeRng(7)).classic).toBe(0);
   });
 });

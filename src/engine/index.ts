@@ -22,14 +22,17 @@ export type {
 } from './resources';
 export {
   defaultLaunchParams,
-  techSpec,
+  newFleet,
+  padClass,
   maxLaunches,
   throughputMass,
-  launchesNeeded,
+  padMaintTotal,
   padBuildCost,
-  launchCost,
+  shipPlan,
+  rollExplosions,
+  TECHS,
 } from './logistics';
-export type { LaunchTech, TechSpec, LaunchParams, Fleet, LaunchCost } from './logistics';
+export type { LaunchTech, PadClass, LaunchParams, Fleet, ShipPlan } from './logistics';
 export {
   defaultCatalog,
   defaultColonyParams,
@@ -38,6 +41,7 @@ export {
   previewOrder,
   priceMult as colonyPriceMult,
   commitWindow,
+  emptyOrder,
   marsPlanCost,
   marsPlanMaterials,
   prereqMet,
