@@ -1,11 +1,17 @@
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import type { ColonyStatus, ResourceCover } from '../colonyStore';
+import type { ColonyStatus, ResourceLine } from '../colonyStore';
 
-const ICON: Record<string, string> = { food: '🍞', water: '💧', o2: '🫧' };
+const ICON: Record<string, string> = {
+  food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
+  steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
+  pharma: '💊', chips: '🔌', catalyst: '⚗️',
+};
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
+const kg = (v: number) => Math.round(v).toLocaleString('en-US');
+const dkg = (v: number) => (v >= 0 ? '+' : '−') + kg(Math.abs(v));
 
-/** Header: window/pop/fleet + LIVE life-support sufficiency ("еды на N окон") — the tactile balance. */
+/** Header dashboard: window/pop/fleet/wear + ALL resource stocks with per-window net & runway. */
 @customElement('colony-status')
 export class ColonyStatusPanel extends LitElement {
   @property({ attribute: false }) status!: ColonyStatus;
@@ -28,44 +34,46 @@ export class ColonyStatusPanel extends LitElement {
     .dim {
       opacity: 0.6;
     }
-    .cover {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 0.3rem 1rem;
     }
-    .res {
-      font-size: 0.9rem;
+    .cell {
+      font-size: 0.85rem;
+      border-bottom: 1px solid #1e1e26;
+      padding-bottom: 2px;
     }
-    .bar {
-      height: 0.5rem;
-      width: 7rem;
-      background: #26262e;
-      border-radius: 3px;
-      overflow: hidden;
-      margin-top: 2px;
+    .name {
+      opacity: 0.75;
     }
-    .fill {
-      height: 100%;
+    .stock {
+      font-weight: 600;
     }
-    .ok {
-      background: #5ad17a;
+    .flow {
+      font-size: 0.78rem;
     }
-    .warn {
-      background: #d1b65a;
+    .up {
+      color: #5ad17a;
+    }
+    .down {
+      color: #d1b65a;
     }
     .crit {
-      background: #d96a6a;
+      color: #d96a6a;
     }
   `;
 
-  private cover(c: ResourceCover) {
-    const w = c.windows;
-    const cls = w >= 2 ? 'ok' : w >= 1 ? 'warn' : 'crit';
-    const pct = Math.max(4, Math.min(100, (w / 3) * 100));
-    const label = Number.isFinite(w) ? `${w.toFixed(1)} ок` : '∞';
-    return html`<div class="res">
-      ${ICON[c.kind] ?? ''} ${c.kind}: <b>${label}</b>
-      <div class="bar"><div class="fill ${cls}" style="width:${pct}%"></div></div>
+  private cell(r: ResourceLine): TemplateResult {
+    // colour by trend / urgency: draining + <1 window cover = critical
+    const draining = r.net < 0;
+    const critical = draining && r.windows < 1;
+    const flowCls = !draining ? 'up' : critical ? 'crit' : 'down';
+    const cover = Number.isFinite(r.windows) ? ` · ${r.windows.toFixed(1)} ок` : '';
+    return html`<div class="cell">
+      <span>${ICON[r.kind] ?? ''} <span class="name">${r.kind}</span></span>
+      <span class="stock"> ${kg(r.stock)}</span>
+      <div class="flow ${flowCls}">${dkg(r.net)}/ок${draining ? cover : ''}</div>
     </div>`;
   }
 
@@ -77,18 +85,23 @@ export class ColonyStatusPanel extends LitElement {
         <div class="pop">👥 ${s.pop.toLocaleString('ru-RU')}</div>
         <div class="dim">окно <b>${s.window}</b> · год ~${s.year}</div>
         <div class="dim">
-          🛫 площадки: classic ${s.pads.classic}${s.refuelUnlocked ? ` · refuel ${s.pads.refuel}` : ''}
+          🛫 classic ${s.pads.classic}${s.refuelUnlocked ? ` · refuel ${s.pads.refuel}` : ''}
         </div>
         <div class="dim">
-          🛠 износ:
-          <b style="color:${s.avgCondition >= 0.8 ? '#5ad17a' : s.avgCondition >= 0.5 ? '#d1b65a' : '#d96a6a'}">
-            ${(s.avgCondition * 100).toFixed(0)}%</b>
+          🛠 износ
+          <b style="color:${s.avgCondition >= 0.8 ? '#5ad17a' : s.avgCondition >= 0.5 ? '#d1b65a' : '#d96a6a'}"
+            >${(s.avgCondition * 100).toFixed(0)}%</b>
           · ЗИП
           <b style="color:${s.sparesCoverage >= 1 ? '#5ad17a' : '#d96a6a'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
         </div>
+        <div class="dim">
+          запас хода
+          <b style="color:${s.runway >= 2 ? '#5ad17a' : s.runway >= 1 ? '#d1b65a' : '#d96a6a'}"
+            >${Number.isFinite(s.runway) ? s.runway + ' ок' : '∞'}</b>
+        </div>
         <div class="dim">субсидия ${money(s.budget)}/окно</div>
       </div>
-      <div class="cover">${s.cover.map((c) => this.cover(c))}</div>
+      <div class="grid">${s.resources.map((r) => this.cell(r))}</div>
     `;
   }
 }

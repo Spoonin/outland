@@ -26,11 +26,14 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.lastReport()?.landed.stocks.food).toBe(60_000);
   });
 
-  it('status exposes live life-support cover (the tactile balance)', () => {
+  it('status exposes all resource stocks with per-window net & cover', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 2 }), memKV());
-    const cover = store.status().cover;
-    const food = cover.find((c) => c.kind === 'food')!;
-    expect(food.windows).toBeCloseTo(2, 1); // ~2 windows of food at start
+    const res = store.status().resources;
+    expect(res.length).toBe(12); // all resources shown in the dashboard
+    const food = res.find((c) => c.kind === 'food')!;
+    expect(food.windows).toBeCloseTo(2, 1); // ~2 windows of food at start (draining, no farm)
+    expect(food.net).toBeLessThan(0);
+    expect(res.find((c) => c.kind === 'chips')).toBeDefined();
   });
 
   it('Mars build queue feeds the commit plan and builds structures', () => {

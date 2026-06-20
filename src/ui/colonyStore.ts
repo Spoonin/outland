@@ -29,11 +29,12 @@ import {
   type LaunchParams,
 } from '../engine';
 
-export interface ResourceCover {
+export interface ResourceLine {
   kind: ResourceKind;
   stock: number;
-  perWindow: number; // net consumption / window (after recycling)
-  windows: number; // windows of cover (Infinity if not consumed)
+  net: number; // local production − total consumption per window (no imports); <0 = draining
+  windows: number; // windows of cover if draining (Infinity if net ≥ 0)
+  lifeSupport: boolean;
 }
 
 export interface ColonyStatus {
@@ -44,7 +45,7 @@ export interface ColonyStatus {
   refuelUnlocked: boolean;
   budget: number;
   runway: number; // min cover among life-support
-  cover: ResourceCover[];
+  resources: ResourceLine[]; // ALL stocks with per-window net + cover (dashboard)
   energyGen: number;
   energyDemand: number;
   energyDeficit: number;
@@ -266,15 +267,28 @@ export class ColonyStore {
     const cons = consumption(s);
     const energy = resolveColonyEnergy(s.built, s.p.popEnergyPerCapita * s.pop, s.condition);
     const sf = structureFlows(s.built, energy.served, undefined, s.condition);
-    // production-aware cover (V6): net drain = gross·(1−recycle) − local production
-    const cover: ResourceCover[] = LIFE.map((r) => {
-      const gross = (cons[r] ?? 0) * (1 - s.p.catalog[r].recycle);
-      const perWindow = Math.max(0, gross - (sf.production[r] ?? 0));
-      const stock = s.stocks[r];
-      return { kind: r, stock, perWindow, windows: perWindow > 0 ? stock / perWindow : Infinity };
-    });
-    const runway = Math.min(...cover.map((c) => c.windows));
     const upkeep = spareUpkeep(s.built);
+    const lifeSet = new Set<ResourceKind>(LIFE);
+    // per-resource balance: local production − consumption (life-support + structures + spares upkeep)
+    const resources: ResourceLine[] = RESOURCES.map((r) => {
+      const prod = sf.production[r] ?? 0;
+      const lsCons = (cons[r] ?? 0) * (1 - s.p.catalog[r].recycle);
+      const structCons = sf.consumption[r] ?? 0;
+      const upkeepCons = r === 'spares' ? upkeep : 0;
+      const net = prod - lsCons - structCons - upkeepCons;
+      const stock = s.stocks[r];
+      return {
+        kind: r,
+        stock,
+        net,
+        windows: net < 0 ? stock / -net : Infinity,
+        lifeSupport: lifeSet.has(r),
+      };
+    });
+    const runway = Math.min(
+      ...resources.filter((x) => x.lifeSupport).map((x) => x.windows),
+      Infinity,
+    );
     const builtIds = Object.keys(s.built).filter((id) => (s.built[id] ?? 0) > 0);
     const avgCondition = builtIds.length
       ? builtIds.reduce((a, id) => a + (s.condition[id] ?? 1), 0) / builtIds.length
@@ -287,7 +301,7 @@ export class ColonyStore {
       refuelUnlocked: s.fleet.refuelUnlocked,
       budget: s.p.M,
       runway: Number.isFinite(runway) ? Math.round(runway * 10) / 10 : Infinity,
-      cover,
+      resources,
       energyGen: energy.generation,
       energyDemand: energy.generation + energy.deficit,
       energyDeficit: energy.deficit,
