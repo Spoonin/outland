@@ -17,6 +17,7 @@ export interface ColonySave {
   inTransit: { stocks: Partial<Stocks>; colonists: number };
   fleet: { pads: Partial<Record<LaunchTech, number>>; refuelUnlocked: boolean };
   built: Record<string, number>;
+  condition: Record<string, number>;
   rngState: number;
 }
 
@@ -29,6 +30,7 @@ export function serializeColony(s: ColonyState): ColonySave {
     inTransit: { stocks: { ...s.inTransit.stocks }, colonists: s.inTransit.colonists },
     fleet: { pads: { ...s.fleet.pads }, refuelUnlocked: s.fleet.refuelUnlocked },
     built: { ...s.built },
+    condition: { ...s.condition },
     rngState: s.rngState,
   };
 }
@@ -93,6 +95,7 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
       pads: { classic: save.fleet.pads.classic ?? 0, refuel: save.fleet.pads.refuel ?? 0 },
     },
     built: { ...save.built },
+    condition: { ...(save.condition ?? {}) },
     rngState: save.rngState,
     p,
   };

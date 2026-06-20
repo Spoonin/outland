@@ -79,6 +79,13 @@ export class ColonyStatusPanel extends LitElement {
         <div class="dim">
           🛫 площадки: classic ${s.pads.classic}${s.refuelUnlocked ? ` · refuel ${s.pads.refuel}` : ''}
         </div>
+        <div class="dim">
+          🛠 износ:
+          <b style="color:${s.avgCondition >= 0.8 ? '#5ad17a' : s.avgCondition >= 0.5 ? '#d1b65a' : '#d96a6a'}">
+            ${(s.avgCondition * 100).toFixed(0)}%</b>
+          · ЗИП
+          <b style="color:${s.sparesCoverage >= 1 ? '#5ad17a' : '#d96a6a'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
+        </div>
         <div class="dim">субсидия ${money(s.budget)}/окно</div>
       </div>
       <div class="cover">${s.cover.map((c) => this.cover(c))}</div>

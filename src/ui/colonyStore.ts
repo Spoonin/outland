@@ -11,6 +11,8 @@ import {
   marsPlanMaterials,
   prereqMet,
   resolveColonyEnergy,
+  structureFlows,
+  spareUpkeep,
   serializeColony,
   loadColony,
   STRUCTURES,
@@ -47,6 +49,8 @@ export interface ColonyStatus {
   energyGen: number;
   energyDemand: number;
   energyDeficit: number;
+  avgCondition: number; // mean structure condition 0..1 (V6)
+  sparesCoverage: number; // spares stock vs upkeep need
   ended: boolean;
   collapsed: boolean;
 }
@@ -263,14 +267,21 @@ export class ColonyStore {
   status(): ColonyStatus {
     const s = this.state;
     const cons = consumption(s);
+    const energy = resolveColonyEnergy(s.built, s.p.popEnergyPerCapita * s.pop, s.condition);
+    const sf = structureFlows(s.built, energy.served, undefined, s.condition);
+    // production-aware cover (V6): net drain = gross·(1−recycle) − local production
     const cover: ResourceCover[] = LIFE.map((r) => {
-      const eff = s.p.catalog[r].recycle;
-      const perWindow = (cons[r] ?? 0) * (1 - eff);
+      const gross = (cons[r] ?? 0) * (1 - s.p.catalog[r].recycle);
+      const perWindow = Math.max(0, gross - (sf.production[r] ?? 0));
       const stock = s.stocks[r];
       return { kind: r, stock, perWindow, windows: perWindow > 0 ? stock / perWindow : Infinity };
     });
     const runway = Math.min(...cover.map((c) => c.windows));
-    const energy = resolveColonyEnergy(s.built, s.p.popEnergyPerCapita * s.pop);
+    const upkeep = spareUpkeep(s.built);
+    const builtIds = Object.keys(s.built).filter((id) => (s.built[id] ?? 0) > 0);
+    const avgCondition = builtIds.length
+      ? builtIds.reduce((a, id) => a + (s.condition[id] ?? 1), 0) / builtIds.length
+      : 1;
     return {
       window: s.window,
       year: Math.round(s.window * 2.17 * 10) / 10,
@@ -283,6 +294,8 @@ export class ColonyStore {
       energyGen: energy.generation,
       energyDemand: energy.generation + energy.deficit,
       energyDeficit: energy.deficit,
+      avgCondition,
+      sparesCoverage: upkeep > 0 ? Math.min(1, s.stocks.spares / upkeep) : 1,
       ended: this.ended,
       collapsed: s.collapsed,
     };

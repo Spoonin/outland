@@ -28,7 +28,9 @@ import {
   STRUCT_BY_ID,
   resolveColonyEnergy,
   structureFlows,
+  spareUpkeep,
   type BuiltCounts,
+  type Condition,
 } from './structures';
 
 /** Per-resource catalog: earth price ($/kg) + per-capita life-support consumption (kg/window). */
@@ -48,6 +50,7 @@ export interface ColonyParams {
   colonistCost: number; // money per colonist
   colonistMass: number; // kg per colonist (life-support kit + body)
   mortFactor: number; // shortfall → death sensitivity
+  wearRate: number; // condition lost/window for a fully-unmaintained structure (V6)
   birthRate: number; // per-window growth when a supplied medbay is running (D-030)
   popEnergyPerCapita: number; // life-support energy draw per colonist (priority 0)
   catalog: ResourceCatalog;
@@ -71,6 +74,7 @@ export interface ColonyState {
   fleet: Fleet;
   collapsed: boolean;
   built: BuiltCounts; // structures built on Mars (id → count)
+  condition: Condition; // per-structure-type wear 0..1 (V6)
   rngState: number; // seeded RNG state (explosions) — kept as a number so state stays JSON-able
   p: ColonyParams;
 }
@@ -96,8 +100,8 @@ export function defaultCatalog(): ResourceCatalog {
   // life-support (TOY numbers — playable/tunable; real calibration in a later balance pass.
   // NB at honest scale, importing food for 1000+ is mass-impossible → farms mandatory, V4).
   cat.food = { earthPerKg: 50, perCapita: 50, recycle: 0, tare: 0.1 }; // сублимат/космо-рацион
-  cat.water = { earthPerKg: 2, perCapita: 100, recycle: 0.9, tare: 0.05 }; // мягкая тара
-  cat.o2 = { earthPerKg: 20, perCapita: 20, recycle: 0.95, tare: 1.0 }; // газ + криобак ≥ массы газа
+  cat.water = { earthPerKg: 2, perCapita: 100, recycle: 0.3, tare: 0.05 }; // пассивный минимум; ЖО-рециклер даёт остальное (V6)
+  cat.o2 = { earthPerKg: 20, perCapita: 20, recycle: 0.3, tare: 1.0 }; // газ + криобак; MOXIE даёт остальное
   cat.n2 = { earthPerKg: 15, perCapita: 5, recycle: 0.0, tare: 1.0 }; // газ + сосуд под давлением
   // materials (consumed by construction in V4+)
   cat.steel = { earthPerKg: 2, perCapita: 0, recycle: 0, tare: 0 };
@@ -120,6 +124,7 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     colonistCost: 3.0e8,
     colonistMass: 2000,
     mortFactor: 0.8,
+    wearRate: 0.12,
     birthRate: 0.05,
     popEnergyPerCapita: 0.05,
     catalog: defaultCatalog(),
@@ -165,6 +170,7 @@ export function newColony(p: ColonyParams): ColonyState {
     fleet: newFleet(p.launch, p.startPads),
     collapsed: false,
     built: {},
+    condition: {},
     rngState: p.seed >>> 0,
     p,
   };
@@ -295,6 +301,8 @@ export interface ColonyReport {
   energyGen: number;
   energyDemand: number;
   energyDeficit: number;
+  avgCondition: number; // mean structure condition 0..1 (V6)
+  sparesCoverage: number; // fraction of spares upkeep met this window
   collapsed: boolean;
 }
 
@@ -353,6 +361,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     for (const id of build) {
       if (STRUCT_BY_ID[id]) {
         s.built[id] = (s.built[id] ?? 0) + 1;
+        if (s.condition[id] === undefined) s.condition[id] = 1; // fresh type starts at full condition
         builtThis.push(id);
       }
     }
@@ -376,19 +385,31 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // colonists from the landed convoy arrive
   s.pop += landed.colonists;
 
-  // energy (priority brownout) + input availability (hi-tech wall) → scales structure output
-  const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
-  const energy = resolveColonyEnergy(s.built, lifeSupportDemand);
+  // available resources this window = stock + landed convoy
   const avail: Partial<Stocks> = {};
   for (const r of RESOURCES) avail[r] = s.stocks[r] + (landed.stocks[r] ?? 0);
-  const sf = structureFlows(s.built, energy.served, avail);
 
-  // life-support + structure consumption; arrivals + structure production
+  // wear (V6): spares maintain condition; shortfall → structures degrade (output falls → cascade)
+  const upkeep = spareUpkeep(s.built);
+  const sparesCoverage = upkeep > 0 ? Math.min(1, (avail.spares ?? 0) / upkeep) : 1;
+  for (const s2 of Object.keys(s.built)) {
+    if ((s.built[s2] ?? 0) <= 0) continue;
+    const c = s.condition[s2] ?? 1;
+    s.condition[s2] = Math.max(0, Math.min(1, c - p.wearRate * (1 - sparesCoverage)));
+  }
+
+  // energy (priority brownout) + input availability (hi-tech) + condition (wear) → structure output
+  const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
+  const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition);
+  const sf = structureFlows(s.built, energy.served, avail, s.condition);
+
+  // life-support + structure consumption + spares upkeep; arrivals + structure production
   const cons = consumption(s);
   const combinedCons: Partial<Stocks> = { ...cons };
   for (const r of Object.keys(sf.consumption) as ResourceKind[]) {
     combinedCons[r] = (combinedCons[r] ?? 0) + (sf.consumption[r] ?? 0);
   }
+  combinedCons.spares = (combinedCons.spares ?? 0) + upkeep;
   const recycle = recycleMap(p);
   const { stocks, deficit } = applyFlows(s.stocks, {
     arrivals: landed.stocks,
@@ -428,6 +449,15 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     energyGen: energy.generation,
     energyDemand: energy.generation + energy.deficit,
     energyDeficit: energy.deficit,
+    avgCondition: avgCondition(s),
+    sparesCoverage,
     collapsed: s.collapsed,
   };
+}
+
+/** Mean condition across built structure types (1 if nothing built). */
+function avgCondition(s: ColonyState): number {
+  const ids = Object.keys(s.built).filter((id) => (s.built[id] ?? 0) > 0);
+  if (!ids.length) return 1;
+  return ids.reduce((a, id) => a + (s.condition[id] ?? 1), 0) / ids.length;
 }

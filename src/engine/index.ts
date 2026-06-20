@@ -52,8 +52,9 @@ export {
   energyGeneration,
   resolveColonyEnergy,
   structureFlows,
+  spareUpkeep,
 } from './structures';
-export type { Structure, BuiltCounts, EnergyResolution } from './structures';
+export type { Structure, BuiltCounts, EnergyResolution, Condition } from './structures';
 export { SAVE_VERSION, serializeColony, hydrateColony, loadColony } from './colony-save';
 export type { ColonySave } from './colony-save';
 export type {

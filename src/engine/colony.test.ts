@@ -183,6 +183,38 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(r.pop).toBeLessThanOrEqual(p0); // no medbay → no growth
   });
 
+  it('degradation: without spares condition falls and output drops (V6)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5, wearRate: 0.2 }));
+    s.built = { solar_plant: 4, steel_plant: 1 };
+    s.condition = { solar_plant: 1, steel_plant: 1 };
+    // no spares in stock or order → coverage 0 → condition decays
+    const r1 = commitWindow(s, emptyOrder());
+    const steel1 = r1.stocks.steel;
+    expect(r1.avgCondition).toBeLessThan(1);
+    expect(r1.sparesCoverage).toBe(0);
+    const r2 = commitWindow(s, emptyOrder());
+    expect(r2.avgCondition).toBeLessThan(r1.avgCondition); // keeps degrading
+    expect(r2.stocks.steel - steel1).toBeLessThan(steel1 - 0); // steel output shrinking as plant decays
+  });
+
+  it('spares maintenance holds condition at full (V6)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5, wearRate: 0.2 }));
+    s.built = { solar_plant: 4, steel_plant: 1 };
+    s.condition = { solar_plant: 1, steel_plant: 1 };
+    s.stocks.spares = 1_000_000; // plenty
+    const r = commitWindow(s, emptyOrder());
+    expect(r.sparesCoverage).toBe(1);
+    expect(r.avgCondition).toBe(1); // fully maintained → no decay
+  });
+
+  it('water now drains without a recycler (η baseline lowered, V6)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 1 }));
+    const before = s.stocks.water;
+    const r = commitWindow(s, emptyOrder()); // no recycler built
+    // net = gross·(1−0.3) = 70% of 100k = 70k drained
+    expect(before - r.stocks.water).toBeGreaterThan(60_000);
+  });
+
   it('local food production extends the runway (autonomy climbs)', () => {
     const base = newColony(defaultColonyParams({ startStockWindows: 2 }));
     const baseRun = commitWindow(base, emptyOrder()).runway;
