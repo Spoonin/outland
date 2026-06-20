@@ -36,6 +36,7 @@ export interface ResourceSpec {
   earthPerKg: number;
   perCapita: number; // life-support draw per colonist per window (0 = not life-support)
   recycle: number; // η recovered fraction (ECLSS)
+  tare: number; // extra SHIP mass per kg for containment (gases: tank ≥ gas → ~1.0). Imports only.
 }
 
 export type ResourceCatalog = Record<ResourceKind, ResourceSpec>;
@@ -90,24 +91,24 @@ export function emptyOrder(): EarthOrder {
 // ---- params -------------------------------------------------------------
 
 export function defaultCatalog(): ResourceCatalog {
-  const z: ResourceSpec = { earthPerKg: 5, perCapita: 0, recycle: 0 };
+  const z: ResourceSpec = { earthPerKg: 5, perCapita: 0, recycle: 0, tare: 0 };
   const cat = Object.fromEntries(RESOURCES.map((r) => [r, { ...z }])) as ResourceCatalog;
   // life-support (TOY numbers — playable/tunable; real calibration in a later balance pass.
   // NB at honest scale, importing food for 1000+ is mass-impossible → farms mandatory, V4).
-  cat.food = { earthPerKg: 50, perCapita: 50, recycle: 0 }; // сублимат/космо-рацион (не сырьё)
-  cat.water = { earthPerKg: 2, perCapita: 100, recycle: 0.9 };
-  cat.o2 = { earthPerKg: 20, perCapita: 20, recycle: 0.95 }; // чистый газ + криобак/баллон (тара)
-  cat.n2 = { earthPerKg: 15, perCapita: 5, recycle: 0.0 }; // чистый газ + сосуд под давлением
+  cat.food = { earthPerKg: 50, perCapita: 50, recycle: 0, tare: 0.1 }; // сублимат/космо-рацион
+  cat.water = { earthPerKg: 2, perCapita: 100, recycle: 0.9, tare: 0.05 }; // мягкая тара
+  cat.o2 = { earthPerKg: 20, perCapita: 20, recycle: 0.95, tare: 1.0 }; // газ + криобак ≥ массы газа
+  cat.n2 = { earthPerKg: 15, perCapita: 5, recycle: 0.0, tare: 1.0 }; // газ + сосуд под давлением
   // materials (consumed by construction in V4+)
-  cat.steel = { earthPerKg: 2, perCapita: 0, recycle: 0 };
-  cat.metals = { earthPerKg: 8, perCapita: 0, recycle: 0 };
-  cat.polymers = { earthPerKg: 40, perCapita: 0, recycle: 0 };
-  cat.glass = { earthPerKg: 3, perCapita: 0, recycle: 0 };
-  cat.spares = { earthPerKg: 50, perCapita: 0, recycle: 0 };
+  cat.steel = { earthPerKg: 2, perCapita: 0, recycle: 0, tare: 0 };
+  cat.metals = { earthPerKg: 8, perCapita: 0, recycle: 0, tare: 0 };
+  cat.polymers = { earthPerKg: 40, perCapita: 0, recycle: 0, tare: 0 };
+  cat.glass = { earthPerKg: 3, perCapita: 0, recycle: 0, tare: 0 };
+  cat.spares = { earthPerKg: 50, perCapita: 0, recycle: 0, tare: 0 };
   // hi-tech — import-only, light & ruinously dear (D-045/D-046)
-  cat.pharma = { earthPerKg: 3000, perCapita: 0, recycle: 0 };
-  cat.chips = { earthPerKg: 50000, perCapita: 0, recycle: 0 };
-  cat.catalyst = { earthPerKg: 8000, perCapita: 0, recycle: 0 };
+  cat.pharma = { earthPerKg: 3000, perCapita: 0, recycle: 0, tare: 0.2 };
+  cat.chips = { earthPerKg: 50000, perCapita: 0, recycle: 0, tare: 0 };
+  cat.catalyst = { earthPerKg: 8000, perCapita: 0, recycle: 0, tare: 0.1 };
   return cat;
 }
 
@@ -239,7 +240,7 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   let goodsCost = 0;
   for (const r of RESOURCES) {
     const qty = Math.max(0, order.resources[r] ?? 0);
-    goodsMass += qty;
+    goodsMass += qty * (1 + p.catalog[r].tare); // ship mass = resource + container/tare
     goodsCost += qty * p.catalog[r].earthPerKg * mult;
   }
   const colonists = Math.max(0, Math.floor(order.colonists));

@@ -12,7 +12,7 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     const store = new ColonyStore(defaultColonyParams(), memKV());
     store.setRes('food', 100_000);
     const pv = store.preview();
-    expect(pv.mass).toBe(100_000);
+    expect(pv.mass).toBeCloseTo(110_000, 0); // food tare 0.1
     expect(pv.total).toBeGreaterThan(0);
   });
 

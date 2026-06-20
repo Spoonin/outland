@@ -30,10 +30,23 @@ describe('order preview (manifest math)', () => {
   it('sums goods cost+mass, flags over-throughput', () => {
     const s = newColony(defaultColonyParams());
     const pv = previewOrder(s, ord({ resources: { food: 100_000 } }));
-    expect(pv.mass).toBe(100_000);
+    expect(pv.mass).toBeCloseTo(110_000, 0); // food tare 0.1
     expect(pv.goodsCost).toBeGreaterThan(0);
     // 5 pads × 5 × 16800 = 420k kg throughput → 100k ok
     expect(pv.capped).toBe(false);
+  });
+
+  it('gas tare adds ship mass (tank ≥ gas) but only the gas lands', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    // o2 tare 1.0 → 50t of O₂ ships as ~100t
+    const pv = previewOrder(s, ord({ resources: { o2: 50_000 } }));
+    expect(pv.mass).toBeCloseTo(100_000, 0);
+    // food tare 0.1 → 100t ships as 110t
+    expect(previewOrder(s, ord({ resources: { food: 100_000 } })).mass).toBeCloseTo(110_000, 0);
+    // only the gas lands as stock (tank is overhead)
+    commitWindow(s, ord({ resources: { o2: 50_000 } }));
+    const r2 = commitWindow(s, emptyOrder());
+    expect(r2.landed.stocks.o2).toBe(50_000);
   });
 
   it('flags capped when convoy exceeds throughput', () => {

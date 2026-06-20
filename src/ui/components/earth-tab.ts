@@ -137,7 +137,9 @@ export class EarthTab extends LitElement {
     const qty = store.resQty(r);
     const spec = store.catalog()[r];
     const del = store.deliveryPerKg();
-    const lineCost = qty * (spec.earthPerKg + del.perKg);
+    const shipPerKg = 1 + spec.tare; // container/tare adds ship mass
+    const deliveryPerKg = del.perKg * shipPerKg;
+    const lineCost = qty * (spec.earthPerKg + deliveryPerKg);
     return html`<div class="card">
       <div class="h">
         <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)} кг</span>
@@ -151,7 +153,7 @@ export class EarthTab extends LitElement {
         @input=${(e: Event) => store.setRes(r, Number((e.target as HTMLInputElement).value))}
       />
       <div class="sub">
-        товар ${money(spec.earthPerKg)}/кг + доставка ~${money(del.perKg)}/кг (${del.tech})${spec.perCapita ? ` · потр. ${spec.perCapita}/чел` : ''}${spec.recycle ? ` · η ${(spec.recycle * 100).toFixed(0)}%` : ''}
+        товар ${money(spec.earthPerKg)}/кг + доставка ~${money(deliveryPerKg)}/кг${spec.tare ? ` (тара ×${shipPerKg.toFixed(2)})` : ''} (${del.tech})${spec.perCapita ? ` · потр. ${spec.perCapita}/чел` : ''}${spec.recycle ? ` · η ${(spec.recycle * 100).toFixed(0)}%` : ''}
       </div>
       ${qty > 0 ? html`<div class="sub">≈ ${money(lineCost)} за позицию</div>` : nothing}
     </div>`;
