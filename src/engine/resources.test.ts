@@ -99,6 +99,8 @@ describe('resource set (dробный набор, D-042)', () => {
     expect(RESOURCES).toContain('o2');
     expect(RESOURCES).toContain('n2');
     expect(RESOURCES).toContain('polymers');
-    expect(RESOURCES.length).toBe(9);
+    expect(RESOURCES).toContain('pharma'); // hi-tech, import-only (D-046/D-045)
+    expect(RESOURCES).toContain('chips');
+    expect(RESOURCES.length).toBe(12);
   });
 });

@@ -13,6 +13,11 @@ export const RESOURCES = [
   'polymers',
   'glass',
   'spares',
+  // hi-tech — import-only (no local structure makes them; finite-but-unreachable MES, D-045).
+  // Light & dear: cheap to ship, ruinous to buy → the permanent "Earth leg" of pulsing resupply.
+  'pharma',
+  'chips',
+  'catalyst',
 ] as const;
 export type ResourceKind = (typeof RESOURCES)[number];
 export type Stocks = Record<ResourceKind, number>;

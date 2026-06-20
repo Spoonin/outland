@@ -47,6 +47,7 @@ export interface ColonyParams {
   colonistCost: number; // money per colonist
   colonistMass: number; // kg per colonist (life-support kit + body)
   mortFactor: number; // shortfall → death sensitivity
+  birthRate: number; // per-window growth when a supplied medbay is running (D-030)
   popEnergyPerCapita: number; // life-support energy draw per colonist (priority 0)
   catalog: ResourceCatalog;
   launch: LaunchParams;
@@ -103,6 +104,10 @@ export function defaultCatalog(): ResourceCatalog {
   cat.polymers = { earthPerKg: 40, perCapita: 0, recycle: 0 };
   cat.glass = { earthPerKg: 3, perCapita: 0, recycle: 0 };
   cat.spares = { earthPerKg: 50, perCapita: 0, recycle: 0 };
+  // hi-tech — import-only, light & ruinously dear (D-045/D-046)
+  cat.pharma = { earthPerKg: 3000, perCapita: 0, recycle: 0 };
+  cat.chips = { earthPerKg: 50000, perCapita: 0, recycle: 0 };
+  cat.catalyst = { earthPerKg: 8000, perCapita: 0, recycle: 0 };
   return cat;
 }
 
@@ -114,6 +119,7 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     colonistCost: 3.0e8,
     colonistMass: 2000,
     mortFactor: 0.8,
+    birthRate: 0.05,
     popEnergyPerCapita: 0.05,
     catalog: defaultCatalog(),
     launch: defaultLaunchParams(),
@@ -369,10 +375,12 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // colonists from the landed convoy arrive
   s.pop += landed.colonists;
 
-  // energy (priority brownout) → scales structure output
+  // energy (priority brownout) + input availability (hi-tech wall) → scales structure output
   const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
   const energy = resolveColonyEnergy(s.built, lifeSupportDemand);
-  const sf = structureFlows(s.built, energy.served);
+  const avail: Partial<Stocks> = {};
+  for (const r of RESOURCES) avail[r] = s.stocks[r] + (landed.stocks[r] ?? 0);
+  const sf = structureFlows(s.built, energy.served, avail);
 
   // life-support + structure consumption; arrivals + structure production
   const cons = consumption(s);
@@ -397,6 +405,11 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   }
   const mortality = s.pop * Math.min(0.9, p.mortFactor * worstRatio);
   s.pop -= mortality;
+
+  // births: a supplied, running medbay enables growth (D-030) — pulls pharma (hi-tech) forever
+  if ((s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0) {
+    s.pop *= 1 + p.birthRate;
+  }
   if (s.pop < p.pop0 * 0.2) s.collapsed = true;
 
   return {

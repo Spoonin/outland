@@ -139,6 +139,37 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.fleet.pads.classic).toBeLessThan(5);
   });
 
+  it('hi-tech wall: polymer_plant browns out without imported catalyst, runs with it', () => {
+    const params = defaultColonyParams({ startStockWindows: 5 });
+    const dry = newColony(params);
+    dry.built = { solar_plant: 5, polymer_plant: 1 }; // powered, but no catalyst in stock
+    const rDry = commitWindow(dry, emptyOrder());
+    expect(rDry.stocks.polymers).toBe(0); // no catalyst → no local polymers
+
+    const fed = newColony(params);
+    fed.built = { solar_plant: 5, polymer_plant: 1 };
+    fed.stocks.catalyst = 10_000; // imported hi-tech on hand
+    const rFed = commitWindow(fed, emptyOrder());
+    expect(rFed.stocks.polymers).toBeGreaterThan(0); // catalyst present → polymers produced
+  });
+
+  it('medbay + pharma enables births (D-030)', () => {
+    const params = defaultColonyParams({ startStockWindows: 5, birthRate: 0.1 });
+    const s = newColony(params);
+    s.built = { solar_plant: 3, medbay: 1 };
+    s.stocks.pharma = 5_000;
+    const p0 = s.pop;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.pop).toBeGreaterThan(p0); // grew via births
+  });
+
+  it('no births without a medbay', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5, birthRate: 0.1 }));
+    const p0 = s.pop;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.pop).toBeLessThanOrEqual(p0); // no medbay → no growth
+  });
+
   it('local food production extends the runway (autonomy climbs)', () => {
     const base = newColony(defaultColonyParams({ startStockWindows: 2 }));
     const baseRun = commitWindow(base, emptyOrder()).runway;

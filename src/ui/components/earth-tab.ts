@@ -6,6 +6,7 @@ import type { ResourceKind } from '../../engine';
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
   steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
+  pharma: '💊', chips: '🔌', catalyst: '⚗️',
 };
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US') + ' кг';
@@ -14,12 +15,14 @@ const TABS = [
   { id: 'logi', label: '🛫 Логистика' },
   { id: 'life', label: '🍞 Жизнеобеспечение' },
   { id: 'mat', label: '🔩 Материалы' },
+  { id: 'tech', label: '🔬 Хайтек' },
   { id: 'people', label: '🧑‍🚀 Люди' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
 const LIFE: ResourceKind[] = ['food', 'water', 'o2', 'n2'];
 const MAT: ResourceKind[] = ['steel', 'metals', 'polymers', 'glass', 'spares'];
+const TECH: ResourceKind[] = ['pharma', 'chips', 'catalyst'];
 
 /** Earth ordering manifest (colony-sim §4): tabs of slider cards + live budget/mass summary. */
 @customElement('earth-tab')
@@ -153,6 +156,14 @@ export class EarthTab extends LitElement {
     const store = this.store;
     if (this.tab === 'life') return html`<div class="cards">${LIFE.map((r) => this.resCard(r, 500_000, 5_000))}</div>`;
     if (this.tab === 'mat') return html`<div class="cards">${MAT.map((r) => this.resCard(r, 200_000, 5_000))}</div>`;
+    if (this.tab === 'tech')
+      return html`
+        <div class="sub" style="margin-bottom:.5rem">
+          ⚠ нелокализуемо при колониальном масштабе (D-045) — только завоз. Лёгкое, но дорогое:
+          вечный «земной leg» снабжения. Заводы (полимеры/медблок/RnD) тянут это каждое окно.
+        </div>
+        <div class="cards">${TECH.map((r) => this.resCard(r, 50_000, 500))}</div>
+      `;
     if (this.tab === 'people')
       return html`<div class="cards">
         <div class="card">
