@@ -118,7 +118,7 @@ export function defaultCatalog(): ResourceCatalog {
 
 export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): ColonyParams {
   return {
-    M: 1.0e12,
+    M: 5.4e10, // ≈ бюджет NASA за синодическое окно ($25B/год × 2.17 года) — деньги реально жмут (D-053)
     inflation: 0.03,
     pop0: 1000,
     colonistCost: 3.0e8,
