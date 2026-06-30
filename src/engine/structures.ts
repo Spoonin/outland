@@ -16,6 +16,8 @@ export interface Structure {
   produces: Partial<Stocks>; // per window at full power
   consumes: Partial<Stocks>; // per window (besides energy)
   upkeepSpares: number; // spares/window to hold condition (V6); unmet → degradation
+  housing?: number; // colonists this structure can house (habitat); absent → 0
+  n2Leak?: number; // kg N₂ leaked per unit per window (pressurized volume, V7); absent → 0
   prereq?: string; // structure id that must exist first (e.g. nuclear → waste pad)
 }
 
@@ -33,6 +35,10 @@ export const STRUCTURES: readonly Structure[] = [
   // hi-tech consumers: permanent import floor of pharma/chips (D-046 "Earth leg")
   { id: 'medbay', name: 'Медблок (→ рождения)', icon: '🏥', capex: 5e9, buildMaterials: { steel: 2000, glass: 2000 }, energy: -30, energyPriority: 0, produces: {}, consumes: { pharma: 120 }, upkeepSpares: 400 },
   { id: 'rnd_lab', name: 'RnD-лаборатория', icon: '🔬', capex: 6e9, buildMaterials: { steel: 3000, glass: 2000 }, energy: -50, energyPriority: 2, produces: {}, consumes: { chips: 200 }, upkeepSpares: 500 },
+  // V7: atmosphere/BIOS — housing, N₂ structural leak, N₂ ISRU, bio O₂ regeneration (D-048)
+  { id: 'habitat', name: 'Жилой модуль', icon: '🏠', capex: 3e9, buildMaterials: { steel: 6000, glass: 4000, polymers: 1000 }, energy: -15, energyPriority: 0, produces: {}, consumes: {}, upkeepSpares: 350, housing: 200, n2Leak: 500 },
+  { id: 'n2_concentrator', name: 'Концентратор N₂ (ISRU)', icon: '🫧', capex: 2.5e9, buildMaterials: { steel: 3000 }, energy: -70, energyPriority: 1, produces: { n2: 10000 }, consumes: {}, upkeepSpares: 400 },
+  { id: 'algae_bioreactor', name: 'Биореактор (водоросли)', icon: '🌿', capex: 3e9, buildMaterials: { steel: 2000, glass: 3000, polymers: 500 }, energy: -30, energyPriority: 1, produces: { o2: 15000 }, consumes: { water: 8000 }, upkeepSpares: 500 },
 ];
 
 export const STRUCT_BY_ID: Readonly<Record<string, Structure>> = Object.fromEntries(
@@ -125,4 +131,18 @@ export function spareUpkeep(built: BuiltCounts): number {
   let u = 0;
   for (const s of STRUCTURES) u += (built[s.id] ?? 0) * s.upkeepSpares;
   return u;
+}
+
+/** Total colonist housing slots from all built habitat structures (V7). */
+export function housingCapacity(built: BuiltCounts): number {
+  let total = 0;
+  for (const s of STRUCTURES) total += (s.housing ?? 0) * (built[s.id] ?? 0);
+  return total;
+}
+
+/** Total N₂ leaked per window from pressurized hull volume of built structures (V7). */
+export function structuralN2Leak(built: BuiltCounts): number {
+  let total = 0;
+  for (const s of STRUCTURES) total += (s.n2Leak ?? 0) * (built[s.id] ?? 0);
+  return total;
 }

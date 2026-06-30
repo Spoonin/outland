@@ -94,6 +94,12 @@ export class ColonyStatusPanel extends LitElement {
           · ЗИП
           <b style="color:${s.sparesCoverage >= 1 ? '#5ad17a' : '#d96a6a'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
         </div>
+        ${s.housingCapacity > 0 ? html`<div class="dim">
+          🏠 жильё
+          <b style="color:${s.pop <= s.housingCapacity * 0.9 ? '#5ad17a' : s.pop <= s.housingCapacity ? '#d1b65a' : '#d96a6a'}"
+            >${s.pop.toLocaleString('ru-RU')} / ${s.housingCapacity.toLocaleString('ru-RU')}</b>
+          ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} кг/окно` : ''}
+        </div>` : ''}
         <div class="dim">
           запас хода
           <b style="color:${s.runway >= 2 ? '#5ad17a' : s.runway >= 1 ? '#d1b65a' : '#d96a6a'}"

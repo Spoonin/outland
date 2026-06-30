@@ -29,6 +29,8 @@ import {
   resolveColonyEnergy,
   structureFlows,
   spareUpkeep,
+  housingCapacity,
+  structuralN2Leak,
   type BuiltCounts,
   type Condition,
 } from './structures';
@@ -73,6 +75,7 @@ export interface ColonyState {
   inTransit: Transit;
   fleet: Fleet;
   collapsed: boolean;
+  everHadPop: boolean; // true once pop has been > 0 — guards extinction collapse before first landing (V7)
   built: BuiltCounts; // structures built on Mars (id → count)
   condition: Condition; // per-structure-type wear 0..1 (V6)
   rngState: number; // seeded RNG state (explosions) — kept as a number so state stays JSON-able
@@ -102,7 +105,8 @@ export function defaultCatalog(): ResourceCatalog {
   cat.food = { earthPerKg: 50, perCapita: 50, recycle: 0, tare: 0.1 }; // сублимат/космо-рацион
   cat.water = { earthPerKg: 2, perCapita: 100, recycle: 0.3, tare: 0.05 }; // пассивный минимум; ЖО-рециклер даёт остальное (V6)
   cat.o2 = { earthPerKg: 20, perCapita: 20, recycle: 0.3, tare: 1.0 }; // газ + криобак; MOXIE даёт остальное
-  cat.n2 = { earthPerKg: 15, perCapita: 5, recycle: 0.0, tare: 1.0 }; // газ + сосуд под давлением
+  // N₂ loss is structural (habitat hull leak), not per-capita breathing — see structuralN2Leak (V7)
+  cat.n2 = { earthPerKg: 15, perCapita: 0, recycle: 0.0, tare: 1.0 };
   // materials (consumed by construction in V4+)
   cat.steel = { earthPerKg: 2, perCapita: 0, recycle: 0, tare: 0 };
   cat.metals = { earthPerKg: 8, perCapita: 0, recycle: 0, tare: 0 };
@@ -120,7 +124,7 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
   return {
     M: 5.4e10, // ≈ бюджет NASA за синодическое окно ($25B/год × 2.17 года) — деньги реально жмут (D-053)
     inflation: 0.03,
-    pop0: 1000,
+    pop0: 0, // start from nothing — the player orders their own first colonists (V7 redesign)
     colonistCost: 3.0e8,
     colonistMass: 2000,
     mortFactor: 0.8,
@@ -169,6 +173,7 @@ export function newColony(p: ColonyParams): ColonyState {
     inTransit: { stocks: emptyStocks(0), colonists: 0 },
     fleet: newFleet(p.launch, p.startPads),
     collapsed: false,
+    everHadPop: p.pop0 > 0,
     built: {},
     condition: {},
     rngState: p.seed >>> 0,
@@ -303,10 +308,13 @@ export interface ColonyReport {
   energyDeficit: number;
   avgCondition: number; // mean structure condition 0..1 (V6)
   sparesCoverage: number; // fraction of spares upkeep met this window
+  housingCapacity: number; // total colonist slots from habitat structures (V7); 0 = unconstrained
+  n2LeakKg: number; // kg N₂ leaked from hull this window (V7)
   collapsed: boolean;
 }
 
-const LIFE_R: ResourceKind[] = ['food', 'water', 'o2'];
+// N₂ included: habitat hull leak → N₂ shortage → mortality (V7); no habitats → leak=0 → no effect
+const LIFE_R: ResourceKind[] = ['food', 'water', 'o2', 'n2'];
 
 /** Production-aware runway: stock / (net consumption − local production), min over life-support. */
 function colonyRunway(
@@ -409,6 +417,9 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     combinedCons[r] = (combinedCons[r] ?? 0) + (sf.consumption[r] ?? 0);
   }
   combinedCons.spares = (combinedCons.spares ?? 0) + upkeep;
+  // N₂ structural hull leak: each habitat module bleeds N₂ regardless of occupancy (V7)
+  const n2LeakKg = structuralN2Leak(s.built);
+  if (n2LeakKg > 0) combinedCons.n2 = (combinedCons.n2 ?? 0) + n2LeakKg;
   const recycle = recycleMap(p);
   const { stocks, deficit } = applyFlows(s.stocks, {
     arrivals: landed.stocks,
@@ -427,11 +438,19 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   const mortality = s.pop * Math.min(0.9, p.mortFactor * worstRatio);
   s.pop -= mortality;
 
-  // births: a supplied, running medbay enables growth (D-030) — pulls pharma (hi-tech) forever
-  if ((s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0) {
+  // births: medbay + pharma enable growth (D-030); gated by housing (V7) and a fully-fed colony
+  // (worstRatio>0 means an active life-support shortfall this window — no growth mid-famine)
+  const housing = housingCapacity(s.built);
+  const housingOk = housing === 0 || s.pop < housing * 0.9;
+  if ((s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0 && housingOk && worstRatio === 0) {
     s.pop *= 1 + p.birthRate;
   }
-  if (s.pop < p.pop0 * 0.2) s.collapsed = true;
+
+  // extinction: mortality decays multiplicatively and never reaches exactly 0 on its own —
+  // snap a dying-out colony (<1 person) to literal 0 and collapse, once colonists ever existed
+  if (s.pop > 0) s.everHadPop = true;
+  if (s.pop < 1) s.pop = 0;
+  if (s.everHadPop && s.pop <= 0) s.collapsed = true;
 
   return {
     window: s.window,
@@ -450,6 +469,8 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     energyDeficit: energy.deficit,
     avgCondition: avgCondition(s),
     sparesCoverage,
+    housingCapacity: housing,
+    n2LeakKg,
     collapsed: s.collapsed,
   };
 }

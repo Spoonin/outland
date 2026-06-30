@@ -99,22 +99,15 @@ training pipeline — the people-side analog of the import floor.
 _Avoid_: labor shortage, brain drain
 
 **Colonist**:
-A person. Population grows two ways, both gated: (1) **importing colonists** —
-bought like any cargo, a one-time landing cost plus a permanent demand tail in `F`
-(food, pharma, wear, forever); (2) **local births** — possible *only* while the
-colony has built and is sustaining the enabling infrastructure nodes (maternity,
-schools), which are themselves MES-gated and carry their own maintenance tails and
-specialists. No free automatic births, no automatic immigration. Growing the colony
-is always a budget trade-off, and staying small is sometimes optimal.
+A person. The colony starts with **zero** — the player imports the first colonists
+themselves, same as any cargo (a one-time landing cost plus a permanent demand tail
+in `F`: food, pharma, wear, forever), with no preset and no guardrail against
+ordering people before life support (D-055). Population also grows via **local
+births**, gated on built+supplied enabling infrastructure (medbay+pharma, housing)
+*and* on the colony being fully fed this window — no births the same window
+people are dying of a shortage (D-055). No automatic immigration. Growing the
+colony is always a budget trade-off, and staying small is sometimes optimal.
 _Avoid_: settler, migrant, headcount (the person is a Colonist; the count is "population")
-
-**Colonist**:
-A person. Population changes only by the player **importing colonists** (bought
-like any cargo: a one-time landing cost plus a permanent demand tail in `F` —
-food, pharma, wear, forever) plus modest local births. No automatic immigration.
-Growing the colony is therefore a budget trade-off, and staying small is
-sometimes optimal.
-_Avoid_: settler, migrant, headcount (when meaning the person; "population" is the count)
 
 ## Presentation
 

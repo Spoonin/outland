@@ -128,6 +128,8 @@ export class MarsTab extends LitElement {
         ${s.energy >= 0 ? html`<span class="gen">+${s.energy}</span>` : html`<span class="draw">${s.energy}</span>`}
         ${prod ? html`· выпуск: ${prod}` : nothing} ${cons ? html`· потр.: ${cons}` : nothing}
         · ЗИП ${kg(s.upkeepSpares)}/окно
+        ${s.housing ? html`· жильё +${kg(s.housing)}` : nothing}
+        ${s.n2Leak ? html`<span class="short">· N₂ утечка −${kg(s.n2Leak)}/окно</span>` : nothing}
       </div>
       ${locked ? html`<div class="lock">🔒 нужен сначала: ${s.prereq}</div>` : nothing}
       <div class="ctrl">

@@ -27,7 +27,7 @@ describe('ColonyStore (v2 Earth ordering)', () => {
   });
 
   it('status exposes all resource stocks with per-window net & cover', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 2 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }), memKV());
     const res = store.status().resources;
     expect(res.length).toBe(12); // all resources shown in the dashboard
     const food = res.find((c) => c.kind === 'food')!;

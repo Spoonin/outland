@@ -12,6 +12,8 @@ import {
   resolveColonyEnergy,
   structureFlows,
   spareUpkeep,
+  housingCapacity,
+  structuralN2Leak,
   serializeColony,
   loadColony,
   STRUCTURES,
@@ -51,6 +53,8 @@ export interface ColonyStatus {
   energyDeficit: number;
   avgCondition: number; // mean structure condition 0..1 (V6)
   sparesCoverage: number; // spares stock vs upkeep need
+  housingCapacity: number; // total colonist slots from habitats (V7); 0 = unconstrained
+  n2LeakKgPerWindow: number; // structural N₂ hull leak per window (V7)
   ended: boolean;
   collapsed: boolean;
 }
@@ -268,6 +272,7 @@ export class ColonyStore {
     const energy = resolveColonyEnergy(s.built, s.p.popEnergyPerCapita * s.pop, s.condition);
     const sf = structureFlows(s.built, energy.served, undefined, s.condition);
     const upkeep = spareUpkeep(s.built);
+    const n2LeakKgPerWindow = structuralN2Leak(s.built);
     const lifeSet = new Set<ResourceKind>(LIFE);
     // per-resource balance: local production − consumption (life-support + structures + spares upkeep)
     const resources: ResourceLine[] = RESOURCES.map((r) => {
@@ -275,7 +280,9 @@ export class ColonyStore {
       const lsCons = (cons[r] ?? 0) * (1 - s.p.catalog[r].recycle);
       const structCons = sf.consumption[r] ?? 0;
       const upkeepCons = r === 'spares' ? upkeep : 0;
-      const net = prod - lsCons - structCons - upkeepCons;
+      // N₂ structural hull leak (V7): habitats bleed N₂ regardless of population
+      const n2Cons = r === 'n2' ? n2LeakKgPerWindow : 0;
+      const net = prod - lsCons - structCons - upkeepCons - n2Cons;
       const stock = s.stocks[r];
       return {
         kind: r,
@@ -307,6 +314,8 @@ export class ColonyStore {
       energyDeficit: energy.deficit,
       avgCondition,
       sparesCoverage: upkeep > 0 ? Math.min(1, s.stocks.spares / upkeep) : 1,
+      housingCapacity: housingCapacity(s.built),
+      n2LeakKgPerWindow,
       ended: this.ended,
       collapsed: s.collapsed,
     };

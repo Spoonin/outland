@@ -13,6 +13,7 @@ export interface ColonySave {
   v: number;
   window: number;
   pop: number;
+  everHadPop: boolean;
   stocks: Partial<Stocks>;
   inTransit: { stocks: Partial<Stocks>; colonists: number };
   fleet: { pads: Partial<Record<LaunchTech, number>>; refuelUnlocked: boolean };
@@ -26,6 +27,7 @@ export function serializeColony(s: ColonyState): ColonySave {
     v: SAVE_VERSION,
     window: s.window,
     pop: s.pop,
+    everHadPop: s.everHadPop,
     stocks: { ...s.stocks },
     inTransit: { stocks: { ...s.inTransit.stocks }, colonists: s.inTransit.colonists },
     fleet: { pads: { ...s.fleet.pads }, refuelUnlocked: s.fleet.refuelUnlocked },
@@ -85,6 +87,7 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
     ...base,
     window: save.window,
     pop: save.pop,
+    everHadPop: save.everHadPop ?? save.pop > 0,
     stocks: { ...base.stocks, ...save.stocks },
     inTransit: {
       stocks: { ...emptyStocks(0), ...save.inTransit.stocks },

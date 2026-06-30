@@ -53,6 +53,8 @@ export {
   resolveColonyEnergy,
   structureFlows,
   spareUpkeep,
+  housingCapacity,
+  structuralN2Leak,
 } from './structures';
 export type { Structure, BuiltCounts, EnergyResolution, Condition } from './structures';
 export { SAVE_VERSION, serializeColony, hydrateColony, loadColony } from './colony-save';
