@@ -17,6 +17,7 @@ const TABS = [
   { id: 'mat', label: '🔩 Материалы' },
   { id: 'tech', label: '🔬 Хайтек' },
   { id: 'people', label: '🧑‍🚀 Люди' },
+  { id: 'import', label: '📦 Импорт построек' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -171,17 +172,59 @@ export class EarthTab extends LitElement {
         </div>
         <div class="cards">${TECH.map((r) => this.resCard(r, 50_000, 500))}</div>
       `;
-    if (this.tab === 'people')
+    if (this.tab === 'people') {
+      const max = store.maxColonists();
       return html`<div class="cards">
         <div class="card">
-          <div class="h"><span>🧑‍🚀 колонисты</span><span class="v">${store.colonists}</span></div>
-          <input type="range" min="0" max="500" step="10" .value=${String(store.colonists)}
+          <div class="h"><span>🧑‍🚀 колонисты</span><span class="v">${store.colonists} / ${max}</span></div>
+          <input type="range" min="0" max=${Math.max(max, 1)} step=${max >= 10 ? 10 : 1} .value=${String(store.colonists)}
+            ?disabled=${max === 0}
             @input=${(e: Event) => store.setColonists(Number((e.target as HTMLInputElement).value))} />
-          <div class="sub">прибудут через окно (лаг) · вес + вечный шлейф потребления</div>
+          <div class="sub">
+            ${max === 0
+              ? 'нет свободного жилья — постройте хабитат на Марсе или закажите готовую структуру с жильём (📦 Импорт построек)'
+              : 'прибудут через окно (лаг) · вес + вечный шлейф потребления'}
+          </div>
         </div>
       </div>`;
+    }
+    if (this.tab === 'import')
+      return html`
+        <div class="sub" style="margin-bottom:.5rem">
+          Готовые сооружения с Земли: цена — это сложная, дублируемая, космического класса техника
+          (не россыпь металла), плюс доставка по массе. На порядки дороже местной стройки на Марсе,
+          которая обходится только в материалы (D-054) — оправдано лишь для первой партии, пока на
+          Марсе физически нечем строить.
+        </div>
+        <div class="cards">${store.structures().map((s) => this.structImportCard(s.id))}</div>
+      `;
     // logistics
     return this.logistics();
+  }
+
+  private structImportCard(id: string): TemplateResult {
+    const store = this.store;
+    const struct = store.structures().find((s) => s.id === id)!;
+    const qty = store.importQty(id);
+    const unit = store.importUnitPlan(id); // { mass, cost } — cost = capex (unit price), tare-inclusive shipping mass
+    const del = store.deliveryPerKg();
+    const deliveryCost = unit.mass * del.perKg;
+    const landedCost = unit.cost + deliveryCost;
+    const prereqOk = store.prereqMet(id);
+    return html`<div class="card">
+      <div class="h">
+        <span>${struct.icon} ${struct.name}</span><span class="v">есть ${store.builtCount(id)} · +${qty}</span>
+      </div>
+      <input type="range" min="0" max="10" step="1" .value=${String(qty)}
+        ?disabled=${!prereqOk}
+        @input=${(e: Event) => store.setImportQty(id, Number((e.target as HTMLInputElement).value))} />
+      <div class="sub">
+        ${money(landedCost)}/шт под ключ (готовая структура ${money(unit.cost)} + доставка ${money(deliveryCost)}, ${kg(unit.mass)}, ${del.tech})
+        ${struct.energy > 0 ? ` · ⚡ средняя мощность +${struct.energy}/окно (среднегодовая)` : ''}
+        ${struct.housing ? ` · жильё +${struct.housing}` : ''}${!prereqOk ? ` · 🔒 нужен сначала: ${struct.prereq}` : ''}
+      </div>
+      ${qty > 0 ? html`<div class="sub">≈ ${money(landedCost * qty)} за позицию</div>` : nothing}
+    </div>`;
   }
 
   private padCard(tech: 'classic' | 'refuel', title: string, sub: string): TemplateResult {

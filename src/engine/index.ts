@@ -45,6 +45,12 @@ export {
   marsPlanCost,
   marsPlanMaterials,
   prereqMet,
+  structureImportPlan,
+  bufferRunway,
+  BUFFER_LOOKAHEAD,
+  collapseRunway,
+  COLLAPSE_LOOKAHEAD,
+  MILESTONES,
 } from './colony';
 export {
   STRUCTURES,
@@ -56,7 +62,7 @@ export {
   housingCapacity,
   structuralN2Leak,
 } from './structures';
-export type { Structure, BuiltCounts, EnergyResolution, Condition } from './structures';
+export type { Structure, BuiltCounts, EnergyResolution, Condition, StructureDiag } from './structures';
 export { SAVE_VERSION, serializeColony, hydrateColony, loadColony } from './colony-save';
 export type { ColonySave } from './colony-save';
 export type {
@@ -68,7 +74,12 @@ export type {
   EarthOrder,
   OrderPreview,
   ColonyReport,
+  MortalityCause,
+  MilestoneId,
+  MilestoneSpec,
 } from './colony';
+export { EVENTS, EVENT_BY_ID } from './events';
+export type { EventSpec, EventEffect, ActiveEffect, WindowEvent } from './events';
 export { greedyAllocate } from './policy';
 export {
   mes,

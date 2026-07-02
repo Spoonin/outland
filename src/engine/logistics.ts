@@ -35,7 +35,7 @@ export function defaultLaunchParams(overrides: Partial<LaunchParams> = {}): Laun
     launchesPerPadPerWindow: 5,
     classic: { payload: 16_800, launchCost: 9.7e7, padCapex: 1.5e8, padMaintFrac: 0.1, explodeProb: 0.0025 },
     refuel: { payload: 100_000, launchCost: 1.2e7, padCapex: 5.0e8, padMaintFrac: 0.12, explodeProb: 0.0005 },
-    refuelRnDCost: 2.0e10, // ~37% субсидии-окна (D-053): крупная, но посильная ставка
+    refuelRnDCost: 7.5e9, // ~37% субсидии-окна (D-053, пересчитано под M=$20B после D-060): крупная, но посильная ставка
     ...overrides,
   };
 }

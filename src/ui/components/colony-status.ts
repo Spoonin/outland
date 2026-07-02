@@ -101,9 +101,9 @@ export class ColonyStatusPanel extends LitElement {
           ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} кг/окно` : ''}
         </div>` : ''}
         <div class="dim">
-          запас хода
-          <b style="color:${s.runway >= 2 ? '#5ad17a' : s.runway >= 1 ? '#d1b65a' : '#d96a6a'}"
-            >${Number.isFinite(s.runway) ? s.runway + ' ок' : '∞'}</b>
+          🛡 без завоза
+          <b style="color:${s.buffer >= 2 ? '#5ad17a' : s.buffer >= 1 ? '#d1b65a' : '#d96a6a'}"
+            >${s.buffer}${s.bufferSaturated ? '+' : ''} ок</b>
         </div>
         <div class="dim">субсидия ${money(s.budget)}/окно</div>
       </div>

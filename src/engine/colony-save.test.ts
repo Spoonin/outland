@@ -55,6 +55,47 @@ describe('save backward-compat (D-051)', () => {
     expect(back.built.solar_plant).toBe(2);
   });
 
+  it('round-trips the chronicle (D-061)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    commitWindow(s, emptyOrder());
+    commitWindow(s, emptyOrder());
+    const back = loadColony(JSON.stringify(serializeColony(s)), P)!;
+    expect(back.chronicle.length).toBe(2);
+    expect(back.chronicle[0]!.window).toBe(1);
+    expect(back.chronicle[1]!.window).toBe(2);
+  });
+
+  it('an older save without a chronicle field hydrates to an empty one (back-compat)', () => {
+    const s = newColony(P);
+    const save = serializeColony(s);
+    delete save.chronicle;
+    const back = hydrateColony(save, P);
+    expect(back.chronicle).toEqual([]);
+  });
+
+  it('round-trips storyteller state — activeEffects, holdTransit, lastEvent (D-063)', () => {
+    const s = newColony(defaultColonyParams({ seed: 1, startStockWindows: 5 }));
+    s.activeEffects = [{ id: 'dust_storm', effect: 'energy', mag: 0.5, windowsLeft: 2 }];
+    s.holdTransit = { stocks: { ...s.stocks, food: 1000 }, colonists: 3, structures: { habitat: 1 } };
+    s.lastEvent = { id: 'dust_storm', window: 1 };
+    const back = loadColony(JSON.stringify(serializeColony(s)), P)!;
+    expect(back.activeEffects).toEqual(s.activeEffects);
+    expect(back.holdTransit).toEqual(s.holdTransit);
+    expect(back.lastEvent).toEqual(s.lastEvent);
+  });
+
+  it('an older save without storyteller fields hydrates to empty defaults (back-compat)', () => {
+    const s = newColony(P);
+    const save = serializeColony(s);
+    delete save.activeEffects;
+    delete save.holdTransit;
+    delete save.lastEvent;
+    const back = hydrateColony(save, P);
+    expect(back.activeEffects).toEqual([]);
+    expect(back.holdTransit).toBeNull();
+    expect(back.lastEvent).toBeNull();
+  });
+
   it('garbage / unknown version → null (graceful new game, never throws)', () => {
     expect(loadColony('not json', P)).toBeNull();
     expect(loadColony(JSON.stringify({ v: 999 }), P)).toBeNull();

@@ -1,0 +1,7 @@
+id,name,icon,effect,minMag,maxMag,minDur,maxDur,coveredMag,pharmaCost
+dust_storm,Пылевая буря,🌪,energy,0.5,0.7,1,2,,
+subsidy_cut,Урезание субсидии,📉,subsidy,0.2,0.4,1,2,,
+skip_window,Пропуск окна,🚫,delay,0,0,1,1,,
+price_spike,Скачок цен,💹,price,1.5,2,1,1,,
+blight,Патоген,🦠,farm,0.5,0.7,1,2,,
+epidemic,Эпидемия,🤒,epidemic,0.04,0.06,1,1,0.005,0.5

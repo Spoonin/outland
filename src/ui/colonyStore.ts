@@ -9,6 +9,8 @@ import {
   emptyOrder,
   marsPlanMaterials,
   prereqMet,
+  structureImportPlan,
+  colonyPriceMult,
   resolveColonyEnergy,
   structureFlows,
   spareUpkeep,
@@ -16,7 +18,13 @@ import {
   structuralN2Leak,
   serializeColony,
   loadColony,
+  bufferRunway,
+  BUFFER_LOOKAHEAD,
+  collapseRunway,
+  COLLAPSE_LOOKAHEAD,
+  MILESTONES,
   STRUCTURES,
+  STRUCT_BY_ID,
   RESOURCES,
   type ColonyState,
   type ColonyParams,
@@ -29,6 +37,8 @@ import {
   type LaunchTech,
   type Fleet,
   type LaunchParams,
+  type MilestoneId,
+  type MortalityCause,
 } from '../engine';
 
 export interface ResourceLine {
@@ -46,7 +56,8 @@ export interface ColonyStatus {
   pads: Record<LaunchTech, number>;
   refuelUnlocked: boolean;
   budget: number;
-  runway: number; // min cover among life-support
+  buffer: number; // D-062: honest simulated windows-until-first-death with zero new imports
+  bufferSaturated: boolean; // buffer hit the lookahead cap — "this many or more"
   resources: ResourceLine[]; // ALL stocks with per-window net + cover (dashboard)
   energyGen: number;
   energyDemand: number;
@@ -55,8 +66,32 @@ export interface ColonyStatus {
   sparesCoverage: number; // spares stock vs upkeep need
   housingCapacity: number; // total colonist slots from habitats (V7); 0 = unconstrained
   n2LeakKgPerWindow: number; // structural N₂ hull leak per window (V7)
-  ended: boolean;
+  ended: boolean; // collapsed, or the player clicked "finish" (D-064) — never a time/window limit
   collapsed: boolean;
+}
+
+/** A milestone as shown in the debrief checklist (D-064) — `window` is undefined if not yet achieved. */
+export interface MilestoneLine {
+  id: MilestoneId;
+  name: string;
+  icon: string;
+  window?: number;
+}
+
+/** Debrief (D-064): shown on collapse or when the player finishes — reads entirely from the
+ * chronicle (D-061) and engine state, computes nothing that affects gameplay. No win state, ever
+ * (D-036/D-047): states facts, the player draws the conclusion. */
+export interface ColonyDebrief {
+  reason: 'collapsed' | 'finished';
+  window: number;
+  year: number;
+  collapseCause: Partial<Record<MortalityCause, number>>; // empty unless reason === 'collapsed'
+  collapseRunwayWindows: number; // named survival runway (glossary: debrief-only), full collapse under a cutoff
+  collapseRunwaySaturated: boolean; // hit COLLAPSE_LOOKAHEAD — "this many or more"
+  milestones: MilestoneLine[];
+  populationSeries: number[]; // one point per chronicle window
+  autonomySeries: number[]; // autonomyByMass × 100, one point per chronicle window
+  stockSeries: Record<'food' | 'water' | 'o2' | 'n2', number[]>;
 }
 
 /** Combined window plan (Earth order + Mars build) — feasibility for the shared commit footer.
@@ -105,6 +140,14 @@ export class ColonyStore {
   private draftUnlockRefuel = false;
   private draftColonists = 0;
   private draftBuild: string[] = [];
+  private draftImport: Record<string, number> = {}; // structures to import fully built (V8, D-057)
+  // D-062: the honest buffer simulation only depends on the committed state, not the draft order
+  // being edited — cache by window so it isn't re-run on every slider tick (would be a 12-window
+  // engine simulation per keystroke otherwise).
+  private bufferCache?: { window: number; value: number };
+  // D-064: the player chose to stop (no win state — collapse or "finish" are the only endings).
+  // Deliberately NOT persisted: a reload resumes play, same as any other in-progress session state.
+  private finished = false;
 
   constructor(params?: ColonyParams, storage: KV = defaultStorage()) {
     this.storage = storage;
@@ -123,8 +166,17 @@ export class ColonyStore {
     for (const fn of this.listeners) fn();
   }
 
+  /** No win state, no window limit (D-064) — the run ends only on collapse or the player's own
+   * "finish" (terminal, same as collapse: only a new colony follows, matching the decision's
+   * literal "until collapse or the finish button"). */
   get ended(): boolean {
-    return this.state.collapsed || this.state.window >= this.state.p.maxWindows;
+    return this.state.collapsed || this.finished;
+  }
+
+  /** Player-initiated ending (D-064) — reads the debrief without the colony having died. */
+  finish(): void {
+    this.finished = true;
+    this.emit();
   }
 
   // ---- draft order --------------------------------------------------------
@@ -136,6 +188,7 @@ export class ColonyStore {
       padsToBuild: { ...this.draftPads },
       unlockRefuel: this.draftUnlockRefuel,
       colonists: this.draftColonists,
+      structures: { ...this.draftImport },
     };
   }
   resQty(r: ResourceKind): number {
@@ -183,12 +236,43 @@ export class ColonyStore {
   get colonists(): number {
     return this.draftColonists;
   }
+  /** Free housing slots not already occupied or spoken for by colonists in transit (V8 hard cap).
+   * Counts housing that will exist by the time these colonists land: current built + housing already
+   * in transit from an earlier order (it lands at the start of this commit, before the new convoy
+   * ships, per commitWindow's landing order) + this window's queued Mars build + structure imports. */
+  maxColonists(): number {
+    const queuedHousing = this.draftBuild.reduce((a, id) => a + (STRUCT_BY_ID[id]?.housing ?? 0), 0);
+    const importHousing = Object.keys(this.draftImport).reduce(
+      (a, id) => a + (STRUCT_BY_ID[id]?.housing ?? 0) * (this.draftImport[id] ?? 0),
+      0,
+    );
+    const inTransitHousing = Object.keys(this.state.inTransit.structures).reduce(
+      (a, id) => a + (STRUCT_BY_ID[id]?.housing ?? 0) * (this.state.inTransit.structures[id] ?? 0),
+      0,
+    );
+    const housing = housingCapacity(this.state.built) + inTransitHousing + queuedHousing + importHousing;
+    return Math.max(0, housing - this.state.pop - this.state.inTransit.colonists);
+  }
   setColonists(n: number): void {
-    this.draftColonists = Math.max(0, Math.floor(n || 0));
+    this.draftColonists = Math.max(0, Math.min(this.maxColonists(), Math.floor(n || 0)));
     this.emit();
   }
   preview(): OrderPreview {
     return previewOrder(this.state, this.order());
+  }
+
+  // ---- import structures fully built (V8, D-057) ---------------------------
+
+  importQty(id: string): number {
+    return this.draftImport[id] ?? 0;
+  }
+  setImportQty(id: string, n: number): void {
+    this.draftImport[id] = Math.max(0, Math.floor(n || 0));
+    this.emit();
+  }
+  /** Cost (its capex) + shipping mass (buildMaterials-equivalent) to import one unit fully built. */
+  importUnitPlan(id: string): { mass: number; cost: number } {
+    return structureImportPlan(this.state.p, { [id]: 1 }, colonyPriceMult(this.state));
   }
 
   // ---- Mars build queue ---------------------------------------------------
@@ -225,13 +309,17 @@ export class ColonyStore {
     const materialsShort = (Object.keys(need) as ResourceKind[]).filter(
       (r) => this.state.stocks[r] < (need[r] ?? 0),
     );
-    const prereqMissing = [...new Set(this.draftBuild.filter((id) => !prereqMet(this.state, id)))];
+    const importIds = Object.keys(this.draftImport).filter((id) => (this.draftImport[id] ?? 0) > 0);
+    const prereqMissing = [
+      ...new Set([...this.draftBuild, ...importIds].filter((id) => !prereqMet(this.state, id))),
+    ];
     const totalCost = earth.total; // Mars build is money-free (D-054)
-    const overBudget = totalCost > this.state.p.M;
+    // earth.budget already folds in any active subsidy_cut event (D-063)
+    const overBudget = totalCost > earth.budget;
     return {
       earth,
       totalCost,
-      budget: this.state.p.M,
+      budget: earth.budget,
       overBudget,
       materialsShort,
       prereqMissing,
@@ -248,6 +336,7 @@ export class ColonyStore {
     this.draftUnlockRefuel = false;
     this.draftColonists = 0;
     this.draftBuild = [];
+    this.draftImport = {};
     this.persist();
     this.emit();
   }
@@ -260,8 +349,20 @@ export class ColonyStore {
     this.draftUnlockRefuel = false;
     this.draftColonists = 0;
     this.draftBuild = [];
+    this.draftImport = {};
+    this.bufferCache = undefined;
+    this.finished = false;
     this.persist();
     this.emit();
+  }
+
+  /** Live buffer gauge (D-062): honest simulated windows-until-first-death with zero new imports.
+   * Cached per committed window — recomputing it is a bounded engine simulation, not free. */
+  buffer(): number {
+    if (this.bufferCache?.window !== this.state.window) {
+      this.bufferCache = { window: this.state.window, value: bufferRunway(this.state) };
+    }
+    return this.bufferCache.value;
   }
 
   // ---- read models --------------------------------------------------------
@@ -292,14 +393,11 @@ export class ColonyStore {
         lifeSupport: lifeSet.has(r),
       };
     });
-    const runway = Math.min(
-      ...resources.filter((x) => x.lifeSupport).map((x) => x.windows),
-      Infinity,
-    );
     const builtIds = Object.keys(s.built).filter((id) => (s.built[id] ?? 0) > 0);
     const avgCondition = builtIds.length
       ? builtIds.reduce((a, id) => a + (s.condition[id] ?? 1), 0) / builtIds.length
       : 1;
+    const buf = this.buffer();
     return {
       window: s.window,
       year: Math.round(s.window * 2.17 * 10) / 10,
@@ -307,7 +405,8 @@ export class ColonyStore {
       pads: { ...s.fleet.pads },
       refuelUnlocked: s.fleet.refuelUnlocked,
       budget: s.p.M,
-      runway: Number.isFinite(runway) ? Math.round(runway * 10) / 10 : Infinity,
+      buffer: buf,
+      bufferSaturated: buf >= BUFFER_LOOKAHEAD,
       resources,
       energyGen: energy.generation,
       energyDemand: energy.generation + energy.deficit,
@@ -327,6 +426,59 @@ export class ColonyStore {
   lastReport(): ColonyReport | undefined {
     return this.last;
   }
+  /** Full per-window report history (D-061) — the chronicle. Oldest first. */
+  chronicle(): readonly ColonyReport[] {
+    return this.state.chronicle;
+  }
+
+  /** Debrief (D-064) — undefined until the run has actually ended. Reads only the chronicle and
+   * engine state; computes nothing that feeds back into gameplay. */
+  debrief(): ColonyDebrief | undefined {
+    if (!this.ended) return undefined;
+    const s = this.state;
+    const chronicle = s.chronicle;
+    const reason: ColonyDebrief['reason'] = s.collapsed ? 'collapsed' : 'finished';
+
+    // cause of collapse (D-061 attribution): walk back from the end through the CONSECUTIVE run of
+    // windows with deaths — that's the terminal spiral, not the colony's entire death history.
+    const collapseCause: Partial<Record<MortalityCause, number>> = {};
+    if (reason === 'collapsed') {
+      for (let i = chronicle.length - 1; i >= 0; i--) {
+        const r = chronicle[i]!;
+        if (r.mortality <= 0) break;
+        for (const [cause, n] of Object.entries(r.mortalityBreakdown) as [MortalityCause, number][]) {
+          collapseCause[cause] = (collapseCause[cause] ?? 0) + (n ?? 0);
+        }
+      }
+    }
+
+    const cr = collapseRunway(s);
+    const milestones: MilestoneLine[] = MILESTONES.map((m) => ({
+      id: m.id,
+      name: m.name,
+      icon: m.icon,
+      window: s.milestones[m.id],
+    }));
+
+    return {
+      reason,
+      window: s.window,
+      year: Math.round(s.window * 2.17 * 10) / 10,
+      collapseCause,
+      collapseRunwayWindows: cr,
+      collapseRunwaySaturated: cr >= COLLAPSE_LOOKAHEAD,
+      milestones,
+      populationSeries: chronicle.map((r) => r.pop),
+      autonomySeries: chronicle.map((r) => r.autonomyByMass * 100),
+      stockSeries: {
+        food: chronicle.map((r) => r.stocks.food),
+        water: chronicle.map((r) => r.stocks.water),
+        o2: chronicle.map((r) => r.stocks.o2),
+        n2: chronicle.map((r) => r.stocks.n2),
+      },
+    };
+  }
+
   allResources(): readonly ResourceKind[] {
     return RESOURCES;
   }

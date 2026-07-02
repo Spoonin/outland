@@ -21,7 +21,8 @@ _Avoid_: level, layer (when referring to the play unit — that's a Node)
 ## Economy
 
 **Subsidy**:
-The sum of **money** Earth sends each synodic window (~1 trillion, nominal). The
+The sum of **money** Earth sends each synodic window (~$20B — roughly a third of
+NASA's budget over a window, D-053/D-060; was "~1 trillion" in early drafts). The
 single ledger — everything is paid in money, the only budget the player has.
 Nominally fixed but **eroded in real terms by Earth inflation** (buys less each
 window) and cuttable by **Earth events**; the colony cannot control either. Written `M`.
@@ -102,7 +103,12 @@ _Avoid_: labor shortage, brain drain
 A person. The colony starts with **zero** — the player imports the first colonists
 themselves, same as any cargo (a one-time landing cost plus a permanent demand tail
 in `F`: food, pharma, wear, forever), with no preset and no guardrail against
-ordering people before life support (D-055). Population also grows via **local
+ordering people before life support (D-055). Importing is **hard-capped by free
+housing** (`housingCapacity` from built habitats, minus current population and
+colonists already in transit) — zero habitats means zero colonists orderable, full
+stop (D-056); this is an order-time gate, distinct from the older, separate rule
+that local births aren't gated by housing at all when no habitat has ever been
+built (backward-compat for pre-V7 colonies). Population also grows via **local
 births**, gated on built+supplied enabling infrastructure (medbay+pharma, housing)
 *and* on the colony being fully fed this window — no births the same window
 people are dying of a shortage (D-055). No automatic immigration. Growing the
@@ -117,6 +123,26 @@ inflation and Earth events), and **colony reports**. No authored characters or s
 arcs. The game **never interprets or editorializes** — it states facts (including the
 debrief's survival runway) and leaves the conclusion entirely to the player.
 _Avoid_: narrative, story mode, epilogue (when implying authored interpretation)
+
+**Chronicle** (хроника):
+The per-window diegetic report and its stored history: what landed, what each
+structure produced and *why* (condition × energy × inputs), what people died of,
+what event struck. The last window sits expanded on the dashboard; the debrief
+reads the whole series. The game's memory — facts only, per diegetic framing.
+_Avoid_: log, history feed, news ticker
+
+**Storyteller** (сторителлер):
+The escalating event generator: event chance ≈0 during bootstrap, rising with the
+window number, severity scaling with population; at most one event per window;
+**nothing is telegraphed** — the only defense is standing readiness (the buffer
+gauge). _Avoid_: random events (they are paced and escalating, not flat-random)
+
+**Milestone** (майлстоун):
+A recorded first (first landing, first birth, 100 colonists, bulk autonomy, …)
+with the window it happened — a checklist, never a reward. There is **no win
+state**: the game runs until collapse or until the player stops; the finale-boss
+milestone (a window with zero imports of any kind) is a visible far star, not an
+ending. _Avoid_: achievement, victory condition, win
 
 ## Play verbs & states
 
@@ -194,8 +220,10 @@ Whether the colony could survive a total cutoff of imports, measured as a
 **survival runway** — how many windows it would last if imports went to zero now
 (simulated via the collapse spiral), backed under the hood by criticality-weighted
 local coverage. The grim truth metric; stays near zero even when autonomy is high.
-**Debrief-only**: never a live gauge — inferable in-play from the import floor and
-node colors, named explicitly (as a runway, e.g. "~0.8 синода") only in the debrief.
+Two named forms (D-062 amended the old "debrief-only" rule): the **live buffer
+gauge** («запас без завоза», X+2) — windows until the *first deaths* under a
+cutoff, a permanent dashboard line and the player's insurance dial; and the full
+**collapse runway** (e.g. "~0.8 синода"), still named only in the debrief.
 _Avoid_: autonomy (that is the by-mass headline; this is the survival truth)
 
 **Criticality**:

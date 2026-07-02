@@ -66,6 +66,9 @@ export class MarsTab extends LitElement {
     .draw {
       color: #d1b65a;
     }
+    .hint {
+      opacity: 0.6;
+    }
     .lock {
       color: #d96a6a;
       font-size: 0.78rem;
@@ -124,8 +127,9 @@ export class MarsTab extends LitElement {
                 return html`<span class=${short ? 'short' : ''}>${r} ${kg(need)} (склад ${kg(have)})</span>${' '}`;
               })}`
           : nothing}
-        <br />энергия:
-        ${s.energy >= 0 ? html`<span class="gen">+${s.energy}</span>` : html`<span class="draw">${s.energy}</span>`}
+        <br />${s.energy > 0
+          ? html`⚡ средняя мощность: <span class="gen">+${s.energy}</span> <span class="hint">(за окно, среднегодовая — без пиков день/ночь)</span>`
+          : html`энергия: ${s.energy < 0 ? html`<span class="draw">${s.energy}</span>` : '0'}`}
         ${prod ? html`· выпуск: ${prod}` : nothing} ${cons ? html`· потр.: ${cons}` : nothing}
         · ЗИП ${kg(s.upkeepSpares)}/окно
         ${s.housing ? html`· жильё +${kg(s.housing)}` : nothing}

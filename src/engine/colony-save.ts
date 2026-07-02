@@ -2,9 +2,10 @@
 // defaults, reconstructed on load). Load = parse → migrate (versioned chain) → hydrate (merge over a
 // fresh colony, so additive changes self-fill) → validate (else null → fresh game, never crash).
 
-import { newColony, type ColonyState, type ColonyParams } from './colony';
+import { newColony, type ColonyState, type ColonyParams, type ColonyReport, type Transit, type MilestoneId } from './colony';
 import { RESOURCES, emptyStocks, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
+import { type ActiveEffect } from './events';
 
 export const SAVE_VERSION = 3;
 
@@ -15,11 +16,16 @@ export interface ColonySave {
   pop: number;
   everHadPop: boolean;
   stocks: Partial<Stocks>;
-  inTransit: { stocks: Partial<Stocks>; colonists: number };
+  inTransit: { stocks: Partial<Stocks>; colonists: number; structures?: Record<string, number> };
   fleet: { pads: Partial<Record<LaunchTech, number>>; refuelUnlocked: boolean };
   built: Record<string, number>;
   condition: Record<string, number>;
   rngState: number;
+  chronicle?: ColonyReport[]; // per-window report history (D-061); optional — older saves lack it
+  activeEffects?: ActiveEffect[]; // rolling storyteller effects (D-063); optional — older saves lack it
+  holdTransit?: Transit | null; // a convoy delayed by a skip_window event (D-063)
+  lastEvent?: { id: string; window: number } | null; // last fired event, for the no-repeat rule (D-063)
+  milestones?: Partial<Record<MilestoneId, number>>; // id → window achieved (D-064); optional — older saves lack it
 }
 
 export function serializeColony(s: ColonyState): ColonySave {
@@ -29,11 +35,16 @@ export function serializeColony(s: ColonyState): ColonySave {
     pop: s.pop,
     everHadPop: s.everHadPop,
     stocks: { ...s.stocks },
-    inTransit: { stocks: { ...s.inTransit.stocks }, colonists: s.inTransit.colonists },
+    inTransit: { stocks: { ...s.inTransit.stocks }, colonists: s.inTransit.colonists, structures: { ...s.inTransit.structures } },
     fleet: { pads: { ...s.fleet.pads }, refuelUnlocked: s.fleet.refuelUnlocked },
     built: { ...s.built },
     condition: { ...s.condition },
     rngState: s.rngState,
+    chronicle: [...s.chronicle],
+    activeEffects: s.activeEffects.map((e) => ({ ...e })),
+    holdTransit: s.holdTransit ? { stocks: { ...s.holdTransit.stocks }, colonists: s.holdTransit.colonists, structures: { ...s.holdTransit.structures } } : null,
+    lastEvent: s.lastEvent ? { ...s.lastEvent } : null,
+    milestones: { ...s.milestones },
   };
 }
 
@@ -92,6 +103,7 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
     inTransit: {
       stocks: { ...emptyStocks(0), ...save.inTransit.stocks },
       colonists: save.inTransit.colonists,
+      structures: { ...(save.inTransit.structures ?? {}) },
     },
     fleet: {
       refuelUnlocked: save.fleet.refuelUnlocked,
@@ -100,6 +112,11 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
     built: { ...save.built },
     condition: { ...(save.condition ?? {}) },
     rngState: save.rngState,
+    chronicle: [...(save.chronicle ?? [])],
+    activeEffects: (save.activeEffects ?? []).map((e) => ({ ...e })),
+    holdTransit: save.holdTransit ?? null,
+    lastEvent: save.lastEvent ?? null,
+    milestones: { ...(save.milestones ?? {}) },
     p,
   };
 }

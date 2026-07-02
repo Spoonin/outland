@@ -6,10 +6,28 @@ import {
   commitWindow,
   consumption,
   emptyOrder,
+  bufferRunway,
+  BUFFER_LOOKAHEAD,
+  collapseRunway,
+  COLLAPSE_LOOKAHEAD,
   type EarthOrder,
 } from './colony';
+import { rollEvent } from './events';
+import { makeRng } from './rng';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
+
+/** Finds a seed that makes the storyteller fire the given event id on `window`, with a chance
+ * config that always fires (used to make D-063 tests deterministic instead of asserting on luck). */
+function seedForEvent(targetId: string, window = 1): number {
+  const cfg = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1 };
+  for (let seed = 1; seed < 5000; seed++) {
+    const roll = rollEvent(window, cfg, undefined, makeRng(seed));
+    if (roll?.spec.id === targetId) return seed;
+  }
+  throw new Error(`no seed found for event ${targetId}`);
+}
+const ALWAYS_FIRE = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1 };
 
 describe('colony v2 — consumption & startup (D-042/colony-sim)', () => {
   it('life-support consumption scales with population', () => {
@@ -86,6 +104,8 @@ describe('commit window — transit lag, consumption, runway, mortality', () => 
 
   it('colonists arrive after the lag and grow population', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000,  startStockWindows: 5 })); // well-fed: isolate colonist mechanic
+    s.built.solar_plant = 1; // powered: isolate colonist-lag from unrelated energy mortality (D-060)
+    s.condition.solar_plant = 1;
     const p0 = s.pop;
     commitWindow(s, ord({ colonists: 50 }));
     expect(s.pop).toBeCloseTo(p0, 0); // not yet (in transit), minus any mortality
@@ -341,5 +361,410 @@ describe('colony starts from zero — extinction & famine-blocked births (redesi
     const r = commitWindow(s, emptyOrder());
     expect(r.mortality).toBeGreaterThan(0);
     expect(r.pop).toBeLessThan(1000); // mortality outweighs any birth proc
+  });
+});
+
+describe('import finished structures from Earth (V8, D-057)', () => {
+  it('previewOrder prices a structure import at its capex (a complex durable unit, not scrap metal)', () => {
+    const s = newColony(defaultColonyParams());
+    const pv = previewOrder(s, ord({ structures: { habitat: 1 } }));
+    // habitat buildMaterials: steel 6000, glass 4000, polymers 1000 (shipping mass only)
+    const expectMass = 6000 * (1 + s.p.catalog.steel.tare) + 4000 * (1 + s.p.catalog.glass.tare) + 1000 * (1 + s.p.catalog.polymers.tare);
+    expect(pv.mass).toBeCloseTo(expectMass, 0);
+    expect(pv.structCost).toBeCloseTo(3e9, 0); // habitat capex, window 0 (no inflation yet)
+  });
+
+  it('an imported structure lands built and ready — no extra local assembly window', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.stocks.spares = 1000; // fully covered upkeep so wear doesn't muddy this check
+    commitWindow(s, ord({ structures: { habitat: 1 } })); // ship
+    expect(s.built.habitat ?? 0).toBe(0); // still in transit
+    const r = commitWindow(s, emptyOrder()); // land
+    expect(s.built.habitat).toBe(1);
+    expect(s.condition.habitat).toBe(1);
+    expect(r.built).toContain('habitat');
+    expect(r.housingCapacity).toBe(200); // usable the same commit it lands
+  });
+
+  it('base_block is a self-sufficient 20-person bootstrap unit (own water/O₂/N₂ production)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 0 }));
+    s.built = { base_block: 1 };
+    s.condition = { base_block: 1 };
+    s.stocks.food = 1_000_000; // isolate the check to water/O₂/N₂ (base_block doesn't grow food)
+    s.stocks.spares = 1_000; // fully covered upkeep so wear doesn't throttle this window's output
+    const r = commitWindow(s, emptyOrder());
+    expect(r.housingCapacity).toBe(20);
+    expect(r.mortality).toBe(0); // life support fully covers its own 20 colonists
+  });
+
+  it('importing a structure with an unmet prereq makes the whole order infeasible', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    // nuclear_plant needs waste_pad, which isn't built
+    const r = commitWindow(s, ord({ structures: { nuclear_plant: 1 } }));
+    expect(r.spent).toBe(0); // order rejected, nothing charged
+    commitWindow(s, emptyOrder()); // nothing was in transit to land
+    expect(s.built.nuclear_plant ?? 0).toBe(0); // never landed
+  });
+});
+
+describe('chronicle — per-window causality report (D-061)', () => {
+  it('commitWindow appends its own report to state.chronicle, in order', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+    const r1 = commitWindow(s, emptyOrder());
+    const r2 = commitWindow(s, emptyOrder());
+    expect(s.chronicle.length).toBe(2);
+    expect(s.chronicle[0]).toBe(r1);
+    expect(s.chronicle[1]).toBe(r2);
+    expect(s.chronicle[0]!.window).toBe(1);
+    expect(s.chronicle[1]!.window).toBe(2);
+  });
+
+  it('names the mortality cause — worst life-support shortfall (Liebig)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 0 })); // starving immediately
+    const r = commitWindow(s, emptyOrder());
+    expect(r.mortality).toBeGreaterThan(0);
+    const causes = Object.keys(r.mortalityBreakdown);
+    expect(causes.length).toBeGreaterThan(0);
+    const total = Object.values(r.mortalityBreakdown).reduce((a, n) => a + (n ?? 0), 0);
+    expect(total).toBeCloseTo(r.mortality, 0);
+  });
+
+  it('names energy brownout as a separate mortality cause (D-059/D-060)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 })); // fed, but unpowered
+    const r = commitWindow(s, emptyOrder());
+    expect(r.mortality).toBeGreaterThan(0);
+    expect(r.mortalityBreakdown.energy).toBeGreaterThan(0);
+  });
+
+  it('reports structure output diagnostics (condition × energy × inputs)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+    s.built = { solar_plant: 2, farm: 1 };
+    s.condition = { solar_plant: 1, farm: 1 };
+    s.stocks.water = 1_000_000; // isolate energy/condition from an input-availability cap
+    s.stocks.spares = 1_000_000; // fully covered upkeep so wear doesn't shift condition off 1
+    const r = commitWindow(s, emptyOrder());
+    const d = r.structDiag.farm!;
+    expect(d.condition).toBe(1);
+    expect(d.runFrac).toBeCloseTo(d.condition * d.energyFrac * d.inputFrac, 5);
+  });
+
+  it('births are counted and reported', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, birthRate: 0.1 }));
+    s.built = { solar_plant: 3, medbay: 1 };
+    s.condition = { solar_plant: 1, medbay: 1 };
+    s.stocks.pharma = 5_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.births).toBeGreaterThan(0);
+  });
+
+  it('autonomyByMass is 0 when no mass moved yet (order still in transit, no local production)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+    const r = commitWindow(s, ord({ resources: { food: 100_000 } })); // ships this window, lands next
+    expect(r.autonomyByMass).toBe(0);
+  });
+
+  it('autonomyByMass is 1 when this window moved only local production, nothing imported', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+    s.built = { solar_plant: 2, farm: 1 };
+    s.condition = { solar_plant: 1, farm: 1 };
+    s.stocks.water = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.autonomyByMass).toBe(1);
+  });
+
+  it('autonomyByMass splits between an imported convoy landing and this window\'s local production', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+    s.built = { solar_plant: 2, farm: 1 };
+    s.condition = { solar_plant: 1, farm: 1 };
+    s.stocks.water = 1_000_000;
+    commitWindow(s, ord({ resources: { food: 100_000 } })); // ships
+    const r = commitWindow(s, emptyOrder()); // convoy lands alongside local farm output
+    expect(r.autonomyByMass).toBeGreaterThan(0);
+    expect(r.autonomyByMass).toBeLessThan(1);
+  });
+});
+
+describe('bufferRunway — honest self-sufficiency simulation (D-062)', () => {
+  it('an empty colony (no colonists yet) has zero buffer', () => {
+    const s = newColony(defaultColonyParams());
+    expect(bufferRunway(s)).toBe(0);
+  });
+
+  it('a colony with no stock buffer and no production dies on the very first simulated window', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 0 }));
+    expect(bufferRunway(s)).toBe(0); // starves immediately once imports stop
+  });
+
+  it('windows survived matches the actual first-death window under a real zero-import run', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }));
+    const buf = bufferRunway(s);
+    // replay the same zero-order sequence for real and find where mortality first appears
+    let firstDeathAt = -1;
+    for (let i = 1; i <= BUFFER_LOOKAHEAD; i++) {
+      const r = commitWindow(s, emptyOrder());
+      if (r.mortality > 0) {
+        firstDeathAt = i;
+        break;
+      }
+    }
+    expect(firstDeathAt).toBeGreaterThan(0);
+    expect(buf).toBe(firstDeathAt - 1); // buf windows survived cleanly before the first death
+  });
+
+  it('does not mutate the real state — it runs on a throwaway clone', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }));
+    const windowBefore = s.window;
+    const popBefore = s.pop;
+    const chronicleBefore = s.chronicle.length;
+    bufferRunway(s);
+    expect(s.window).toBe(windowBefore);
+    expect(s.pop).toBe(popBefore);
+    expect(s.chronicle.length).toBe(chronicleBefore);
+  });
+
+  it('a fully self-sufficient, powered, well-fed colony saturates at the lookahead cap', () => {
+    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    // production > consumption on every LIFE_R resource, generously, so this isn't just coasting
+    // on the starting buffer within the lookahead window.
+    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
+    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
+    s.stocks.spares = 1_000_000; // upkeep fully covered — no wear
+    expect(bufferRunway(s)).toBe(BUFFER_LOOKAHEAD);
+  });
+});
+
+describe('storyteller events — engine integration (D-063)', () => {
+  it('reports the fired event as a dry fact, and does not affect the window it fires on', () => {
+    const seed = seedForEvent('dust_storm');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2 };
+    s.condition = { solar_plant: 1 };
+    s.stocks.spares = 1_000_000; // upkeep fully covered — isolate from wear, not what this test checks
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.event?.id).toBe('dust_storm');
+    expect(r1.energyGen).toBeCloseTo(200, 0); // undisturbed — the fresh roll isn't felt until next window
+    expect(s.activeEffects.some((e) => e.id === 'dust_storm')).toBe(true);
+    expect(s.lastEvent).toEqual({ id: 'dust_storm', window: 1 });
+  });
+
+  it('dust_storm cuts generation starting the window after it fires', () => {
+    const seed = seedForEvent('dust_storm');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2 };
+    s.condition = { solar_plant: 1 };
+    commitWindow(s, emptyOrder()); // window 1: storm fires, not yet felt
+    s.p.eventChanceCap = 0; // isolate window 2 from a fresh roll
+    const r2 = commitWindow(s, emptyOrder());
+    expect(r2.energyGen).toBeLessThan(200);
+  });
+
+  it('subsidy_cut shrinks next window\'s effective budget', () => {
+    const seed = seedForEvent('subsidy_cut');
+    const s = newColony(defaultColonyParams({ seed, ...ALWAYS_FIRE }));
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.event?.id).toBe('subsidy_cut');
+    s.p.eventChanceCap = 0;
+    const pv = previewOrder(s, emptyOrder());
+    expect(pv.budget).toBeLessThan(s.p.M);
+  });
+
+  it('price_spike raises next window\'s cost for the affected category only', () => {
+    const seed = seedForEvent('price_spike');
+    const s = newColony(defaultColonyParams({ seed, ...ALWAYS_FIRE }));
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.event?.id).toBe('price_spike');
+    const r = r1.event!.category![0]!;
+    const withSpike = previewOrder(s, ord({ resources: { [r]: 1000 } })).goodsCost;
+    const noSpike = structuredClone(s);
+    noSpike.activeEffects = [];
+    const withoutSpike = previewOrder(noSpike, ord({ resources: { [r]: 1000 } })).goodsCost;
+    expect(withSpike).toBeGreaterThan(withoutSpike);
+  });
+
+  it('blight cuts farm output starting the window after it fires, leaves non-farm structures alone', () => {
+    const seed = seedForEvent('blight');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2, farm: 1, steel_plant: 1 };
+    s.condition = { solar_plant: 1, farm: 1, steel_plant: 1 };
+    s.stocks.water = 1_000_000;
+    s.stocks.spares = 1_000_000;
+    commitWindow(s, emptyOrder()); // window 1: blight fires, not yet felt
+    s.p.eventChanceCap = 0;
+    const r2 = commitWindow(s, emptyOrder());
+    expect(r2.structDiag.farm!.runFrac).toBeLessThan(1);
+    expect(r2.structDiag.steel_plant!.runFrac).toBeCloseTo(1, 5); // blight only touches food producers
+  });
+
+  it('skip_window delays this window\'s shipment by one extra window (arrives with the next)', () => {
+    const seed = seedForEvent('skip_window');
+    const s = newColony(defaultColonyParams({ seed, ...ALWAYS_FIRE }));
+    const r1 = commitWindow(s, ord({ resources: { food: 50_000 } })); // ships, but skip fires
+    expect(r1.event?.id).toBe('skip_window');
+    s.p.eventChanceCap = 0;
+    const r2 = commitWindow(s, emptyOrder()); // would normally land here
+    expect(r2.landed.stocks.food ?? 0).toBe(0);
+    const r3 = commitWindow(s, emptyOrder());
+    expect(r3.landed.stocks.food).toBe(50_000); // arrives one window late, undiminished
+  });
+
+  it('epidemic kills the uncovered; medbay+pharma coverage cuts it to a minimal rate + pharma cost', () => {
+    const seed = seedForEvent('epidemic');
+
+    const uncovered = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    uncovered.built = { solar_plant: 3 };
+    uncovered.condition = { solar_plant: 1 };
+    const rUncovered = commitWindow(uncovered, emptyOrder());
+    expect(rUncovered.event?.id).toBe('epidemic');
+    expect(rUncovered.event?.covered).toBe(false);
+    expect(rUncovered.mortalityBreakdown.epidemic).toBeGreaterThan(0);
+
+    const covered = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    covered.built = { solar_plant: 3, medbay: 1 };
+    covered.condition = { solar_plant: 1, medbay: 1 };
+    covered.stocks.pharma = 10_000;
+    const rCovered = commitWindow(covered, emptyOrder());
+    expect(rCovered.event?.id).toBe('epidemic');
+    expect(rCovered.event?.covered).toBe(true);
+    expect(rCovered.mortalityBreakdown.epidemic!).toBeLessThan(rUncovered.mortalityBreakdown.epidemic!);
+    expect(covered.stocks.pharma).toBeLessThan(10_000); // one-time pharma draw
+  });
+
+  it('the same event cannot fire two windows in a row', () => {
+    const seed = seedForEvent('dust_storm');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2 };
+    s.condition = { solar_plant: 1 };
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.event?.id).toBe('dust_storm');
+    const r2 = commitWindow(s, emptyOrder()); // chance is still 1 (ALWAYS_FIRE) — something else must fire
+    expect(r2.event).toBeDefined();
+    expect(r2.event?.id).not.toBe('dust_storm');
+  });
+});
+
+describe('milestones — a checklist, never a reward (D-064)', () => {
+  it('first_landing fires the window colonists actually land', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.built = { habitat: 1 };
+    s.condition = { habitat: 1 };
+    commitWindow(s, ord({ colonists: 10 })); // ships
+    expect(s.milestones.first_landing).toBeUndefined();
+    const r = commitWindow(s, emptyOrder()); // lands
+    expect(r.milestones).toContain('first_landing');
+    expect(s.milestones.first_landing).toBe(2);
+  });
+
+  it('first_birth fires the window a birth actually occurs, only once', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, birthRate: 0.1 }));
+    s.built = { solar_plant: 3, medbay: 1 };
+    s.condition = { solar_plant: 1, medbay: 1 };
+    s.stocks.pharma = 5_000;
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.births).toBeGreaterThan(0);
+    expect(r1.milestones).toContain('first_birth');
+    s.stocks.pharma = 5_000; // keep feeding births
+    const r2 = commitWindow(s, emptyOrder());
+    expect(r2.milestones).not.toContain('first_birth'); // recorded once
+    expect(s.milestones.first_birth).toBe(1);
+  });
+
+  it('pop_100 fires once population crosses 100', () => {
+    const s = newColony(defaultColonyParams({ pop0: 150, startStockWindows: 5 }));
+    const r = commitWindow(s, emptyOrder());
+    expect(r.milestones).toContain('pop_100');
+  });
+
+  it('bulk_autonomy fires only when local production fully covers food/water/O₂/N₂', () => {
+    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    const rBefore = commitWindow(s, emptyOrder()); // pure import — not bulk-autonomous
+    expect(rBefore.milestones).not.toContain('bulk_autonomy');
+
+    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
+    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
+    s.stocks.spares = 1_000_000;
+    const rAfter = commitWindow(s, emptyOrder());
+    expect(rAfter.milestones).toContain('bulk_autonomy');
+  });
+
+  it('buffer_2 fires once the honest buffer gauge reaches 2 windows', () => {
+    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
+    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
+    s.stocks.spares = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(bufferRunway(s)).toBeGreaterThanOrEqual(2);
+    expect(r.milestones).toContain('buffer_2');
+  });
+
+  it('event_survived fires only when an event hits and nobody dies that window', () => {
+    const seed = seedForEvent('dust_storm');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2 };
+    s.condition = { solar_plant: 1 };
+    s.stocks.spares = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('dust_storm');
+    expect(r.mortality).toBe(0);
+    expect(r.milestones).toContain('event_survived');
+  });
+
+  it('refuel_unlocked fires the window the R&D lands', () => {
+    const s = newColony(defaultColonyParams());
+    const r = commitWindow(s, ord({ unlockRefuel: true }));
+    expect(r.milestones).toContain('refuel_unlocked');
+  });
+
+  it('zero_import (finale-boss) does not trivially fire on window 1 before the colony has started', () => {
+    const s = newColony(defaultColonyParams());
+    const r = commitWindow(s, emptyOrder()); // nothing ordered, nothing built — must NOT count as "independence"
+    expect(r.milestones).not.toContain('zero_import');
+  });
+
+  it('zero_import fires once an established colony has a window landing nothing at all', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 1 };
+    s.everHadPop = true;
+    const r = commitWindow(s, emptyOrder()); // established colony, orders nothing, nothing lands
+    expect(r.milestones).toContain('zero_import');
+  });
+
+  it('milestones never re-fire once achieved — s.milestones records the FIRST window only', () => {
+    const s = newColony(defaultColonyParams({ pop0: 150, startStockWindows: 5 }));
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.milestones).toContain('pop_100');
+    const firstWindow = s.milestones.pop_100;
+    commitWindow(s, emptyOrder());
+    commitWindow(s, emptyOrder());
+    expect(s.milestones.pop_100).toBe(firstWindow);
+  });
+});
+
+describe('collapseRunway — the debrief-only named survival runway (D-064)', () => {
+  it('a colony with no buffer and no production collapses within the lookahead', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 0 }));
+    const cr = collapseRunway(s);
+    expect(cr).toBeLessThan(COLLAPSE_LOOKAHEAD);
+    expect(cr).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a fully self-sufficient colony saturates at the collapse lookahead cap', () => {
+    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
+    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
+    s.stocks.spares = 1_000_000;
+    expect(collapseRunway(s)).toBe(COLLAPSE_LOOKAHEAD);
+  });
+
+  it('does not mutate the real state — runs on a throwaway clone', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }));
+    const windowBefore = s.window;
+    collapseRunway(s);
+    expect(s.window).toBe(windowBefore);
+  });
+
+  it('collapseRunway ≥ bufferRunway — full collapse never comes before the first death', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }));
+    expect(collapseRunway(s)).toBeGreaterThanOrEqual(bufferRunway(s));
   });
 });

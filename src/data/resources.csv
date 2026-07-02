@@ -1,0 +1,13 @@
+id,earthPerKg,perCapita,recycle,tare
+food,50,50,0,0.1
+water,2,100,0.3,0.05
+o2,20,20,0.3,1
+n2,15,0,0,1
+steel,2,0,0,0
+metals,8,0,0,0
+polymers,40,0,0,0
+glass,3,0,0,0
+spares,50,0,0,0
+pharma,3000,0,0,0.2
+chips,50000,0,0,0
+catalyst,8000,0,0,0.1

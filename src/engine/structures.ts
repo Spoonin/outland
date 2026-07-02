@@ -3,7 +3,9 @@
 // (priority brownout), input availability (hi-tech wall, D-050) AND condition (wear, V6/D-052):
 // a structure left unmaintained (no spares) degrades → produces less → cascade.
 
-import { resolveEnergy, type Stocks, type ResourceKind, type EnergyDemand } from './resources';
+import { resolveEnergy, RESOURCES, type Stocks, type ResourceKind, type EnergyDemand } from './resources';
+import { parseCsv, num } from '../data/csv';
+import structuresCsv from '../data/structures.csv?raw';
 
 export interface Structure {
   id: string;
@@ -21,25 +23,40 @@ export interface Structure {
   prereq?: string; // structure id that must exist first (e.g. nuclear → waste pad)
 }
 
-export const STRUCTURES: readonly Structure[] = [
-  { id: 'solar_plant', name: 'Солнечная электростанция', icon: '☀️', capex: 2e9, buildMaterials: { steel: 5000, glass: 2000 }, energy: 100, energyPriority: 2, produces: {}, consumes: {}, upkeepSpares: 300 },
-  { id: 'waste_pad', name: 'Площадка отходов', icon: '☢️', capex: 1e9, buildMaterials: { steel: 3000 }, energy: 0, energyPriority: 2, produces: {}, consumes: {}, upkeepSpares: 50 },
-  { id: 'nuclear_plant', name: 'Ядерная электростанция', icon: '⚛️', capex: 1e10, buildMaterials: { steel: 20000, metals: 5000 }, energy: 500, energyPriority: 2, produces: {}, consumes: {}, upkeepSpares: 1500, prereq: 'waste_pad' },
-  { id: 'farm', name: 'Ферма / теплица', icon: '🌱', capex: 3e9, buildMaterials: { steel: 4000, glass: 5000 }, energy: -80, energyPriority: 1, produces: { food: 80000 }, consumes: { water: 20000 }, upkeepSpares: 400 },
-  { id: 'water_recycler', name: 'ЖО: рециклинг воды', icon: '💧', capex: 2e9, buildMaterials: { steel: 2000, polymers: 1000 }, energy: -30, energyPriority: 0, produces: { water: 40000 }, consumes: {}, upkeepSpares: 350 },
-  { id: 'o2_generator', name: 'ЖО: генератор O₂ (MOXIE)', icon: '🫧', capex: 2e9, buildMaterials: { steel: 2000 }, energy: -40, energyPriority: 0, produces: { o2: 15000 }, consumes: {}, upkeepSpares: 350 },
-  // localization factories: cut bulk imports — but polymer_plant forever pulls catalyst (hi-tech wall)
-  { id: 'steel_plant', name: 'Металлургия (сталь)', icon: '🏭', capex: 4e9, buildMaterials: { metals: 2000 }, energy: -60, energyPriority: 2, produces: { steel: 40000 }, consumes: {}, upkeepSpares: 600 },
-  { id: 'glass_plant', name: 'Стекло/керамика', icon: '🪟', capex: 3e9, buildMaterials: { steel: 2000 }, energy: -40, energyPriority: 2, produces: { glass: 25000 }, consumes: {}, upkeepSpares: 400 },
-  { id: 'polymer_plant', name: 'Полимеры (ФТ)', icon: '🧪', capex: 4e9, buildMaterials: { steel: 3000 }, energy: -50, energyPriority: 2, produces: { polymers: 18000 }, consumes: { catalyst: 300 }, upkeepSpares: 500 },
-  // hi-tech consumers: permanent import floor of pharma/chips (D-046 "Earth leg")
-  { id: 'medbay', name: 'Медблок (→ рождения)', icon: '🏥', capex: 5e9, buildMaterials: { steel: 2000, glass: 2000 }, energy: -30, energyPriority: 0, produces: {}, consumes: { pharma: 120 }, upkeepSpares: 400 },
-  { id: 'rnd_lab', name: 'RnD-лаборатория', icon: '🔬', capex: 6e9, buildMaterials: { steel: 3000, glass: 2000 }, energy: -50, energyPriority: 2, produces: {}, consumes: { chips: 200 }, upkeepSpares: 500 },
-  // V7: atmosphere/BIOS — housing, N₂ structural leak, N₂ ISRU, bio O₂ regeneration (D-048)
-  { id: 'habitat', name: 'Жилой модуль', icon: '🏠', capex: 3e9, buildMaterials: { steel: 6000, glass: 4000, polymers: 1000 }, energy: -15, energyPriority: 0, produces: {}, consumes: {}, upkeepSpares: 350, housing: 200, n2Leak: 500 },
-  { id: 'n2_concentrator', name: 'Концентратор N₂ (ISRU)', icon: '🫧', capex: 2.5e9, buildMaterials: { steel: 3000 }, energy: -70, energyPriority: 1, produces: { n2: 10000 }, consumes: {}, upkeepSpares: 400 },
-  { id: 'algae_bioreactor', name: 'Биореактор (водоросли)', icon: '🌿', capex: 3e9, buildMaterials: { steel: 2000, glass: 3000, polymers: 500 }, energy: -30, energyPriority: 1, produces: { o2: 15000 }, consumes: { water: 8000 }, upkeepSpares: 500 },
-];
+/** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
+function loadStructures(): Structure[] {
+  return parseCsv(structuresCsv).map((row): Structure => {
+    const buildMaterials: Partial<Stocks> = {};
+    const produces: Partial<Stocks> = {};
+    const consumes: Partial<Stocks> = {};
+    for (const r of RESOURCES) {
+      const m = num(row[`mat_${r}`]);
+      if (m) buildMaterials[r] = m;
+      const p = num(row[`prod_${r}`]);
+      if (p) produces[r] = p;
+      const c = num(row[`cons_${r}`]);
+      if (c) consumes[r] = c;
+    }
+    const s: Structure = {
+      id: row.id,
+      name: row.name,
+      icon: row.icon,
+      capex: num(row.capex),
+      buildMaterials,
+      energy: num(row.energy),
+      energyPriority: num(row.energyPriority),
+      produces,
+      consumes,
+      upkeepSpares: num(row.upkeepSpares),
+    };
+    if (row.housing) s.housing = num(row.housing);
+    if (row.n2Leak) s.n2Leak = num(row.n2Leak);
+    if (row.prereq) s.prereq = row.prereq;
+    return s;
+  });
+}
+
+export const STRUCTURES: readonly Structure[] = loadStructures();
 
 export const STRUCT_BY_ID: Readonly<Record<string, Structure>> = Object.fromEntries(
   STRUCTURES.map((s) => [s.id, s]),
@@ -67,31 +84,43 @@ export interface EnergyResolution {
   deficit: number;
 }
 
-/** Resolve colony energy: life-support (priority 0) + each drawing structure (demand scaled by condition). */
+/** Resolve colony energy: life-support (priority 0) + each drawing structure (demand scaled by condition).
+ * `genMult` (D-063, dust storms) additionally scales generation before allocation. */
 export function resolveColonyEnergy(
   built: BuiltCounts,
   lifeSupportDemand: number,
   condition?: Condition,
+  genMult = 1,
 ): EnergyResolution {
   const demands: EnergyDemand[] = [{ name: 'lifesupport', priority: 0, demand: lifeSupportDemand }];
   for (const s of STRUCTURES) {
     const n = built[s.id] ?? 0;
     if (n > 0 && s.energy < 0) demands.push({ name: s.id, priority: s.energyPriority, demand: -s.energy * n * condOf(condition, s.id) });
   }
-  const r = resolveEnergy(energyGeneration(built, condition), demands);
+  const r = resolveEnergy(energyGeneration(built, condition) * genMult, demands);
   return { generation: r.generation, served: r.served, deficit: r.deficit };
+}
+
+/** Per-structure-type output breakdown for the chronicle (D-061): runFrac = condition × energy × inputs. */
+export interface StructureDiag {
+  condition: number; // 0..1
+  energyFrac: number; // 0..1 power served (1 for non-drawing/producing structures)
+  inputFrac: number; // 0..1 worst input-availability ratio (1 if no inputs consumed)
+  runFrac: number; // condition × energyFrac × inputFrac — the actual output multiplier
 }
 
 /**
  * Aggregate structure production/consumption. Run fraction = condition × energy served × input
  * availability. Condition (V6) and input availability (D-050) both throttle output → cascades.
+ * `farmMult` (D-063, blight) additionally throttles any structure that produces food.
  */
 export function structureFlows(
   built: BuiltCounts,
   served: Record<string, number>,
   avail?: Partial<Stocks>,
   condition?: Condition,
-): { production: Partial<Stocks>; consumption: Partial<Stocks> } {
+  farmMult = 1,
+): { production: Partial<Stocks>; consumption: Partial<Stocks>; diag: Record<string, StructureDiag> } {
   const add = (acc: Partial<Stocks>, r: ResourceKind, v: number) => (acc[r] = (acc[r] ?? 0) + v);
   const energyPower = (s: Structure): number => (s.energy < 0 ? (served[s.id] ?? 0) : 1);
 
@@ -111,19 +140,25 @@ export function structureFlows(
     return a >= d ? 1 : a / d;
   };
 
-  // pass 2: runFrac = condition × energy × min(input availability)
+  // pass 2: runFrac = condition × energy × min(input availability) × farm blight (food producers only)
   const production: Partial<Stocks> = {};
   const consumption: Partial<Stocks> = {};
+  const diag: Record<string, StructureDiag> = {};
   for (const s of STRUCTURES) {
     const n = built[s.id] ?? 0;
     if (n <= 0) continue;
     let inputCap = 1;
     for (const r of Object.keys(s.consumes) as ResourceKind[]) inputCap = Math.min(inputCap, ratio(r));
-    const runFrac = condOf(condition, s.id) * energyPower(s) * inputCap;
+    const isFarm = (s.produces.food ?? 0) > 0;
+    const cond = condOf(condition, s.id);
+    const eFrac = energyPower(s);
+    const blight = isFarm ? farmMult : 1;
+    const runFrac = cond * eFrac * inputCap * blight;
+    diag[s.id] = { condition: cond, energyFrac: eFrac, inputFrac: inputCap * blight, runFrac };
     for (const r of Object.keys(s.produces) as ResourceKind[]) add(production, r, (s.produces[r] ?? 0) * n * runFrac);
     for (const r of Object.keys(s.consumes) as ResourceKind[]) add(consumption, r, (s.consumes[r] ?? 0) * n * runFrac);
   }
-  return { production, consumption };
+  return { production, consumption, diag };
 }
 
 /** Spares/window needed to hold all built structures at full condition (V6). */

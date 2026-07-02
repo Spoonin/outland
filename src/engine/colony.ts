@@ -24,6 +24,8 @@ import {
   type LaunchTech,
 } from './logistics';
 import { makeRng } from './rng';
+import { parseCsv, num } from '../data/csv';
+import resourcesCsv from '../data/resources.csv?raw';
 import {
   STRUCT_BY_ID,
   resolveColonyEnergy,
@@ -33,7 +35,16 @@ import {
   structuralN2Leak,
   type BuiltCounts,
   type Condition,
+  type StructureDiag,
 } from './structures';
+import {
+  rollEvent,
+  effectMultiplier,
+  priceMultFor,
+  decayEffects,
+  type ActiveEffect,
+  type WindowEvent,
+} from './events';
 
 /** Per-resource catalog: earth price ($/kg) + per-capita life-support consumption (kg/window). */
 export interface ResourceSpec {
@@ -51,7 +62,11 @@ export interface ColonyParams {
   pop0: number;
   colonistCost: number; // money per colonist
   colonistMass: number; // kg per colonist (life-support kit + body)
-  mortFactor: number; // shortfall → death sensitivity
+  mortFactor: number; // shortfall → death sensitivity (stock resources: food/water/o2/n2)
+  energyMortFactor: number; // shortfall → death sensitivity for unpowered life support (D-060);
+  // deliberately softer than mortFactor — energy has no stock buffer between windows (a shortfall is
+  // instant + total every window it persists), so the same rate as food/water would be far deadlier
+  // for what's conceptually the same kind of danger.
   wearRate: number; // condition lost/window for a fully-unmaintained structure (V6)
   birthRate: number; // per-window growth when a supplied medbay is running (D-030)
   popEnergyPerCapita: number; // life-support energy draw per colonist (priority 0)
@@ -60,12 +75,16 @@ export interface ColonyParams {
   startPads: number;
   startStockWindows: number; // initial life-support buffer, in windows of consumption
   maxWindows: number;
-  seed: number; // RNG seed (pad explosions)
+  seed: number; // RNG seed (pad explosions, storyteller events)
+  eventStartWindow: number; // storyteller (D-063): 0 chance before this window (bootstrap grace)
+  eventRampPerWindow: number; // linear chance increase per window past eventStartWindow
+  eventChanceCap: number; // ceiling on per-window event chance
 }
 
 export interface Transit {
   stocks: Stocks;
   colonists: number;
+  structures: Record<string, number>; // pre-built structures in transit (V8 import)
 }
 
 export interface ColonyState {
@@ -78,7 +97,12 @@ export interface ColonyState {
   everHadPop: boolean; // true once pop has been > 0 — guards extinction collapse before first landing (V7)
   built: BuiltCounts; // structures built on Mars (id → count)
   condition: Condition; // per-structure-type wear 0..1 (V6)
-  rngState: number; // seeded RNG state (explosions) — kept as a number so state stays JSON-able
+  rngState: number; // seeded RNG state (explosions, storyteller) — a number so state stays JSON-able
+  chronicle: ColonyReport[]; // per-window diegetic report history (D-061) — the game's memory
+  activeEffects: ActiveEffect[]; // rolling storyteller effects still counting down (D-063)
+  holdTransit: Transit | null; // a convoy delayed by a skip_window event, merges into the next launch
+  lastEvent: { id: string; window: number } | null; // for the "not two windows in a row" rule
+  milestones: Partial<Record<MilestoneId, number>>; // id → window first achieved (D-064)
   p: ColonyParams;
 }
 
@@ -88,46 +112,44 @@ export interface EarthOrder {
   padsToBuild: Record<LaunchTech, number>; // pads to build this window, per class
   unlockRefuel: boolean; // pay R&D to unlock the refuel pad class (D-039)
   colonists: number;
+  structures: Partial<Record<string, number>>; // pre-built structures to import (V8, D-057)
 }
 
-/** An empty order (no goods, no pads, no colonists). */
+/** An empty order (no goods, no pads, no colonists, no structure imports). */
 export function emptyOrder(): EarthOrder {
-  return { resources: {}, padsToBuild: { classic: 0, refuel: 0 }, unlockRefuel: false, colonists: 0 };
+  return { resources: {}, padsToBuild: { classic: 0, refuel: 0 }, unlockRefuel: false, colonists: 0, structures: {} };
 }
 
 // ---- params -------------------------------------------------------------
 
+/** Loads the resource catalog from data/resources.csv (D-058) — a balance spreadsheet, not code.
+ * TOY numbers — playable/tunable; real calibration in a later balance pass. NB at honest scale,
+ * importing food for 1000+ is mass-impossible → farms mandatory (V4). */
 export function defaultCatalog(): ResourceCatalog {
-  const z: ResourceSpec = { earthPerKg: 5, perCapita: 0, recycle: 0, tare: 0 };
-  const cat = Object.fromEntries(RESOURCES.map((r) => [r, { ...z }])) as ResourceCatalog;
-  // life-support (TOY numbers — playable/tunable; real calibration in a later balance pass.
-  // NB at honest scale, importing food for 1000+ is mass-impossible → farms mandatory, V4).
-  cat.food = { earthPerKg: 50, perCapita: 50, recycle: 0, tare: 0.1 }; // сублимат/космо-рацион
-  cat.water = { earthPerKg: 2, perCapita: 100, recycle: 0.3, tare: 0.05 }; // пассивный минимум; ЖО-рециклер даёт остальное (V6)
-  cat.o2 = { earthPerKg: 20, perCapita: 20, recycle: 0.3, tare: 1.0 }; // газ + криобак; MOXIE даёт остальное
-  // N₂ loss is structural (habitat hull leak), not per-capita breathing — see structuralN2Leak (V7)
-  cat.n2 = { earthPerKg: 15, perCapita: 0, recycle: 0.0, tare: 1.0 };
-  // materials (consumed by construction in V4+)
-  cat.steel = { earthPerKg: 2, perCapita: 0, recycle: 0, tare: 0 };
-  cat.metals = { earthPerKg: 8, perCapita: 0, recycle: 0, tare: 0 };
-  cat.polymers = { earthPerKg: 40, perCapita: 0, recycle: 0, tare: 0 };
-  cat.glass = { earthPerKg: 3, perCapita: 0, recycle: 0, tare: 0 };
-  cat.spares = { earthPerKg: 50, perCapita: 0, recycle: 0, tare: 0 };
-  // hi-tech — import-only, light & ruinously dear (D-045/D-046)
-  cat.pharma = { earthPerKg: 3000, perCapita: 0, recycle: 0, tare: 0.2 };
-  cat.chips = { earthPerKg: 50000, perCapita: 0, recycle: 0, tare: 0 };
-  cat.catalyst = { earthPerKg: 8000, perCapita: 0, recycle: 0, tare: 0.1 };
+  const cat = {} as ResourceCatalog;
+  for (const row of parseCsv(resourcesCsv)) {
+    cat[row.id as ResourceKind] = {
+      earthPerKg: num(row.earthPerKg),
+      perCapita: num(row.perCapita),
+      recycle: num(row.recycle),
+      tare: num(row.tare),
+    };
+  }
   return cat;
 }
 
 export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): ColonyParams {
   return {
-    M: 5.4e10, // ≈ бюджет NASA за синодическое окно ($25B/год × 2.17 года) — деньги реально жмут (D-053)
+    // ≈ треть бюджета NASA за синодическое окно ($25B/год × 2.17 года × ~37%, D-060) — раньше был весь
+    // бюджет агентства целиком, из-за чего импорт еды/воды навсегда оставался незаметной строчкой
+    // расходов при любой достижимой популяции: НАСА не тратит на один марсианский проект вообще всё.
+    M: 2.0e10,
     inflation: 0.03,
     pop0: 0, // start from nothing — the player orders their own first colonists (V7 redesign)
     colonistCost: 3.0e8,
     colonistMass: 2000,
     mortFactor: 0.8,
+    energyMortFactor: 0.3, // softer than mortFactor (D-060) — a slower death spiral, not instant wipeout
     wearRate: 0.12,
     birthRate: 0.05,
     popEnergyPerCapita: 0.05,
@@ -137,6 +159,11 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     startStockWindows: 1.0,
     maxWindows: 40,
     seed: 1,
+    // storyteller escalation (D-063): ≈0 chance through window 3 (bootstrap is hard enough already),
+    // ramping to a 60% ceiling by around window 30 — never telegraphed, only the chronicle after.
+    eventStartWindow: 3,
+    eventRampPerWindow: 0.022,
+    eventChanceCap: 0.6,
     ...overrides,
   };
 }
@@ -170,13 +197,18 @@ export function newColony(p: ColonyParams): ColonyState {
     window: 0,
     pop: p.pop0,
     stocks,
-    inTransit: { stocks: emptyStocks(0), colonists: 0 },
+    inTransit: { stocks: emptyStocks(0), colonists: 0, structures: {} },
     fleet: newFleet(p.launch, p.startPads),
     collapsed: false,
     everHadPop: p.pop0 > 0,
     built: {},
     condition: {},
     rngState: p.seed >>> 0,
+    chronicle: [],
+    activeEffects: [],
+    holdTransit: null,
+    lastEvent: null,
+    milestones: {},
     p,
   };
 }
@@ -214,17 +246,42 @@ export function prereqMet(s: ColonyState, id: string): boolean {
 export interface OrderPreview {
   goodsCost: number;
   colonistCost: number;
+  structCost: number; // pre-built structures imported this window (V8, D-057)
   padCapex: number; // capex to build pads this window
   rndCost: number; // refuel R&D unlock this window
   launchTotal: number; // flight cost + pad maintenance (whole fleet)
   total: number;
-  mass: number; // kg to ship (goods + colonists)
+  mass: number; // kg to ship (goods + colonists + imported structures)
   throughput: number; // max shippable with fleet (incl. pads being built + refuel unlock)
   capped: boolean; // mass exceeds throughput
   overBudget: boolean;
   budget: number;
   effPerKg: number;
   futureFleet: Fleet; // fleet after this window's pad builds / unlock (for the UI)
+}
+
+/** Mass+cost of importing a structure fully built: priced at its `capex` (a complex, durable,
+ * space-rated life-support unit is not the sum of its raw metal — D-057, repurposing the field
+ * D-054 left unused for exactly this). Shipped mass is still its buildMaterials-equivalent (that's
+ * the physical bulk landing on the pad), so delivery cost is layered on top per D-038/039. */
+export function structureImportPlan(
+  p: ColonyParams,
+  structures: Partial<Record<string, number>>,
+  mult: number,
+): { mass: number; cost: number } {
+  let mass = 0;
+  let cost = 0;
+  for (const id of Object.keys(structures)) {
+    const n = Math.max(0, Math.floor(structures[id] ?? 0));
+    const st = STRUCT_BY_ID[id];
+    if (n <= 0 || !st) continue;
+    cost += st.capex * n * mult;
+    for (const r of Object.keys(st.buildMaterials) as ResourceKind[]) {
+      const qty = (st.buildMaterials[r] ?? 0) * n;
+      mass += qty * (1 + p.catalog[r].tare);
+    }
+  }
+  return { mass, cost };
 }
 
 export function priceMult(s: ColonyState): number {
@@ -252,11 +309,13 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   for (const r of RESOURCES) {
     const qty = Math.max(0, order.resources[r] ?? 0);
     goodsMass += qty * (1 + p.catalog[r].tare); // ship mass = resource + container/tare
-    goodsCost += qty * p.catalog[r].earthPerKg * mult;
+    // price_spike (D-063): an active event can multiply one resource category's earth price
+    goodsCost += qty * p.catalog[r].earthPerKg * priceMultFor(s.activeEffects, r) * mult;
   }
   const colonists = Math.max(0, Math.floor(order.colonists));
-  const mass = goodsMass + colonists * p.colonistMass;
   const colonistCost = colonists * p.colonistCost * mult;
+  const struct = structureImportPlan(p, order.structures, mult);
+  const mass = goodsMass + colonists * p.colonistMass + struct.mass;
 
   const futureFleet = fleetAfter(s, order);
   let padCapex = 0;
@@ -271,10 +330,13 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const launchTotal = (plan.flightCost + padMaintTotal(futureFleet, p.launch)) * mult;
   const throughput = throughputMass(futureFleet, p.launch);
 
-  const total = goodsCost + colonistCost + padCapex + rndCost + launchTotal;
+  const total = goodsCost + colonistCost + struct.cost + padCapex + rndCost + launchTotal;
+  // subsidy_cut (D-063): an active event can shrink the window's effective budget
+  const budget = p.M * effectMultiplier(s.activeEffects, 'subsidy');
   return {
     goodsCost,
     colonistCost,
+    structCost: struct.cost,
     padCapex,
     rndCost,
     launchTotal,
@@ -282,14 +344,18 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
     mass,
     throughput,
     capped: mass > throughput,
-    overBudget: total > p.M,
-    budget: p.M,
+    overBudget: total > budget,
+    budget,
     effPerKg: mass > 0 ? (launchTotal + padCapex) / mass : 0,
     futureFleet,
   };
 }
 
 // ---- the window ---------------------------------------------------------
+
+/** Named mortality cause for the chronicle (D-061): the binding life-support resource (Liebig),
+ * energy brownout, or an epidemic event (D-063). */
+export type MortalityCause = ResourceKind | 'energy' | 'epidemic';
 
 export interface ColonyReport {
   window: number;
@@ -299,6 +365,8 @@ export interface ColonyReport {
   landed: Transit; // what arrived this window
   deficit: Partial<Stocks>;
   mortality: number;
+  mortalityBreakdown: Partial<Record<MortalityCause, number>>; // named causes (D-061), sums to ~mortality
+  births: number; // colonists born this window (medbay growth, D-030) — 0 if none
   spent: number;
   capped: boolean;
   built: string[]; // structures completed this window
@@ -310,8 +378,43 @@ export interface ColonyReport {
   sparesCoverage: number; // fraction of spares upkeep met this window
   housingCapacity: number; // total colonist slots from habitat structures (V7); 0 = unconstrained
   n2LeakKg: number; // kg N₂ leaked from hull this window (V7)
+  structDiag: Record<string, StructureDiag>; // per-structure-type output breakdown (D-061)
+  autonomyByMass: number; // 0..1: local production mass ÷ (local production + landed import mass) this window
+  event?: WindowEvent; // storyteller event that fired this window, if any (D-063)
+  milestones: MilestoneId[]; // newly achieved this window, if any (D-064)
   collapsed: boolean;
 }
+
+// ---- milestones (D-064): a recorded first, never a reward — no win state exists. --------------
+
+export type MilestoneId =
+  | 'first_landing'
+  | 'first_birth'
+  | 'pop_100'
+  | 'bulk_autonomy'
+  | 'buffer_2'
+  | 'event_survived'
+  | 'refuel_unlocked'
+  | 'zero_import';
+
+export interface MilestoneSpec {
+  id: MilestoneId;
+  name: string;
+  icon: string;
+}
+
+/** Order matches D-064's decision text. `zero_import` is the "finale-boss" — full independence
+ * (D-046) as a visible far star, never an ending. */
+export const MILESTONES: readonly MilestoneSpec[] = [
+  { id: 'first_landing', name: 'Первая высадка', icon: '🛬' },
+  { id: 'first_birth', name: 'Первое рождение', icon: '🐣' },
+  { id: 'pop_100', name: '100 колонистов', icon: '👥' },
+  { id: 'bulk_autonomy', name: 'Балк-автономия', icon: '🌾' },
+  { id: 'buffer_2', name: 'Запас без завоза ≥ 2 окон', icon: '🛡' },
+  { id: 'event_survived', name: 'Пережили событие без потерь', icon: '🕊' },
+  { id: 'refuel_unlocked', name: 'Орбитальная заправка', icon: '⛽' },
+  { id: 'zero_import', name: 'Окно без единого завоза', icon: '🌌' },
+];
 
 // N₂ included: habitat hull leak → N₂ shortage → mortality (V7); no habitats → leak=0 → no effect
 const LIFE_R: ResourceKind[] = ['food', 'water', 'o2', 'n2'];
@@ -333,6 +436,16 @@ function colonyRunway(
   return worst === Infinity ? Infinity : Math.round(worst * 10) / 10;
 }
 
+/** Combine two convoys into one (D-063 skip_window: a held convoy merges into the next launch). */
+function mergeTransit(a: Transit, b: Transit | null): Transit {
+  if (!b) return a;
+  const stocks = emptyStocks(0);
+  for (const r of RESOURCES) stocks[r] = a.stocks[r] + (b.stocks[r] ?? 0);
+  const structures: Record<string, number> = { ...a.structures };
+  for (const id of Object.keys(b.structures)) structures[id] = (structures[id] ?? 0) + (b.structures[id] ?? 0);
+  return { stocks, colonists: a.colonists + b.colonists, structures };
+}
+
 /**
  * Commit one synodic window: charge & ship the order + build Mars structures (within throughput
  * & budget), land the PREVIOUS convoy, resolve energy (priority brownout), run structure
@@ -349,7 +462,8 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   const materialsOk = (Object.keys(matNeed) as ResourceKind[]).every(
     (r) => s.stocks[r] >= (matNeed[r] ?? 0),
   );
-  const prereqsOk = build.every((id) => prereqMet(s, id));
+  const importIds = Object.keys(order.structures).filter((id) => (order.structures[id] ?? 0) > 0);
+  const prereqsOk = build.every((id) => prereqMet(s, id)) && importIds.every((id) => prereqMet(s, id));
 
   const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk;
   const spent = feasible ? pv.total : 0; // only the Earth order costs money
@@ -359,6 +473,16 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   const landed = s.inTransit;
 
   const explosions: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
+
+  // storyteller (D-063): rolled once per window, regardless of feasibility — a blind order still
+  // meets the same Mars. Multipliers below read `s.activeEffects` as they stand BEFORE this window's
+  // roll (i.e. effects decided in PAST windows); the fresh roll is only felt starting next window,
+  // same timing as on-pad explosions (decided now, biting the window after).
+  const rng = makeRng(s.rngState);
+  const excludeId = s.lastEvent && s.lastEvent.window === s.window - 1 ? s.lastEvent.id : undefined;
+  const roll = rollEvent(s.window, p, excludeId, rng);
+  const genMult = effectMultiplier(s.activeEffects, 'energy');
+  const farmMult = effectMultiplier(s.activeEffects, 'farm');
 
   if (feasible) {
     // apply pad builds + refuel unlock (futureFleet already computed in the preview)
@@ -372,25 +496,51 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
         builtThis.push(id);
       }
     }
-    const shipped = emptyStocks(0);
-    for (const r of RESOURCES) shipped[r] = Math.max(0, order.resources[r] ?? 0);
-    s.inTransit = { stocks: shipped, colonists: Math.max(0, Math.floor(order.colonists)) };
 
     // on-pad explosions for this window's launches → pads lost for FUTURE windows (D-043)
     const plan = shipPlan(s.fleet, p.launch, pv.mass);
-    const rng = makeRng(s.rngState);
     const lost = rollExplosions(s.fleet, p.launch, plan, rng);
-    s.rngState = rng.state();
     for (const t of TECHS) {
       s.fleet.pads[t] = Math.max(0, s.fleet.pads[t] - lost[t]);
       explosions[t] = lost[t];
     }
+  }
+  s.rngState = rng.state();
+
+  // this window's shipment (empty if the order was infeasible — nothing goes out)
+  const shipped = emptyStocks(0);
+  const shippedStructures: Record<string, number> = {};
+  if (feasible) {
+    for (const r of RESOURCES) shipped[r] = Math.max(0, order.resources[r] ?? 0);
+    for (const id of importIds) shippedStructures[id] = Math.floor(order.structures[id] ?? 0);
+  }
+  const newShipment: Transit = {
+    stocks: shipped,
+    colonists: feasible ? Math.max(0, Math.floor(order.colonists)) : 0,
+    structures: shippedStructures,
+  };
+  // skip_window (D-063): this window's convoy does not launch — whatever was already held launches
+  // now instead (merges with nothing, i.e. lands on its own), and the new shipment is held one extra
+  // window ("arrives together with the next one", per the decision).
+  if (roll?.spec.effect === 'delay') {
+    s.inTransit = s.holdTransit ?? { stocks: emptyStocks(0), colonists: 0, structures: {} };
+    s.holdTransit = newShipment;
   } else {
-    s.inTransit = { stocks: emptyStocks(0), colonists: 0 };
+    s.inTransit = mergeTransit(newShipment, s.holdTransit);
+    s.holdTransit = null;
   }
 
   // colonists from the landed convoy arrive
   s.pop += landed.colonists;
+
+  // imported structures from the landed convoy arrive ready-to-run (no local assembly step, D-057)
+  for (const id of Object.keys(landed.structures)) {
+    const n = landed.structures[id] ?? 0;
+    if (n <= 0 || !STRUCT_BY_ID[id]) continue;
+    s.built[id] = (s.built[id] ?? 0) + n;
+    if (s.condition[id] === undefined) s.condition[id] = 1;
+    for (let i = 0; i < n; i++) builtThis.push(id);
+  }
 
   // available resources this window = stock + landed convoy
   const avail: Partial<Stocks> = {};
@@ -405,10 +555,11 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     s.condition[s2] = Math.max(0, Math.min(1, c - p.wearRate * (1 - sparesCoverage)));
   }
 
-  // energy (priority brownout) + input availability (hi-tech) + condition (wear) → structure output
+  // energy (priority brownout) + input availability (hi-tech) + condition (wear) → structure output;
+  // dust_storm/blight (D-063) throttle generation/food-producers via genMult/farmMult above
   const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
-  const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition);
-  const sf = structureFlows(s.built, energy.served, avail, s.condition);
+  const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult);
+  const sf = structureFlows(s.built, energy.served, avail, s.condition, farmMult);
 
   // life-support + structure consumption + spares upkeep; arrivals + structure production
   const cons = consumption(s);
@@ -429,22 +580,69 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   });
   s.stocks = stocks;
 
-  // mortality from the worst life-support shortfall (Liebig)
+  // mortality from the worst life-support shortfall (Liebig), stock resources only (food/water/o2/n2);
+  // track WHICH resource is binding — Liebig means only the worst one drives consumableFrac, so it's
+  // also the one true "cause" to name in the chronicle (D-061).
   let worstRatio = 0;
+  let worstResource: ResourceKind | undefined;
   for (const r of LIFE_R) {
     const need = combinedCons[r] ?? 0;
-    if (need > 0 && deficit[r]) worstRatio = Math.max(worstRatio, deficit[r]! / need);
+    if (need > 0 && deficit[r]) {
+      const ratio = deficit[r]! / need;
+      if (ratio > worstRatio) {
+        worstRatio = ratio;
+        worstResource = r;
+      }
+    }
   }
-  const mortality = s.pop * Math.min(0.9, p.mortFactor * worstRatio);
-  s.pop -= mortality;
+  // baseline life-support power (heating, CO₂ scrubbing, water pumping — D-059) is a SEPARATE risk
+  // with its own (softer) rate: unlike stocks, energy carries no buffer between windows — a shortfall
+  // is instant and total every window it persists, so reusing mortFactor would make it far deadlier
+  // than running dry on food/water despite representing the same kind of danger (D-060 grill).
+  const energyRatio = lifeSupportDemand > 0 ? 1 - (energy.served['lifesupport'] ?? 1) : 0;
+  const consumableFrac = Math.min(0.9, p.mortFactor * worstRatio);
+  const energyFrac = Math.min(0.9, p.energyMortFactor * energyRatio);
 
-  // births: medbay + pharma enable growth (D-030); gated by housing (V7) and a fully-fed colony
-  // (worstRatio>0 means an active life-support shortfall this window — no growth mid-famine)
+  // epidemic (D-063): a third independent risk, folded into the same soft-OR — medbay + pharma on
+  // hand cuts it down to a minimal covered rate plus a one-time pharma draw, uncovered it bites hard.
+  let epidemicFrac = 0;
+  let epidemicCovered = false;
+  if (roll?.spec.effect === 'epidemic') {
+    epidemicCovered = (s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0;
+    epidemicFrac = epidemicCovered ? roll.spec.coveredMag : roll.mag;
+  }
+
+  const mortality = s.pop * (1 - (1 - consumableFrac) * (1 - energyFrac) * (1 - epidemicFrac));
+  s.pop -= mortality;
+  if (epidemicCovered && roll) {
+    s.stocks.pharma = Math.max(0, s.stocks.pharma - roll.spec.pharmaCost * s.pop);
+  }
+
+  // named attribution (D-061): split `mortality` between its independent risks proportionally to
+  // their (pre-combination) fractions — consumableFrac has exactly one binding resource (Liebig).
+  const mortalityBreakdown: Partial<Record<MortalityCause, number>> = {};
+  const causeWeight = consumableFrac + energyFrac + epidemicFrac;
+  if (causeWeight > 0) {
+    if (consumableFrac > 0 && worstResource) {
+      mortalityBreakdown[worstResource] = Math.round(mortality * (consumableFrac / causeWeight));
+    }
+    if (energyFrac > 0) {
+      mortalityBreakdown.energy = Math.round(mortality * (energyFrac / causeWeight));
+    }
+    if (epidemicFrac > 0) {
+      mortalityBreakdown.epidemic = Math.round(mortality * (epidemicFrac / causeWeight));
+    }
+  }
+
+  // births: medbay + pharma enable growth (D-030); gated by housing (V7) and a fully-fed, fully-powered
+  // colony (no growth mid-famine or mid-brownout)
   const housing = housingCapacity(s.built);
   const housingOk = housing === 0 || s.pop < housing * 0.9;
-  if ((s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0 && housingOk && worstRatio === 0) {
+  const popBeforeBirths = s.pop;
+  if ((s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0 && housingOk && worstRatio === 0 && energyRatio === 0) {
     s.pop *= 1 + p.birthRate;
   }
+  const births = Math.round(s.pop - popBeforeBirths);
 
   // extinction: mortality decays multiplicatively and never reaches exactly 0 on its own —
   // snap a dying-out colony (<1 person) to literal 0 and collapse, once colonists ever existed
@@ -452,7 +650,67 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   if (s.pop < 1) s.pop = 0;
   if (s.everHadPop && s.pop <= 0) s.collapsed = true;
 
-  return {
+  // autonomy by mass this window (D-061/glossary): local production vs. landed imports, by kg moved.
+  let localMass = 0;
+  let importedMass = 0;
+  for (const r of RESOURCES) {
+    localMass += sf.production[r] ?? 0;
+    importedMass += landed.stocks[r] ?? 0;
+  }
+  const autonomyByMass = localMass + importedMass > 0 ? localMass / (localMass + importedMass) : 0;
+
+  // storyteller bookkeeping (D-063): existing effects decay one window; the fresh roll (if not an
+  // immediate one-off — delay/epidemic already resolved above) joins the rolling list for windows
+  // starting NEXT commit. `lastEvent` feeds the "not two windows in a row" exclusion.
+  s.activeEffects = decayEffects(s.activeEffects);
+  if (roll && roll.spec.effect !== 'delay' && roll.spec.effect !== 'epidemic') {
+    s.activeEffects.push({ id: roll.spec.id, effect: roll.spec.effect, mag: roll.mag, windowsLeft: roll.dur, category: roll.category });
+  }
+  let windowEvent: WindowEvent | undefined;
+  if (roll) {
+    windowEvent = {
+      id: roll.spec.id,
+      name: roll.spec.name,
+      icon: roll.spec.icon,
+      effect: roll.spec.effect,
+      mag: roll.mag,
+      windows: roll.dur,
+      category: roll.category,
+    };
+    if (roll.spec.effect === 'epidemic') {
+      windowEvent.covered = epidemicCovered;
+      windowEvent.deaths = mortalityBreakdown.epidemic ?? 0;
+    }
+    s.lastEvent = { id: roll.spec.id, window: s.window };
+  }
+
+  // milestones (D-064): a checklist, never a reward — recorded once, first time only.
+  const bulkAutonomyOk =
+    s.pop > 0 &&
+    LIFE_R.every((r) => (combinedCons[r] ?? 0) * (1 - (recycle[r] ?? 0)) <= (sf.production[r] ?? 0));
+  const noNewImports =
+    RESOURCES.every((r) => (landed.stocks[r] ?? 0) <= 0) &&
+    landed.colonists === 0 &&
+    Object.values(landed.structures).every((n) => (n ?? 0) <= 0);
+  const milestonesThis: MilestoneId[] = [];
+  const mark = (id: MilestoneId) => {
+    if (s.milestones[id] === undefined) {
+      s.milestones[id] = s.window;
+      milestonesThis.push(id);
+    }
+  };
+  if (landed.colonists > 0) mark('first_landing');
+  if (births > 0) mark('first_birth');
+  if (s.pop >= 100) mark('pop_100');
+  if (bulkAutonomyOk) mark('bulk_autonomy');
+  if (!simulating && bufferRunway(s) >= 2) mark('buffer_2'); // avoid recursing into its own simulation
+  if (windowEvent && mortality === 0) mark('event_survived');
+  if (s.fleet.refuelUnlocked) mark('refuel_unlocked');
+  // finale-boss guard: only an ESTABLISHED colony counts — otherwise window 1 (nothing ordered yet)
+  // would trivially "achieve" full independence before the colony has even started.
+  if (s.everHadPop && Object.keys(s.built).length > 0 && noNewImports) mark('zero_import');
+
+  const report: ColonyReport = {
     window: s.window,
     pop: Math.round(s.pop),
     runway: colonyRunway(s.stocks, cons, sf.production, recycle),
@@ -460,6 +718,8 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     landed,
     deficit,
     mortality: Math.round(mortality),
+    mortalityBreakdown,
+    births,
     spent,
     capped: pv.capped,
     built: builtThis,
@@ -471,8 +731,14 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     sparesCoverage,
     housingCapacity: housing,
     n2LeakKg,
+    structDiag: sf.diag,
+    autonomyByMass,
+    event: windowEvent,
+    milestones: milestonesThis,
     collapsed: s.collapsed,
   };
+  s.chronicle.push(report);
+  return report;
 }
 
 /** Mean condition across built structure types (1 if nothing built). */
@@ -480,4 +746,54 @@ function avgCondition(s: ColonyState): number {
   const ids = Object.keys(s.built).filter((id) => (s.built[id] ?? 0) > 0);
   if (!ids.length) return 1;
   return ids.reduce((a, id) => a + (s.condition[id] ?? 1), 0) / ids.length;
+}
+
+// ---- self-sufficiency simulation (D-062) --------------------------------------------------------
+// Honest, not analytic: the old per-resource "windows of cover" is a snapshot that can't see
+// cascades (ZIP → wear → output, energy → brownout). Instead clone the state and run the REAL
+// engine forward with zero new orders — whatever's already in transit still lands (Tsiolkovsky lag
+// is physical, cutting future orders doesn't recall a convoy already in flight) — counting windows.
+
+// commitWindow's own milestone check calls bufferRunway (buffer_2), which itself runs commitWindow
+// on a clone — without a guard that's unbounded recursive blowup (each simulated window would run
+// its OWN buffer_2 check, cloning and simulating again, ad infinitum). This flag makes a simulated
+// commitWindow skip that one recursive sub-check; every other milestone check stays cheap and safe.
+let simulating = false;
+
+/** Run the real engine on a throwaway clone with zero new orders until `stop` fires or `maxWindows`
+ * is reached (saturating cap, so a self-sufficient colony doesn't loop forever). */
+function simulateNoImport(s: ColonyState, maxWindows: number, stop: (r: ColonyReport) => boolean): number {
+  if (s.pop <= 0) return 0;
+  const sim = structuredClone(s);
+  const wasSimulating = simulating;
+  simulating = true;
+  try {
+    for (let i = 0; i < maxWindows; i++) {
+      const r = commitWindow(sim, emptyOrder(), []);
+      if (stop(r)) return i;
+    }
+    return maxWindows;
+  } finally {
+    simulating = wasSimulating;
+  }
+}
+
+/** Lookahead cap for the live buffer gauge (D-062) — 12 windows (~26 years) is far past any horizon
+ * a player plans against; clearing it means "self-sufficient in every practical sense". */
+export const BUFFER_LOOKAHEAD = 12;
+
+/** Windows survivable with zero new imports before the FIRST death (D-062) — the live buffer gauge
+ * («запас без завоза»). Saturates at BUFFER_LOOKAHEAD. */
+export function bufferRunway(s: ColonyState): number {
+  return simulateNoImport(s, BUFFER_LOOKAHEAD, (r) => r.mortality > 0);
+}
+
+/** Lookahead cap for the debrief's full collapse runway (D-064/glossary "collapse runway") — 60
+ * windows (~130 years) comfortably separates "eventually collapses" from "effectively never". */
+export const COLLAPSE_LOOKAHEAD = 60;
+
+/** Windows survivable with zero new imports before full COLLAPSE (D-064/glossary) — the named
+ * survival runway, debrief-only. A longer, grimmer sibling of bufferRunway (first death vs the end). */
+export function collapseRunway(s: ColonyState): number {
+  return simulateNoImport(s, COLLAPSE_LOOKAHEAD, (r) => r.collapsed);
 }

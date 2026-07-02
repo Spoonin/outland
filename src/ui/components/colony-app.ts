@@ -2,6 +2,8 @@ import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { ColonyStore } from '../colonyStore';
 import './colony-status';
+import './chronicle-panel';
+import './colony-debrief';
 import './earth-tab';
 import './mars-tab';
 
@@ -39,6 +41,11 @@ export class ColonyApp extends LitElement {
       font-weight: 600;
       letter-spacing: 0.08em;
       margin: 0 0 1rem;
+    }
+    .controls {
+      margin-top: 0.75rem;
+      display: flex;
+      gap: 0.75rem;
     }
     .toptabs {
       display: flex;
@@ -120,22 +127,6 @@ export class ColonyApp extends LitElement {
     }
   `;
 
-  private lastWindowStrip() {
-    const r = this.store.lastReport();
-    if (!r) return nothing;
-    const ev: string[] = [];
-    const lostC = r.explosions.classic;
-    const lostR = r.explosions.refuel;
-    if (lostC) ev.push(`💥 взрыв на площадке: −${lostC} classic`);
-    if (lostR) ev.push(`💥 взрыв на площадке: −${lostR} refuel`);
-    if (r.mortality) ev.push(`† погибло ${r.mortality}`);
-    if (r.capped) ev.push('⚠ часть завоза не влезла в пропускную способность');
-    if (!ev.length) return nothing;
-    return html`<div style="color:#d96a6a;font-size:.85rem;margin:.5rem 0">
-      окно ${r.window}: ${ev.join(' · ')}
-    </div>`;
-  }
-
   private footer() {
     const st = this.store.status();
     const plan = this.store.plan();
@@ -173,12 +164,13 @@ export class ColonyApp extends LitElement {
     return html`
       <h1>OUTLAND</h1>
       <colony-status .status=${st}></colony-status>
-      ${this.lastWindowStrip()}
+      <chronicle-panel .store=${this.store}></chronicle-panel>
       ${st.ended
-        ? html`<div style="color:#d1b65a;margin:1rem 0">
-              ${st.collapsed ? '► Колония схлопнулась.' : '► Конец партии.'} (дебриф — в V6)
-            </div>
-            <button class="reset" @click=${() => this.store.reset()}>Новая партия</button>`
+        ? html`<div style="color:#d1b65a;margin:1rem 0">${st.collapsed ? '► Колония схлопнулась.' : '► Партия завершена.'}</div>
+            <colony-debrief .debrief=${this.store.debrief()}></colony-debrief>
+            <div class="controls" style="margin-top:1rem">
+              <button class="reset" @click=${() => this.store.reset()}>Новая партия</button>
+            </div>`
         : html`
             <div class="toptabs">
               <button class=${this.tab === 'earth' ? 'active' : ''} @click=${() => (this.tab = 'earth')}>🌍 Земля — завоз</button>
@@ -188,6 +180,9 @@ export class ColonyApp extends LitElement {
               ? html`<earth-tab .store=${this.store}></earth-tab>`
               : html`<mars-tab .store=${this.store}></mars-tab>`}
             ${this.footer()}
+            <div class="controls">
+              <button class="reset" @click=${() => this.store.finish()}>Завершить партию</button>
+            </div>
           `}
     `;
   }
