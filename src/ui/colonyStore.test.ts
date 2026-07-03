@@ -86,11 +86,12 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.maxColonists()).toBeGreaterThan(0); // housing counted before it even lands
     store.setColonists(30); // fits the $20B/window budget (D-060) alongside habitat+solar_plant capex
     expect(store.colonists).toBe(30);
-    // feed them so the check isolates the housing/import plumbing, not starvation mortality
-    // (n2 covers the imported habitat's own structural hull leak, D-048)
-    store.setRes('food', 3_000);
-    store.setRes('water', 6_000);
-    store.setRes('o2', 1_200);
+    // feed them so the check isolates the housing/import plumbing, not starvation mortality —
+    // honest per-capita masses (D-066): 30 people/window ≈ 15 t food, 50.4 t water net, 13.9 t O₂
+    // net (n2 covers the imported habitat's own structural hull leak, D-048)
+    store.setRes('food', 16_000);
+    store.setRes('water', 55_000);
+    store.setRes('o2', 15_000);
     store.setRes('n2', 600);
 
     store.commit(); // ship habitat + colonists + life support together

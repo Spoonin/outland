@@ -1,7 +1,7 @@
 id,earthPerKg,perCapita,recycle,tare
-food,50,50,0,0.1
-water,2,100,0.3,0.05
-o2,20,20,0.3,1
+food,50,500,0,0.1
+water,2,2400,0.3,0.05
+o2,20,660,0.3,1
 n2,15,0,0,1
 steel,2,0,0,0
 metals,8,0,0,0

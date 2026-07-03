@@ -31,18 +31,28 @@ function seedForEvent(targetId: string, window = 1): number {
 }
 const ALWAYS_FIRE = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1 };
 
+/** A colony whose local production fully covers 100 colonists at HONEST per-capita masses (D-066):
+ * food 80 000 ≥ 50 000 · water 240 000 ≥ (240 000+20 000)×0.7 · O₂ 60 000 ≥ 46 200 · energy 400 ≥ 335. */
+function selfSufficient100(overrides = {}): ReturnType<typeof newColony> {
+  const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, ...overrides }));
+  s.built = { solar_plant: 4, farm: 1, water_recycler: 3, o2_generator: 4 };
+  s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
+  s.stocks.spares = 1_000_000; // upkeep fully covered — no wear over any lookahead
+  return s;
+}
+
 describe('colony v2 — consumption & startup (D-042/colony-sim)', () => {
-  it('life-support consumption scales with population', () => {
+  it('life-support consumption scales with population (honest per-capita masses, D-066)', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const c = consumption(s);
-    expect(c.food).toBe(50 * 1000);
-    expect(c.water).toBe(100 * 1000);
+    expect(c.food).toBe(500 * 1000); // ~0.63 kg dry food/day over a ~790-day window
+    expect(c.water).toBe(2400 * 1000); // ~3 kg/day potable+hygiene
     expect(c.steel).toBeUndefined(); // not life-support
   });
 
   it('seeds a startStockWindows buffer', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 1 }));
-    expect(s.stocks.food).toBe(50 * 1000); // ~1 window of food
+    expect(s.stocks.food).toBe(500 * 1000); // ~1 window of food
   });
 });
 
@@ -478,7 +488,7 @@ describe('chronicle — per-window causality report (D-061)', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
     s.built = { solar_plant: 2, farm: 1 };
     s.condition = { solar_plant: 1, farm: 1 };
-    s.stocks.water = 1_000_000;
+    s.stocks.water = 6_000_000; // enough for two windows of honest 1000-pop draw — farm inputs stay full
     commitWindow(s, ord({ resources: { food: 100_000 } })); // ships
     const r = commitWindow(s, emptyOrder()); // convoy lands alongside local farm output
     expect(r.autonomyByMass).toBeGreaterThan(0);
@@ -526,13 +536,8 @@ describe('bufferRunway — honest self-sufficiency simulation (D-062)', () => {
   });
 
   it('a fully self-sufficient, powered, well-fed colony saturates at the lookahead cap', () => {
-    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
-    // production > consumption on every LIFE_R resource, generously, so this isn't just coasting
-    // on the starting buffer within the lookahead window.
-    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
-    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
-    s.stocks.spares = 1_000_000; // upkeep fully covered — no wear
-    expect(bufferRunway(s)).toBe(BUFFER_LOOKAHEAD);
+    // production > consumption on every LIFE_R resource, so this isn't just coasting on the buffer
+    expect(bufferRunway(selfSufficient100())).toBe(BUFFER_LOOKAHEAD);
   });
 
   it('does not foresee future storyteller events — no telegraph through the gauge (D-063)', () => {
@@ -698,22 +703,17 @@ describe('milestones — a checklist, never a reward (D-064)', () => {
   });
 
   it('bulk_autonomy fires only when local production fully covers food/water/O₂/N₂', () => {
-    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
-    const rBefore = commitWindow(s, emptyOrder()); // pure import — not bulk-autonomous
+    const bare = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    const rBefore = commitWindow(bare, emptyOrder()); // pure import — not bulk-autonomous
     expect(rBefore.milestones).not.toContain('bulk_autonomy');
 
-    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
-    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
-    s.stocks.spares = 1_000_000;
+    const s = selfSufficient100();
     const rAfter = commitWindow(s, emptyOrder());
     expect(rAfter.milestones).toContain('bulk_autonomy');
   });
 
   it('buffer_2 fires once the honest buffer gauge reaches 2 windows', () => {
-    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
-    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
-    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
-    s.stocks.spares = 1_000_000;
+    const s = selfSufficient100();
     const r = commitWindow(s, emptyOrder());
     expect(bufferRunway(s)).toBeGreaterThanOrEqual(2);
     expect(r.milestones).toContain('buffer_2');
@@ -807,11 +807,8 @@ describe('collapseRunway — the debrief-only named survival runway (D-064)', ()
   });
 
   it('a fully self-sufficient colony saturates at the collapse lookahead cap', () => {
-    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
-    s.built = { solar_plant: 3, farm: 2, water_recycler: 2, o2_generator: 1, n2_concentrator: 1 };
-    s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
-    s.stocks.spares = 1_000_000;
-    expect(collapseRunway(s)).toBe(COLLAPSE_LOOKAHEAD);
+    // spares stocked for 60+ windows of upkeep — production holds over the whole lookahead
+    expect(collapseRunway(selfSufficient100())).toBe(COLLAPSE_LOOKAHEAD);
   });
 
   it('does not mutate the real state — runs on a throwaway clone', () => {
