@@ -29,12 +29,17 @@ export interface Fleet {
   refuelUnlocked: boolean;
 }
 
-/** Calibrated illustrative defaults (references §3; explosion rates per D-043 discussion). */
+/** Calibrated to researched delivery economics (references §3, D-067).
+ * CLASSIC = expendable heavy-lift (Falcon-Heavy-class): the old 16.8 t was the TMI throw mass —
+ * EDL (entry/descent/landing) keeps only ~2–3 t of it on the surface; $150–160M per launch →
+ * ~$52k per LANDED kg. REFUEL = one Starship-class Mars delivery CAMPAIGN (target ship + ~5–6
+ * tanker flights bundled into one abstract "launch"): ~$100M per ~100 t landed → ~$1,000/kg
+ * near-term commercial; the $130–300/kg mature-tech floor is left as a future V8 upgrade. */
 export function defaultLaunchParams(overrides: Partial<LaunchParams> = {}): LaunchParams {
   return {
     launchesPerPadPerWindow: 5,
-    classic: { payload: 16_800, launchCost: 9.7e7, padCapex: 1.5e8, padMaintFrac: 0.1, explodeProb: 0.0025 },
-    refuel: { payload: 100_000, launchCost: 1.2e7, padCapex: 5.0e8, padMaintFrac: 0.12, explodeProb: 0.0005 },
+    classic: { payload: 3_000, launchCost: 1.55e8, padCapex: 1.5e8, padMaintFrac: 0.1, explodeProb: 0.0025 },
+    refuel: { payload: 100_000, launchCost: 1.0e8, padCapex: 5.0e8, padMaintFrac: 0.12, explodeProb: 0.0005 },
     refuelRnDCost: 7.5e9, // ~37% субсидии-окна (D-053, пересчитано под M=$20B после D-060): крупная, но посильная ставка
     ...overrides,
   };

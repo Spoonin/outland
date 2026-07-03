@@ -15,15 +15,15 @@ import { makeRng } from './rng';
 const p = defaultLaunchParams();
 
 describe('throughput & pads (D-043, two classes)', () => {
-  it('5 classic pads → 25 launches → 420t throughput', () => {
+  it('5 classic pads → 25 launches → 75t throughput (D-067: 3t landed per expendable launch)', () => {
     const f = newFleet(p, 5);
     expect(maxLaunches(f, p, 'classic')).toBe(25);
-    expect(throughputMass(f, p)).toBe(25 * 16_800);
+    expect(throughputMass(f, p)).toBe(25 * 3_000);
   });
 
   it('refuel pads add big-payload capacity', () => {
     const f: Fleet = { pads: { classic: 5, refuel: 1 }, refuelUnlocked: true };
-    expect(throughputMass(f, p)).toBe(25 * 16_800 + 5 * 100_000);
+    expect(throughputMass(f, p)).toBe(25 * 3_000 + 5 * 100_000);
   });
 
   it('maintenance is paid on every built pad of both classes', () => {
@@ -55,7 +55,7 @@ describe('shipPlan — cheapest-$/kg class first', () => {
   });
 
   it('caps at total throughput', () => {
-    const f = newFleet(p, 2); // 10 launches × 16.8t = 168t
+    const f = newFleet(p, 2); // 10 launches × 3t = 30t
     const plan = shipPlan(f, p, 500_000);
     expect(plan.capped).toBe(true);
     expect(plan.deliveredMass).toBe(throughputMass(f, p));
@@ -68,7 +68,7 @@ describe('rollExplosions — pad loss', () => {
       classic: { ...p.classic, explodeProb: 1 },
     });
     const f = newFleet(params, 3);
-    const plan = shipPlan(f, params, 16_800); // 1 classic launch
+    const plan = shipPlan(f, params, 3_000); // 1 classic launch
     const lost = rollExplosions(f, params, plan, makeRng(1));
     expect(lost.classic).toBe(1);
   });

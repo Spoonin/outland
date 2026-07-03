@@ -38,9 +38,9 @@ describe('ColonyStore (v2 Earth ordering)', () => {
 
   it('Mars build queue feeds the commit plan and builds structures', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
-    // need materials in stock to build — order them, land them first
-    store.setRes('steel', 50_000);
-    store.setRes('glass', 50_000);
+    // need materials in stock to build — order them, land them first (60t ≤ 75t throughput, D-067)
+    store.setRes('steel', 30_000);
+    store.setRes('glass', 30_000);
     store.commit(); // ship materials
     store.commit(); // they land
     store.addBuild('solar_plant');
@@ -64,10 +64,10 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     store.setColonists(50);
     expect(store.colonists).toBe(0);
 
-    // build a habitat (200 housing)
-    store.setRes('steel', 50_000);
-    store.setRes('glass', 50_000);
-    store.setRes('polymers', 50_000);
+    // build a habitat (200 housing) — order just its materials (31.5t ≤ 75t throughput, D-067)
+    store.setRes('steel', 10_000);
+    store.setRes('glass', 10_000);
+    store.setRes('polymers', 10_000);
     store.commit();
     store.commit(); // materials land
     store.addBuild('habitat');
@@ -84,21 +84,41 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     store.setImportQty('habitat', 1);
     store.setImportQty('solar_plant', 1); // power them: isolate housing/import plumbing from energy mortality (D-060)
     expect(store.maxColonists()).toBeGreaterThan(0); // housing counted before it even lands
-    store.setColonists(30); // fits the $20B/window budget (D-060) alongside habitat+solar_plant capex
-    expect(store.colonists).toBe(30);
+    store.setColonists(10); // fits the 75t/window expendable throughput (D-067) and the $20B budget
+    expect(store.colonists).toBe(10);
     // feed them so the check isolates the housing/import plumbing, not starvation mortality —
-    // honest per-capita masses (D-066): 30 people/window ≈ 15 t food, 50.4 t water net, 13.9 t O₂
-    // net (n2 covers the imported habitat's own structural hull leak, D-048)
-    store.setRes('food', 16_000);
-    store.setRes('water', 55_000);
-    store.setRes('o2', 15_000);
+    // honest per-capita masses (D-066): 10 people/window ≈ 5 t food, 16.8 t water net, 4.6 t O₂
+    // net (n2 covers the imported habitat's own structural hull leak, D-048); whole manifest ≈ 74 t
+    store.setRes('food', 6_000);
+    store.setRes('water', 17_000);
+    store.setRes('o2', 5_000);
     store.setRes('n2', 600);
 
     store.commit(); // ship habitat + colonists + life support together
     expect(store.builtCount('habitat')).toBe(0); // still in transit
     store.commit(); // land: habitat built, colonists arrive
     expect(store.builtCount('habitat')).toBe(1);
-    expect(store.status().pop).toBe(30);
+    expect(store.status().pop).toBe(10);
+  });
+
+  it('BOOTSTRAP GUARANTEE: base_block + 20 colonists + food buffer fits one window (D-057/D-060/D-067)', () => {
+    // The canonical first move must stay feasible through any balance pass: honest masses (D-066)
+    // and honest launch economics (D-067) both squeeze it — this is the regression tripwire.
+    const store = new ColonyStore(defaultColonyParams({ }), memKV());
+    store.setImportQty('base_block', 1);
+    expect(store.maxColonists()).toBe(20); // the block's housing counts before it lands
+    store.setColonists(20);
+    store.setRes('food', 20_000); // 2 windows of food for 20 (base_block covers water/O₂/N₂)
+    store.setRes('spares', 500); // ЗИП from day one — an unmaintained block wears the very window it lands
+    const plan = store.plan();
+    expect(plan.earth.capped).toBe(false); // ~68t ≤ 75t expendable throughput
+    expect(plan.overBudget).toBe(false); // ≤ $20B window subsidy
+    expect(plan.feasible).toBe(true);
+
+    store.commit(); // ship
+    store.commit(); // land: block built, colonists alive on its life support
+    expect(store.builtCount('base_block')).toBe(1);
+    expect(store.status().pop).toBe(20); // zero mortality on arrival
   });
 
   it('housing already in transit from an earlier order counts toward maxColonists (V8)', () => {

@@ -59,30 +59,30 @@ describe('colony v2 — consumption & startup (D-042/colony-sim)', () => {
 describe('order preview (manifest math)', () => {
   it('sums goods cost+mass, flags over-throughput', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
-    const pv = previewOrder(s, ord({ resources: { food: 100_000 } }));
-    expect(pv.mass).toBeCloseTo(110_000, 0); // food tare 0.1
+    const pv = previewOrder(s, ord({ resources: { food: 30_000 } }));
+    expect(pv.mass).toBeCloseTo(33_000, 0); // food tare 0.1
     expect(pv.goodsCost).toBeGreaterThan(0);
-    // 5 pads × 5 × 16800 = 420k kg throughput → 100k ok
+    // 5 pads × 5 × 3,000 = 75t starting throughput (D-067) → 33t ok
     expect(pv.capped).toBe(false);
   });
 
   it('gas tare adds ship mass (tank ≥ gas) but only the gas lands', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000,  startStockWindows: 5 }));
-    // o2 tare 1.0 → 50t of O₂ ships as ~100t
-    const pv = previewOrder(s, ord({ resources: { o2: 50_000 } }));
-    expect(pv.mass).toBeCloseTo(100_000, 0);
-    // food tare 0.1 → 100t ships as 110t
-    expect(previewOrder(s, ord({ resources: { food: 100_000 } })).mass).toBeCloseTo(110_000, 0);
+    // o2 tare 1.0 → 20t of O₂ ships as ~40t
+    const pv = previewOrder(s, ord({ resources: { o2: 20_000 } }));
+    expect(pv.mass).toBeCloseTo(40_000, 0);
+    // food tare 0.1 → 30t ships as 33t
+    expect(previewOrder(s, ord({ resources: { food: 30_000 } })).mass).toBeCloseTo(33_000, 0);
     // only the gas lands as stock (tank is overhead)
-    commitWindow(s, ord({ resources: { o2: 50_000 } }));
+    commitWindow(s, ord({ resources: { o2: 20_000 } }));
     const r2 = commitWindow(s, emptyOrder());
-    expect(r2.landed.stocks.o2).toBe(50_000);
+    expect(r2.landed.stocks.o2).toBe(20_000);
   });
 
   it('flags capped when convoy exceeds throughput', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const pv = previewOrder(s, ord({ resources: { water: 5_000_000 } }));
-    expect(pv.capped).toBe(true); // 5M > 420k throughput
+    expect(pv.capped).toBe(true); // 5M > 75t throughput
   });
 
   it('building pads raises throughput in the preview', () => {
@@ -106,12 +106,12 @@ describe('commit window — transit lag, consumption, runway, mortality', () => 
   it('ordered goods land the NEXT window (Tsiolkovsky lag)', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const before = s.stocks.food;
-    commitWindow(s, ord({ resources: { food: 200_000 } }));
+    commitWindow(s, ord({ resources: { food: 40_000 } })); // 44t ship ≤ 75t throughput (D-067)
     // window 1: consumed food, nothing landed yet (order in transit)
     expect(s.stocks.food).toBeLessThan(before);
     const r2 = commitWindow(s, emptyOrder());
-    // window 2: the 200k food convoy lands
-    expect(r2.landed.stocks.food).toBe(200_000);
+    // window 2: the 40k food convoy lands
+    expect(r2.landed.stocks.food).toBe(40_000);
   });
 
   it('colonists arrive after the lag and grow population', () => {
@@ -119,7 +119,7 @@ describe('commit window — transit lag, consumption, runway, mortality', () => 
     s.built.solar_plant = 1; // powered: isolate colonist-lag from unrelated energy mortality (D-060)
     s.condition.solar_plant = 1;
     const p0 = s.pop;
-    commitWindow(s, ord({ colonists: 50 }));
+    commitWindow(s, ord({ colonists: 30 })); // 60t of people ≤ 75t throughput (D-067)
     expect(s.pop).toBeCloseTo(p0, 0); // not yet (in transit), minus any mortality
     commitWindow(s, emptyOrder());
     expect(s.pop).toBeGreaterThan(p0 - 1); // colonists landed
@@ -471,7 +471,7 @@ describe('chronicle — per-window causality report (D-061)', () => {
 
   it('autonomyByMass is 0 when no mass moved yet (order still in transit, no local production)', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
-    const r = commitWindow(s, ord({ resources: { food: 100_000 } })); // ships this window, lands next
+    const r = commitWindow(s, ord({ resources: { food: 30_000 } })); // ships this window, lands next
     expect(r.autonomyByMass).toBe(0);
   });
 
@@ -489,7 +489,7 @@ describe('chronicle — per-window causality report (D-061)', () => {
     s.built = { solar_plant: 2, farm: 1 };
     s.condition = { solar_plant: 1, farm: 1 };
     s.stocks.water = 6_000_000; // enough for two windows of honest 1000-pop draw — farm inputs stay full
-    commitWindow(s, ord({ resources: { food: 100_000 } })); // ships
+    commitWindow(s, ord({ resources: { food: 30_000 } })); // ships (33t ≤ 75t throughput, D-067)
     const r = commitWindow(s, emptyOrder()); // convoy lands alongside local farm output
     expect(r.autonomyByMass).toBeGreaterThan(0);
     expect(r.autonomyByMass).toBeLessThan(1);
