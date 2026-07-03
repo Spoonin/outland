@@ -26,6 +26,7 @@ import {
 import { makeRng } from './rng';
 import { parseCsv, num } from '../data/csv';
 import resourcesCsv from '../data/resources.csv?raw';
+import storytellerCsv from '../data/storyteller.csv?raw';
 import {
   STRUCT_BY_ID,
   resolveColonyEnergy,
@@ -79,6 +80,7 @@ export interface ColonyParams {
   eventStartWindow: number; // storyteller (D-063): 0 chance before this window (bootstrap grace)
   eventRampPerWindow: number; // linear chance increase per window past eventStartWindow
   eventChanceCap: number; // ceiling on per-window event chance
+  eventPopRef: number; // population at which event severity reaches its full magnitude range (D-063)
 }
 
 export interface Transit {
@@ -159,12 +161,25 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     startStockWindows: 1.0,
     maxWindows: 40,
     seed: 1,
-    // storyteller escalation (D-063): ≈0 chance through window 3 (bootstrap is hard enough already),
-    // ramping to a 60% ceiling by around window 30 — never telegraphed, only the chronicle after.
-    eventStartWindow: 3,
-    eventRampPerWindow: 0.022,
-    eventChanceCap: 0.6,
+    // storyteller escalation (D-063): ≈0 chance through the grace windows (bootstrap is hard enough
+    // already), ramping to a ceiling by the late game — never telegraphed, only the chronicle after.
+    // Curve + severity popRef live in data/storyteller.csv (D-063: "все кривые и числа — в CSV").
+    ...storytellerDefaults(),
     ...overrides,
+  };
+}
+
+/** Loads the storyteller escalation curve from data/storyteller.csv (D-058/D-063). */
+function storytellerDefaults(): Pick<
+  ColonyParams,
+  'eventStartWindow' | 'eventRampPerWindow' | 'eventChanceCap' | 'eventPopRef'
+> {
+  const row = parseCsv(storytellerCsv)[0] ?? {};
+  return {
+    eventStartWindow: num(row.eventStartWindow),
+    eventRampPerWindow: num(row.eventRampPerWindow),
+    eventChanceCap: num(row.eventChanceCap),
+    eventPopRef: num(row.eventPopRef),
   };
 }
 
@@ -382,6 +397,7 @@ export interface ColonyReport {
   autonomyByMass: number; // 0..1: local production mass ÷ (local production + landed import mass) this window
   event?: WindowEvent; // storyteller event that fired this window, if any (D-063)
   milestones: MilestoneId[]; // newly achieved this window, if any (D-064)
+  buffer?: number; // D-062 gauge as of this window's end (absent inside runway simulations)
   collapsed: boolean;
 }
 
@@ -475,14 +491,21 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   const explosions: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
 
   // storyteller (D-063): rolled once per window, regardless of feasibility — a blind order still
-  // meets the same Mars. Multipliers below read `s.activeEffects` as they stand BEFORE this window's
-  // roll (i.e. effects decided in PAST windows); the fresh roll is only felt starting next window,
-  // same timing as on-pad explosions (decided now, biting the window after).
+  // meets the same Mars. Mars-physical events (dust storm, blight — like the epidemic) bite the
+  // SAME window they roll: the player has already committed; announcing first would hand them a
+  // free reaction turn (Mars builds are instant, so a "surprise" storm could be neutralized by
+  // committing extra solar plants — the telegraph D-063 forbids). Earth-economic events (subsidy,
+  // price) squeeze the NEXT manifest by nature: this window's order is already priced and paid.
   const rng = makeRng(s.rngState);
   const excludeId = s.lastEvent && s.lastEvent.window === s.window - 1 ? s.lastEvent.id : undefined;
-  const roll = rollEvent(s.window, p, excludeId, rng);
-  const genMult = effectMultiplier(s.activeEffects, 'energy');
-  const farmMult = effectMultiplier(s.activeEffects, 'farm');
+  // the window right after a skip_window is the supply gap it created (nothing lands) — read by
+  // the event_survived milestone, and excluded from the zero_import finale-boss
+  const skipGapWindow = excludeId === 'skip_window';
+  const roll = rollEvent(s.window, s.pop, p, excludeId, rng);
+  let genMult = effectMultiplier(s.activeEffects, 'energy');
+  let farmMult = effectMultiplier(s.activeEffects, 'farm');
+  if (roll?.spec.effect === 'energy') genMult *= 1 - roll.mag;
+  if (roll?.spec.effect === 'farm') farmMult *= 1 - roll.mag;
 
   if (feasible) {
     // apply pad builds + refuel unlock (futureFleet already computed in the preview)
@@ -659,12 +682,15 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   }
   const autonomyByMass = localMass + importedMass > 0 ? localMass / (localMass + importedMass) : 0;
 
-  // storyteller bookkeeping (D-063): existing effects decay one window; the fresh roll (if not an
-  // immediate one-off — delay/epidemic already resolved above) joins the rolling list for windows
-  // starting NEXT commit. `lastEvent` feeds the "not two windows in a row" exclusion.
+  // storyteller bookkeeping (D-063): existing effects decay one window; what the fresh roll leaves
+  // behind depends on its nature. Physical effects (energy/farm) already bit this window directly —
+  // only their REMAINDER keeps rolling; economic effects (subsidy/price) start next window whole;
+  // delay/epidemic fully resolved above. `lastEvent` feeds the "not two windows in a row" exclusion.
   s.activeEffects = decayEffects(s.activeEffects);
-  if (roll && roll.spec.effect !== 'delay' && roll.spec.effect !== 'epidemic') {
+  if (roll && (roll.spec.effect === 'subsidy' || roll.spec.effect === 'price')) {
     s.activeEffects.push({ id: roll.spec.id, effect: roll.spec.effect, mag: roll.mag, windowsLeft: roll.dur, category: roll.category });
+  } else if (roll && (roll.spec.effect === 'energy' || roll.spec.effect === 'farm') && roll.dur > 1) {
+    s.activeEffects.push({ id: roll.spec.id, effect: roll.spec.effect, mag: roll.mag, windowsLeft: roll.dur - 1 });
   }
   let windowEvent: WindowEvent | undefined;
   if (roll) {
@@ -699,16 +725,31 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
       milestonesThis.push(id);
     }
   };
+  // buffer gauge measured once per REAL window (the simulating guard stops the recursion — the
+  // gauge itself runs commitWindow on a clone) — stored in the report so the store reads it for
+  // free and the debrief gets a historical series (D-062/D-064).
+  const buffer = simulating ? undefined : bufferRunway(s);
   if (landed.colonists > 0) mark('first_landing');
   if (births > 0) mark('first_birth');
   if (s.pop >= 100) mark('pop_100');
   if (bulkAutonomyOk) mark('bulk_autonomy');
-  if (!simulating && bufferRunway(s) >= 2) mark('buffer_2'); // avoid recursing into its own simulation
-  if (windowEvent && mortality === 0) mark('event_survived');
+  if (buffer !== undefined && buffer >= 2) mark('buffer_2');
+  // "survive an event with zero deaths" counts only windows where a DEADLY effect actually applied:
+  // a storm/blight throttling output, an epidemic, or the supply gap a skipped convoy left behind.
+  // Economic events (subsidy/price) can't kill in their own window — surviving them is no feat.
+  const deadlyApplied = genMult < 1 || farmMult < 1 || roll?.spec.effect === 'epidemic' || skipGapWindow;
+  if (deadlyApplied && mortality === 0 && s.pop > 0) mark('event_survived');
   if (s.fleet.refuelUnlocked) mark('refuel_unlocked');
-  // finale-boss guard: only an ESTABLISHED colony counts — otherwise window 1 (nothing ordered yet)
-  // would trivially "achieve" full independence before the colony has even started.
-  if (s.everHadPop && Object.keys(s.built).length > 0 && noNewImports) mark('zero_import');
+  // finale-boss: a LIVING, built colony passing a window where nothing landed AND nothing was
+  // ordered — an empty manifest by choice. A rejected (infeasible) order and the gap window after
+  // a skip_window both land nothing too, but neither is independence — they don't count.
+  const emptyManifest =
+    feasible &&
+    RESOURCES.every((r) => (order.resources[r] ?? 0) <= 0) &&
+    Math.floor(order.colonists) <= 0 &&
+    importIds.length === 0;
+  const anythingBuilt = Object.keys(s.built).some((id) => (s.built[id] ?? 0) > 0);
+  if (s.pop > 0 && anythingBuilt && noNewImports && emptyManifest && !skipGapWindow) mark('zero_import');
 
   const report: ColonyReport = {
     window: s.window,
@@ -735,6 +776,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     autonomyByMass,
     event: windowEvent,
     milestones: milestonesThis,
+    buffer,
     collapsed: s.collapsed,
   };
   s.chronicle.push(report);
@@ -765,6 +807,11 @@ let simulating = false;
 function simulateNoImport(s: ColonyState, maxWindows: number, stop: (r: ColonyReport) => boolean): number {
   if (s.pop <= 0) return 0;
   const sim = structuredClone(s);
+  // the counterfactual measures the colony's BUFFERS, not its luck: simulated with the real
+  // rngState the future would foresee the exact storms/epidemics about to roll (same seed, same
+  // sequence) and the gauge would dip BEFORE they hit — a telegraph D-063 forbids. Storyteller off
+  // in the sim; effects ALREADY rolling (an ongoing storm is known reality) still apply and decay.
+  sim.p = { ...sim.p, eventChanceCap: 0 };
   const wasSimulating = simulating;
   simulating = true;
   try {

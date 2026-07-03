@@ -105,7 +105,7 @@ export class ColonyDebriefPanel extends LitElement {
     if (d.reason === 'collapsed') {
       return `Колония схлопнулась на окне ${d.window} (год ~${d.year}).`;
     }
-    return `Партия завершена на окне ${d.window} (год ~${d.year}) по решению игрока — колония жива.`;
+    return `Окно ${d.window} (год ~${d.year}). Колония жива.`;
   }
 
   private causeLine(): TemplateResult | typeof nothing {
@@ -134,16 +134,27 @@ export class ColonyDebriefPanel extends LitElement {
       <h2>Дебриф</h2>
       <div class="headline">${this.headline()}${this.causeLine()}</div>
 
-      <div class="runway">
-        <div>Самодостаточность — при обрыве импорта колония продержалась бы:</div>
-        <div class="big">
-          ${d.collapseRunwaySaturated ? `${d.collapseRunwayWindows}+` : d.collapseRunwayWindows} окна
-        </div>
-        <small
-          >Живой «запас без завоза» на дашборде считает до первых смертей; здесь — до полного
-          коллапса, при отключении завоза прямо сейчас.</small
-        >
-      </div>
+      ${d.reason === 'collapsed'
+        ? d.preSpiralBuffer !== undefined
+          ? html`<div class="runway">
+              <div>Запас без завоза перед началом финальной спирали:</div>
+              <div class="big">${d.preSpiralBuffer} ок</div>
+              <small
+                >Замер на последнем окне без смертей — сколько пропущенных окон колония пережила бы
+                тогда без единой потери.</small
+              >
+            </div>`
+          : nothing
+        : html`<div class="runway">
+            <div>Самодостаточность — при обрыве импорта колония продержалась бы:</div>
+            <div class="big">
+              ${d.collapseRunwaySaturated ? `${d.collapseRunwayWindows}+` : d.collapseRunwayWindows} окон
+            </div>
+            <small
+              >Живой «запас без завоза» на дашборде считает до первых смертей; здесь — до полного
+              коллапса, при отключении завоза прямо сейчас.</small
+            >
+          </div>`}
 
       <div class="curve">
         <span class="dim">население</span> <span class="blocks pop">${spark(d.populationSeries)}</span>

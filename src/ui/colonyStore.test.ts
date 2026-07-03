@@ -165,6 +165,25 @@ describe('no win state — collapse or finish only (D-064)', () => {
     expect(store.debrief()?.reason).toBe('finished');
   });
 
+  it('a player-opened debrief closes back into play — «дебриф по кнопке в любой момент» (D-064)', () => {
+    const store = new ColonyStore(defaultColonyParams({ pop0: 200, startStockWindows: 5 }), memKV());
+    store.commit();
+    store.finish();
+    expect(store.status().ended).toBe(true);
+    store.resume();
+    expect(store.status().ended).toBe(false);
+    store.commit(); // still playable
+    expect(store.status().window).toBe(2);
+  });
+
+  it('a collapse is never resumable', () => {
+    const store = new ColonyStore(defaultColonyParams({ pop0: 50, startStockWindows: 0 }), memKV());
+    for (let i = 0; i < 10 && !store.status().collapsed; i++) store.commit();
+    expect(store.status().collapsed).toBe(true);
+    store.resume();
+    expect(store.status().ended).toBe(true); // still over
+  });
+
   it('debrief() is undefined until the run has actually ended', () => {
     const store = new ColonyStore(defaultColonyParams({ pop0: 200, startStockWindows: 5 }), memKV());
     store.commit();

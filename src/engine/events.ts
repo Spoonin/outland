@@ -85,10 +85,14 @@ export interface EventRoll {
 }
 
 /** Roll whether an event fires this window and, if so, which one + its rolled magnitude/duration.
- * `exclude` (the previous window's fired event id, D-063 "not twice in a row") is skipped this draw. */
+ * `exclude` (the previous window's fired event id, D-063 "not twice in a row") is skipped this draw.
+ * Severity scales with population (D-063): the roll's magnitude CAP lerps from minMag (tiny outpost)
+ * to maxMag (pop ≥ eventPopRef) — a bigger colony draws from a harsher range. Only the magnitude
+ * value depends on pop, never the number of RNG draws, so determinism per seed is unaffected. */
 export function rollEvent(
   window: number,
-  cfg: { eventStartWindow: number; eventRampPerWindow: number; eventChanceCap: number },
+  pop: number,
+  cfg: { eventStartWindow: number; eventRampPerWindow: number; eventChanceCap: number; eventPopRef: number },
   exclude: string | undefined,
   rng: Rng,
 ): EventRoll | null {
@@ -96,7 +100,9 @@ export function rollEvent(
   if (rng.random() >= chance) return null;
   const pool = EVENTS.filter((e) => e.id !== exclude);
   const spec = rng.choice(pool);
-  const mag = spec.minMag + rng.random() * (spec.maxMag - spec.minMag);
+  const popFactor = cfg.eventPopRef > 0 ? Math.min(1, Math.max(0, pop) / cfg.eventPopRef) : 1;
+  const magCap = spec.minMag + (spec.maxMag - spec.minMag) * popFactor;
+  const mag = spec.minMag + rng.random() * (magCap - spec.minMag);
   const dur = spec.minDur === spec.maxDur ? spec.minDur : Math.round(spec.minDur + rng.random() * (spec.maxDur - spec.minDur));
   const category = spec.effect === 'price' ? rng.choice(PRICE_CATEGORIES) : undefined;
   return { spec, mag, dur, category };

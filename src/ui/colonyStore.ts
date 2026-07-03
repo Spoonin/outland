@@ -88,6 +88,9 @@ export interface ColonyDebrief {
   collapseCause: Partial<Record<MortalityCause, number>>; // empty unless reason === 'collapsed'
   collapseRunwayWindows: number; // named survival runway (glossary: debrief-only), full collapse under a cutoff
   collapseRunwaySaturated: boolean; // hit COLLAPSE_LOOKAHEAD — "this many or more"
+  // for a collapsed colony the live simulation is moot (pop=0 → 0 windows); instead name the gauge
+  // as it stood on the last window without deaths — how much buffer there was when the spiral began
+  preSpiralBuffer?: number;
   milestones: MilestoneLine[];
   populationSeries: number[]; // one point per chronicle window
   autonomySeries: number[]; // autonomyByMass × 100, one point per chronicle window
@@ -167,15 +170,22 @@ export class ColonyStore {
   }
 
   /** No win state, no window limit (D-064) — the run ends only on collapse or the player's own
-   * "finish" (terminal, same as collapse: only a new colony follows, matching the decision's
-   * literal "until collapse or the finish button"). */
+   * "finish". */
   get ended(): boolean {
     return this.state.collapsed || this.finished;
   }
 
-  /** Player-initiated ending (D-064) — reads the debrief without the colony having died. */
+  /** Player-opened debrief (D-064 «дебриф по кнопке в любой момент») — the colony isn't dead,
+   * so unlike collapse this is reversible via resume(). */
   finish(): void {
     this.finished = true;
+    this.emit();
+  }
+
+  /** Close a player-opened debrief and return to play. A collapse is never resumable. */
+  resume(): void {
+    if (this.state.collapsed) return;
+    this.finished = false;
     this.emit();
   }
 
@@ -357,8 +367,12 @@ export class ColonyStore {
   }
 
   /** Live buffer gauge (D-062): honest simulated windows-until-first-death with zero new imports.
-   * Cached per committed window — recomputing it is a bounded engine simulation, not free. */
+   * The engine already measures it once per committed window (r.buffer, for the buffer_2 milestone
+   * and the debrief series) — read it back rather than re-simulating. The cache path covers window
+   * 0 (nothing committed yet) and older saves whose chronicle predates the stored gauge. */
   buffer(): number {
+    const last = this.state.chronicle[this.state.chronicle.length - 1];
+    if (last?.buffer !== undefined) return last.buffer;
     if (this.bufferCache?.window !== this.state.window) {
       this.bufferCache = { window: this.state.window, value: bufferRunway(this.state) };
     }
@@ -440,13 +454,18 @@ export class ColonyStore {
     const reason: ColonyDebrief['reason'] = s.collapsed ? 'collapsed' : 'finished';
 
     // cause of collapse (D-061 attribution): walk back from the end through the CONSECUTIVE run of
-    // windows with deaths — that's the terminal spiral, not the colony's entire death history.
+    // windows with deaths — that's the terminal spiral, not the colony's entire death history. The
+    // first quiet window behind it carries the buffer gauge as it stood when the spiral began.
     const collapseCause: Partial<Record<MortalityCause, number>> = {};
+    let preSpiralBuffer: number | undefined;
     if (reason === 'collapsed') {
       for (let i = chronicle.length - 1; i >= 0; i--) {
         const r = chronicle[i]!;
-        if (r.mortality <= 0) break;
-        for (const [cause, n] of Object.entries(r.mortalityBreakdown) as [MortalityCause, number][]) {
+        if (r.mortality <= 0) {
+          preSpiralBuffer = r.buffer;
+          break;
+        }
+        for (const [cause, n] of Object.entries(r.mortalityBreakdown ?? {}) as [MortalityCause, number][]) {
           collapseCause[cause] = (collapseCause[cause] ?? 0) + (n ?? 0);
         }
       }
@@ -467,6 +486,7 @@ export class ColonyStore {
       collapseCause,
       collapseRunwayWindows: cr,
       collapseRunwaySaturated: cr >= COLLAPSE_LOOKAHEAD,
+      preSpiralBuffer,
       milestones,
       populationSeries: chronicle.map((r) => r.pop),
       autonomySeries: chronicle.map((r) => r.autonomyByMass * 100),

@@ -18,11 +18,13 @@ import { makeRng } from './rng';
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
 /** Finds a seed that makes the storyteller fire the given event id on `window`, with a chance
- * config that always fires (used to make D-063 tests deterministic instead of asserting on luck). */
+ * config that always fires (used to make D-063 tests deterministic instead of asserting on luck).
+ * Population only shifts the rolled magnitude, never the draw sequence, so which event the seed
+ * lands on is pop-independent — pop 0 here matches any in-game pop. */
 function seedForEvent(targetId: string, window = 1): number {
-  const cfg = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1 };
+  const cfg = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1, eventPopRef: 500 };
   for (let seed = 1; seed < 5000; seed++) {
-    const roll = rollEvent(window, cfg, undefined, makeRng(seed));
+    const roll = rollEvent(window, 0, cfg, undefined, makeRng(seed));
     if (roll?.spec.id === targetId) return seed;
   }
   throw new Error(`no seed found for event ${targetId}`);
@@ -496,7 +498,8 @@ describe('bufferRunway — honest self-sufficiency simulation (D-062)', () => {
   });
 
   it('windows survived matches the actual first-death window under a real zero-import run', () => {
-    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }));
+    // events off so the real replay matches the (always events-off) gauge simulation exactly
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 2, eventChanceCap: 0 }));
     const buf = bufferRunway(s);
     // replay the same zero-order sequence for real and find where mortality first appears
     let firstDeathAt = -1;
@@ -531,10 +534,28 @@ describe('bufferRunway — honest self-sufficiency simulation (D-062)', () => {
     s.stocks.spares = 1_000_000; // upkeep fully covered — no wear
     expect(bufferRunway(s)).toBe(BUFFER_LOOKAHEAD);
   });
+
+  it('does not foresee future storyteller events — no telegraph through the gauge (D-063)', () => {
+    // same colony, same seed; one config would fire events every simulated window, the other never.
+    // The gauge must not differ: the counterfactual measures buffers, not upcoming luck.
+    const seed = seedForEvent('epidemic');
+    const base = { pop0: 1000, startStockWindows: 6, seed };
+    const withStoryteller = newColony(defaultColonyParams({ ...base, ...ALWAYS_FIRE }));
+    const without = newColony(defaultColonyParams({ ...base, eventChanceCap: 0 }));
+    expect(bufferRunway(withStoryteller)).toBe(bufferRunway(without));
+  });
+
+  it('each real window report carries the gauge value; simulated windows never do (D-062→D-061)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 3, eventChanceCap: 0 }));
+    const r = commitWindow(s, emptyOrder());
+    expect(r.buffer).toBe(bufferRunway(s)); // stored = freshly measured (same committed state)
+    // the gauge's own simulation must not have polluted the real chronicle
+    expect(s.chronicle.length).toBe(1);
+  });
 });
 
 describe('storyteller events — engine integration (D-063)', () => {
-  it('reports the fired event as a dry fact, and does not affect the window it fires on', () => {
+  it('a dust storm bites the SAME window it fires — the player committed blind, no telegraph', () => {
     const seed = seedForEvent('dust_storm');
     const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
     s.built = { solar_plant: 2 };
@@ -542,20 +563,23 @@ describe('storyteller events — engine integration (D-063)', () => {
     s.stocks.spares = 1_000_000; // upkeep fully covered — isolate from wear, not what this test checks
     const r1 = commitWindow(s, emptyOrder());
     expect(r1.event?.id).toBe('dust_storm');
-    expect(r1.energyGen).toBeCloseTo(200, 0); // undisturbed — the fresh roll isn't felt until next window
-    expect(s.activeEffects.some((e) => e.id === 'dust_storm')).toBe(true);
+    expect(r1.energyGen).toBeLessThan(200); // generation already cut this window
     expect(s.lastEvent).toEqual({ id: 'dust_storm', window: 1 });
   });
 
-  it('dust_storm cuts generation starting the window after it fires', () => {
+  it('a multi-window storm keeps biting the following window(s), then lifts', () => {
     const seed = seedForEvent('dust_storm');
     const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
     s.built = { solar_plant: 2 };
     s.condition = { solar_plant: 1 };
-    commitWindow(s, emptyOrder()); // window 1: storm fires, not yet felt
-    s.p.eventChanceCap = 0; // isolate window 2 from a fresh roll
-    const r2 = commitWindow(s, emptyOrder());
-    expect(r2.energyGen).toBeLessThan(200);
+    s.stocks.spares = 1_000_000;
+    const r1 = commitWindow(s, emptyOrder()); // storm fires + bites
+    s.p.eventChanceCap = 0; // no fresh rolls — isolate the storm's tail
+    const dur = r1.event!.windows;
+    for (let w = 2; w <= dur; w++) {
+      expect(commitWindow(s, emptyOrder()).energyGen).toBeLessThan(200); // still raging
+    }
+    expect(commitWindow(s, emptyOrder()).energyGen).toBeCloseTo(200, 0); // storm over
   });
 
   it('subsidy_cut shrinks next window\'s effective budget', () => {
@@ -581,18 +605,17 @@ describe('storyteller events — engine integration (D-063)', () => {
     expect(withSpike).toBeGreaterThan(withoutSpike);
   });
 
-  it('blight cuts farm output starting the window after it fires, leaves non-farm structures alone', () => {
+  it('blight cuts farm output the window it fires, leaves non-farm structures alone', () => {
     const seed = seedForEvent('blight');
     const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
     s.built = { solar_plant: 2, farm: 1, steel_plant: 1 };
     s.condition = { solar_plant: 1, farm: 1, steel_plant: 1 };
     s.stocks.water = 1_000_000;
     s.stocks.spares = 1_000_000;
-    commitWindow(s, emptyOrder()); // window 1: blight fires, not yet felt
-    s.p.eventChanceCap = 0;
-    const r2 = commitWindow(s, emptyOrder());
-    expect(r2.structDiag.farm!.runFrac).toBeLessThan(1);
-    expect(r2.structDiag.steel_plant!.runFrac).toBeCloseTo(1, 5); // blight only touches food producers
+    const r1 = commitWindow(s, emptyOrder()); // blight fires + bites, same window
+    expect(r1.event?.id).toBe('blight');
+    expect(r1.structDiag.farm!.runFrac).toBeLessThan(1);
+    expect(r1.structDiag.steel_plant!.runFrac).toBeCloseTo(1, 5); // blight only touches food producers
   });
 
   it('skip_window delays this window\'s shipment by one extra window (arrives with the next)', () => {
@@ -696,16 +719,27 @@ describe('milestones — a checklist, never a reward (D-064)', () => {
     expect(r.milestones).toContain('buffer_2');
   });
 
-  it('event_survived fires only when an event hits and nobody dies that window', () => {
+  it('event_survived fires when a deadly effect applies and nobody dies that window', () => {
     const seed = seedForEvent('dust_storm');
     const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
     s.built = { solar_plant: 2 };
     s.condition = { solar_plant: 1 };
     s.stocks.spares = 1_000_000;
-    const r = commitWindow(s, emptyOrder());
+    const r = commitWindow(s, emptyOrder()); // storm bites this window — reserve generation absorbs it
     expect(r.event?.id).toBe('dust_storm');
     expect(r.mortality).toBe(0);
     expect(r.milestones).toContain('event_survived');
+  });
+
+  it('event_survived is NOT credited for economic events — nothing deadly applied that window', () => {
+    const seed = seedForEvent('subsidy_cut');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 1 };
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('subsidy_cut');
+    expect(r.mortality).toBe(0);
+    expect(r.milestones).not.toContain('event_survived'); // a budget cut can't kill in its window
   });
 
   it('refuel_unlocked fires the window the R&D lands', () => {
@@ -727,6 +761,30 @@ describe('milestones — a checklist, never a reward (D-064)', () => {
     s.everHadPop = true;
     const r = commitWindow(s, emptyOrder()); // established colony, orders nothing, nothing lands
     expect(r.milestones).toContain('zero_import');
+  });
+
+  it('zero_import is not credited to the supply gap a skipped convoy leaves', () => {
+    const seed = seedForEvent('skip_window');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 1 };
+    const r1 = commitWindow(s, ord({ resources: { food: 50_000 } })); // skip fires — convoy held
+    expect(r1.event?.id).toBe('skip_window');
+    s.p.eventChanceCap = 0;
+    const r2 = commitWindow(s, emptyOrder()); // the gap window: nothing lands, manifest empty
+    expect(r2.landed.stocks.food ?? 0).toBe(0);
+    expect(r2.milestones).not.toContain('zero_import'); // involuntary gap ≠ independence
+  });
+
+  it('zero_import is not credited to a rejected (infeasible) order', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 1 };
+    const r1 = commitWindow(s, ord({ resources: { water: 50_000_000 } })); // over throughput → rejected
+    expect(r1.spent).toBe(0);
+    expect(r1.milestones).not.toContain('zero_import'); // a failed import attempt is not independence
+    const r2 = commitWindow(s, ord({ resources: { food: 1_000 } })); // gap lands nothing, but player IS ordering
+    expect(r2.milestones).not.toContain('zero_import');
   });
 
   it('milestones never re-fire once achieved — s.milestones records the FIRST window only', () => {

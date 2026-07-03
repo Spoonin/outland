@@ -1,7 +1,9 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
-import { STRUCT_BY_ID, type ColonyReport, type MortalityCause, type WindowEvent } from '../../engine';
+import { STRUCT_BY_ID, MILESTONES, type ColonyReport, type MortalityCause, type WindowEvent } from '../../engine';
+
+const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -134,6 +136,7 @@ export class ChroniclePanel extends LitElement {
     if (r.capped) ev.push('⚠ часть завоза не влезла в пропускную способность');
     if (r.built.length) ev.push(`🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
     if (r.births > 0) ev.push(`🐣 рождения: +${r.births}`);
+    for (const id of r.milestones ?? []) ev.push(`★ майлстоун: ${MILESTONE_BY_ID.get(id)?.name ?? id}`);
     return ev;
   }
 
@@ -145,7 +148,8 @@ export class ChroniclePanel extends LitElement {
       !r.explosions.refuel &&
       r.built.length === 0 &&
       r.births === 0 &&
-      !r.event
+      !r.event &&
+      !(r.milestones ?? []).length
     );
   }
 
@@ -158,8 +162,9 @@ export class ChroniclePanel extends LitElement {
   }
 
   private detail(r: ColonyReport): TemplateResult {
-    const causes = (Object.entries(r.mortalityBreakdown) as [MortalityCause, number][]).filter(([, n]) => (n ?? 0) > 0);
-    const structs = Object.entries(r.structDiag);
+    // `?? {}` / `?? []`: chronicle entries saved by earlier builds may predate these fields (D-051)
+    const causes = (Object.entries(r.mortalityBreakdown ?? {}) as [MortalityCause, number][]).filter(([, n]) => (n ?? 0) > 0);
+    const structs = Object.entries(r.structDiag ?? {});
     const eShort = r.energyDeficit > 0;
     return html`
       <div class="section">${this.landedLine(r)}</div>
@@ -171,12 +176,13 @@ export class ChroniclePanel extends LitElement {
           </div>`
         : nothing}
       ${this.eventTags(r)
-        .filter((t) => !t.startsWith('🏗') && !t.startsWith('🐣'))
+        .filter((t) => !t.startsWith('🏗') && !t.startsWith('🐣') && !t.startsWith('★'))
         .map((t) => html`<div class="section warn">${t}</div>`)}
-      ${r.built.length || r.births > 0
+      ${r.built.length || r.births > 0 || (r.milestones ?? []).length
         ? html`<div class="section ok">
             ${r.built.length ? `🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}` : ''}
             ${r.births > 0 ? ` 🐣 рождения: +${r.births}` : ''}
+            ${(r.milestones ?? []).map((id) => ` ★ ${MILESTONE_BY_ID.get(id)?.name ?? id}`).join(' ·')}
           </div>`
         : nothing}
       ${structs.length

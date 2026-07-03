@@ -166,9 +166,12 @@ export class ColonyApp extends LitElement {
       <colony-status .status=${st}></colony-status>
       <chronicle-panel .store=${this.store}></chronicle-panel>
       ${st.ended
-        ? html`<div style="color:#d1b65a;margin:1rem 0">${st.collapsed ? '► Колония схлопнулась.' : '► Партия завершена.'}</div>
+        ? html`${st.collapsed ? html`<div style="color:#d1b65a;margin:1rem 0">► Колония схлопнулась.</div>` : nothing}
             <colony-debrief .debrief=${this.store.debrief()}></colony-debrief>
             <div class="controls" style="margin-top:1rem">
+              ${!st.collapsed
+                ? html`<button class="reset" @click=${() => this.store.resume()}>‹ Вернуться к колонии</button>`
+                : nothing}
               <button class="reset" @click=${() => this.store.reset()}>Новая партия</button>
             </div>`
         : html`
@@ -181,7 +184,7 @@ export class ColonyApp extends LitElement {
               : html`<mars-tab .store=${this.store}></mars-tab>`}
             ${this.footer()}
             <div class="controls">
-              <button class="reset" @click=${() => this.store.finish()}>Завершить партию</button>
+              <button class="reset" @click=${() => this.store.finish()}>Завершить ▸ дебриф</button>
             </div>
           `}
     `;

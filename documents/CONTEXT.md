@@ -135,7 +135,11 @@ _Avoid_: log, history feed, news ticker
 The escalating event generator: event chance ≈0 during bootstrap, rising with the
 window number, severity scaling with population; at most one event per window;
 **nothing is telegraphed** — the only defense is standing readiness (the buffer
-gauge). _Avoid_: random events (they are paced and escalating, not flat-random)
+gauge). Mars-physical events (storm, blight, epidemic) bite the **same window they
+roll** — the player has already committed; Earth-economic ones (subsidy, prices)
+squeeze the *next* manifest, announced post-factum as Earth news. The buffer gauge's
+simulation runs storyteller-off — it measures buffers, never foresees luck (D-065).
+_Avoid_: random events (they are paced and escalating, not flat-random)
 
 **Milestone** (майлстоун):
 A recorded first (first landing, first birth, 100 colonists, bulk autonomy, …)

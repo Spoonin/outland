@@ -23,7 +23,8 @@ function fakeRng(randoms: number[], chooseIndex = 0): Rng {
   };
 }
 
-const CFG = { eventStartWindow: 3, eventRampPerWindow: 0.1, eventChanceCap: 0.6 };
+const CFG = { eventStartWindow: 3, eventRampPerWindow: 0.1, eventChanceCap: 0.6, eventPopRef: 500 };
+const POP = CFG.eventPopRef; // full severity range — keeps magnitude assertions exact
 
 describe('eventChance — storyteller escalation curve (D-063)', () => {
   it('is zero before the start window', () => {
@@ -44,13 +45,13 @@ describe('eventChance — storyteller escalation curve (D-063)', () => {
 describe('rollEvent — pure, deterministic given the same Rng draws (D-063)', () => {
   it('returns null when the chance roll misses', () => {
     // window 8 → chance 0.5; a draw of 0.9 misses
-    const roll = rollEvent(8, CFG, undefined, fakeRng([0.9]));
+    const roll = rollEvent(8, POP, CFG, undefined, fakeRng([0.9]));
     expect(roll).toBeNull();
   });
 
   it('fires and picks by index when the chance roll hits', () => {
     // window 8 → chance 0.5; draw 0.1 hits; choice index 0 → first event in EVENTS
-    const roll = rollEvent(8, CFG, undefined, fakeRng([0.1, 0, 0, 0, 0], 0));
+    const roll = rollEvent(8, POP, CFG, undefined, fakeRng([0.1, 0, 0, 0, 0], 0));
     expect(roll).not.toBeNull();
     expect(roll!.spec.id).toBe(EVENTS[0]!.id);
   });
@@ -59,7 +60,7 @@ describe('rollEvent — pure, deterministic given the same Rng draws (D-063)', (
     const idx = EVENTS.findIndex((e) => e.minDur !== e.maxDur); // a multi-window event (e.g. dust_storm)
     expect(idx).toBeGreaterThanOrEqual(0);
     // draws: [0]=chance (hits), [1]=magnitude (→ top of range), [2]=duration (→ top of range)
-    const roll = rollEvent(8, CFG, undefined, fakeRng([0.0, 1, 1], idx));
+    const roll = rollEvent(8, POP, CFG, undefined, fakeRng([0.0, 1, 1], idx));
     const spec = EVENTS[idx]!;
     expect(roll!.mag).toBeCloseTo(spec.maxMag, 5);
     expect(roll!.dur).toBe(spec.maxDur);
@@ -68,28 +69,39 @@ describe('rollEvent — pure, deterministic given the same Rng draws (D-063)', (
   it('excludes the given id from the pool (no repeat two windows in a row)', () => {
     const excluded = EVENTS[0]!.id;
     // choice index 0 against the FILTERED pool must now land on EVENTS[1]
-    const roll = rollEvent(8, CFG, excluded, fakeRng([0.0, 0, 0, 0], 0));
+    const roll = rollEvent(8, POP, CFG, excluded, fakeRng([0.0, 0, 0, 0], 0));
     expect(roll!.spec.id).not.toBe(excluded);
     expect(roll!.spec.id).toBe(EVENTS[1]!.id);
   });
 
   it('price_spike rolls a category', () => {
     const idx = EVENTS.findIndex((e) => e.effect === 'price');
-    const roll = rollEvent(8, CFG, undefined, fakeRng([0.0, 0, 0, 0, 0], idx));
+    const roll = rollEvent(8, POP, CFG, undefined, fakeRng([0.0, 0, 0, 0, 0], idx));
     expect(roll!.category).toBeDefined();
     expect(roll!.category!.length).toBeGreaterThan(0);
   });
 
   it('non-price events carry no category', () => {
     const idx = EVENTS.findIndex((e) => e.effect === 'energy');
-    const roll = rollEvent(8, CFG, undefined, fakeRng([0.0, 0, 0, 0], idx));
+    const roll = rollEvent(8, POP, CFG, undefined, fakeRng([0.0, 0, 0, 0], idx));
     expect(roll!.category).toBeUndefined();
   });
 
   it('is a pure function — same seed & window reproduce the same roll (replay/determinism)', () => {
-    const a = rollEvent(10, CFG, undefined, makeRng(42));
-    const b = rollEvent(10, CFG, undefined, makeRng(42));
+    const a = rollEvent(10, POP, CFG, undefined, makeRng(42));
+    const b = rollEvent(10, POP, CFG, undefined, makeRng(42));
     expect(a).toEqual(b);
+  });
+
+  it('severity scales with population (D-063): a tiny outpost draws minMag, a big colony the full range', () => {
+    // same draws, different pop — only the magnitude cap moves
+    const spec = EVENTS[0]!;
+    const tiny = rollEvent(8, 0, CFG, undefined, fakeRng([0.0, 1, 1], 0));
+    expect(tiny!.mag).toBeCloseTo(spec.minMag, 5); // cap collapsed to the floor
+    const half = rollEvent(8, CFG.eventPopRef / 2, CFG, undefined, fakeRng([0.0, 1, 1], 0));
+    expect(half!.mag).toBeCloseTo(spec.minMag + (spec.maxMag - spec.minMag) / 2, 5);
+    const big = rollEvent(8, CFG.eventPopRef * 3, CFG, undefined, fakeRng([0.0, 1, 1], 0));
+    expect(big!.mag).toBeCloseTo(spec.maxMag, 5); // saturates at popRef
   });
 });
 
