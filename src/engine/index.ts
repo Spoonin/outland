@@ -23,7 +23,8 @@ export type {
 export {
   defaultLaunchParams,
   newFleet,
-  padClass,
+  padClassFor,
+  nextRefuelStage,
   maxLaunches,
   throughputMass,
   padMaintTotal,
@@ -32,7 +33,7 @@ export {
   rollExplosions,
   TECHS,
 } from './logistics';
-export type { LaunchTech, PadClass, LaunchParams, Fleet, ShipPlan } from './logistics';
+export type { LaunchTech, PadClass, LaunchParams, Fleet, ShipPlan, RefuelStage } from './logistics';
 export {
   defaultCatalog,
   defaultColonyParams,

@@ -18,6 +18,8 @@ import {
   structuralN2Leak,
   serializeColony,
   loadColony,
+  padClassFor,
+  nextRefuelStage,
   bufferRunway,
   BUFFER_LOOKAHEAD,
   collapseRunway,
@@ -54,7 +56,7 @@ export interface ColonyStatus {
   year: number;
   pop: number;
   pads: Record<LaunchTech, number>;
-  refuelUnlocked: boolean;
+  refuelStage: number; // 0 = locked; rungs of the staged R&D ladder (D-068)
   budget: number;
   buffer: number; // D-062: honest simulated windows-until-first-death with zero new imports
   bufferSaturated: boolean; // buffer hit the lookahead cap — "this many or more"
@@ -228,20 +230,35 @@ export class ColonyStore {
   launch(): LaunchParams {
     return this.state.p.launch;
   }
-  /** Marginal delivery cost per kg = cheapest usable pad class's launchCost/payload (D-038). */
+  /** Marginal delivery cost per kg = cheapest usable pad class's launchCost/payload (D-038);
+   * refuel economics depend on the bought R&D stage (D-068). */
   deliveryPerKg(): { perKg: number; tech: LaunchTech } {
     const lp = this.state.p.launch;
-    const usable: LaunchTech[] = this.state.fleet.refuelUnlocked ? ['classic', 'refuel'] : ['classic'];
+    const usable: LaunchTech[] = this.state.fleet.refuelStage > 0 ? ['classic', 'refuel'] : ['classic'];
     let best: LaunchTech = 'classic';
     let bestV = Infinity;
     for (const t of usable) {
-      const v = (t === 'refuel' ? lp.refuel : lp.classic).launchCost / (t === 'refuel' ? lp.refuel : lp.classic).payload;
+      const c = padClassFor(this.state.fleet, lp, t);
+      const v = c.launchCost / c.payload;
       if (v < bestV) {
         bestV = v;
         best = t;
       }
     }
     return { perKg: bestV, tech: best };
+  }
+
+  /** The refuel R&D ladder position (D-068): current stage + the next rung's label/cost, if any. */
+  refuelRnD(): { stage: number; total: number; next: { index: number; name: string; cost: number } | null } {
+    const lp = this.state.p.launch;
+    const next = nextRefuelStage(this.state.fleet, lp);
+    return {
+      stage: this.state.fleet.refuelStage,
+      total: lp.refuelStages.length,
+      next: next
+        ? { index: next.index, name: next.stage.name, cost: next.stage.cost * colonyPriceMult(this.state) }
+        : null,
+    };
   }
   get colonists(): number {
     return this.draftColonists;
@@ -417,7 +434,7 @@ export class ColonyStore {
       year: Math.round(s.window * 2.17 * 10) / 10,
       pop: Math.round(s.pop),
       pads: { ...s.fleet.pads },
-      refuelUnlocked: s.fleet.refuelUnlocked,
+      refuelStage: s.fleet.refuelStage,
       budget: s.p.M,
       buffer: buf,
       bufferSaturated: buf >= BUFFER_LOOKAHEAD,

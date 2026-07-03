@@ -8,14 +8,34 @@ describe('save backward-compat (D-051)', () => {
   it('round-trips a played colony', () => {
     const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
     commitWindow(s, emptyOrder());
-    commitWindow(s, { ...emptyOrder(), unlockRefuel: true });
+    commitWindow(s, { ...emptyOrder(), unlockRefuel: true }); // buys R&D stage 1 (D-068)
     const raw = JSON.stringify(serializeColony(s));
     const back = loadColony(raw, P)!;
     expect(back).not.toBeNull();
     expect(back.window).toBe(s.window);
     expect(back.pop).toBeCloseTo(s.pop, 6);
-    expect(back.fleet.refuelUnlocked).toBe(true);
+    expect(back.fleet.refuelStage).toBe(1);
     expect(back.stocks.food).toBeCloseTo(s.stocks.food, 6);
+  });
+
+  it('migrates a v3 save: the old single refuel unlock maps onto the staged ladder (D-068)', () => {
+    const v3 = (refuelUnlocked: boolean) =>
+      JSON.stringify({
+        v: 3,
+        window: 6,
+        pop: 40,
+        everHadPop: true,
+        stocks: { food: 10_000 },
+        inTransit: { stocks: {}, colonists: 0 },
+        fleet: { pads: { classic: 5, refuel: 1 }, refuelUnlocked },
+        built: { base_block: 2 },
+        condition: {},
+        rngState: 7,
+      });
+    const withUnlock = loadColony(v3(true), P)!;
+    expect(withUnlock.fleet.refuelStage).toBe(2); // owned capability was single-stage-era = full ladder
+    const withoutUnlock = loadColony(v3(false), P)!;
+    expect(withoutUnlock.fleet.refuelStage).toBe(0);
   });
 
   it('persists only dynamic state — config is reconstructed from defaults', () => {

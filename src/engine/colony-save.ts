@@ -7,7 +7,7 @@ import { RESOURCES, emptyStocks, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
 import { type ActiveEffect } from './events';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 /** The persisted shape — dynamic state only (config is rebuilt from defaults on load). */
 export interface ColonySave {
@@ -17,7 +17,7 @@ export interface ColonySave {
   everHadPop: boolean;
   stocks: Partial<Stocks>;
   inTransit: { stocks: Partial<Stocks>; colonists: number; structures?: Record<string, number> };
-  fleet: { pads: Partial<Record<LaunchTech, number>>; refuelUnlocked: boolean };
+  fleet: { pads: Partial<Record<LaunchTech, number>>; refuelStage: number };
   built: Record<string, number>;
   condition: Record<string, number>;
   rngState: number;
@@ -36,7 +36,7 @@ export function serializeColony(s: ColonyState): ColonySave {
     everHadPop: s.everHadPop,
     stocks: { ...s.stocks },
     inTransit: { stocks: { ...s.inTransit.stocks }, colonists: s.inTransit.colonists, structures: { ...s.inTransit.structures } },
-    fleet: { pads: { ...s.fleet.pads }, refuelUnlocked: s.fleet.refuelUnlocked },
+    fleet: { pads: { ...s.fleet.pads }, refuelStage: s.fleet.refuelStage },
     built: { ...s.built },
     condition: { ...s.condition },
     rngState: s.rngState,
@@ -72,10 +72,24 @@ function legacyToV3(b: AnyBlob): AnyBlob {
   };
 }
 
+/** v3 → v4 (D-068): the single refuel unlock became a staged R&D ladder. An old save with the
+ * unlock owned had full (single-stage-era) capability → map to the ladder's TOP stage; without
+ * it → stage 0. */
+function v3ToV4(b: AnyBlob): AnyBlob {
+  const fleet = (b.fleet as AnyBlob) ?? {};
+  const unlocked = (fleet.refuelUnlocked as boolean) ?? false;
+  return {
+    ...b,
+    v: 4,
+    fleet: { pads: (fleet.pads as AnyBlob) ?? {}, refuelStage: unlocked ? 2 : 0 },
+  };
+}
+
 /** Source version → one-step migration. Add an entry whenever a breaking schema change ships. */
 const MIGRATIONS: Record<number, (b: AnyBlob) => AnyBlob> = {
   1: legacyToV3,
   2: legacyToV3,
+  3: v3ToV4,
 };
 
 function migrate(blob: AnyBlob): AnyBlob | null {
@@ -106,7 +120,7 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
       structures: { ...(save.inTransit.structures ?? {}) },
     },
     fleet: {
-      refuelUnlocked: save.fleet.refuelUnlocked,
+      refuelStage: save.fleet.refuelStage ?? 0,
       pads: { classic: save.fleet.pads.classic ?? 0, refuel: save.fleet.pads.refuel ?? 0 },
     },
     built: { ...save.built },

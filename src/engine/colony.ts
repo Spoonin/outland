@@ -18,6 +18,7 @@ import {
   throughputMass,
   padMaintTotal,
   padBuildCost,
+  nextRefuelStage,
   TECHS,
   type Fleet,
   type LaunchParams,
@@ -112,7 +113,7 @@ export interface ColonyState {
 export interface EarthOrder {
   resources: Partial<Stocks>; // kg to order per resource
   padsToBuild: Record<LaunchTech, number>; // pads to build this window, per class
-  unlockRefuel: boolean; // pay R&D to unlock the refuel pad class (D-039)
+  unlockRefuel: boolean; // buy the NEXT refuel R&D stage this window (staged ladder, D-039/D-068)
   colonists: number;
   structures: Partial<Record<string, number>>; // pre-built structures to import (V8, D-057)
 }
@@ -303,15 +304,16 @@ export function priceMult(s: ColonyState): number {
   return Math.pow(1 + s.p.inflation, s.window);
 }
 
-/** Apply an order's pad builds + refuel unlock to a fleet copy (no mutation). */
+/** Apply an order's pad builds + next-R&D-stage purchase to a fleet copy (no mutation, D-068). */
 function fleetAfter(s: ColonyState, order: EarthOrder): Fleet {
-  const unlocked = s.fleet.refuelUnlocked || order.unlockRefuel;
+  const next = nextRefuelStage(s.fleet, s.p.launch);
+  const stage = s.fleet.refuelStage + (order.unlockRefuel && next ? 1 : 0);
   return {
-    refuelUnlocked: unlocked,
+    refuelStage: stage,
     pads: {
       classic: s.fleet.pads.classic + Math.max(0, Math.floor(order.padsToBuild.classic)),
-      // refuel pads only count if the class is (being) unlocked
-      refuel: s.fleet.pads.refuel + (unlocked ? Math.max(0, Math.floor(order.padsToBuild.refuel)) : 0),
+      // refuel pads only count once at least the first R&D stage is (being) bought
+      refuel: s.fleet.pads.refuel + (stage > 0 ? Math.max(0, Math.floor(order.padsToBuild.refuel)) : 0),
     },
   };
 }
@@ -339,7 +341,8 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
     if (n > 0) padCapex += padBuildCost(p.launch, t, n);
   }
   padCapex *= mult;
-  const rndCost = order.unlockRefuel && !s.fleet.refuelUnlocked ? p.launch.refuelRnDCost * mult : 0;
+  const nextStage = nextRefuelStage(s.fleet, p.launch);
+  const rndCost = order.unlockRefuel && nextStage ? nextStage.stage.cost * mult : 0;
 
   const plan = shipPlan(futureFleet, p.launch, mass);
   const launchTotal = (plan.flightCost + padMaintTotal(futureFleet, p.launch)) * mult;
@@ -509,7 +512,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
 
   if (feasible) {
     // apply pad builds + refuel unlock (futureFleet already computed in the preview)
-    s.fleet = { refuelUnlocked: pv.futureFleet.refuelUnlocked, pads: { ...pv.futureFleet.pads } };
+    s.fleet = { refuelStage: pv.futureFleet.refuelStage, pads: { ...pv.futureFleet.pads } };
     // build structures: consume local materials, raise counts
     for (const r of Object.keys(matNeed) as ResourceKind[]) s.stocks[r] -= matNeed[r] ?? 0;
     for (const id of build) {
@@ -739,7 +742,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // Economic events (subsidy/price) can't kill in their own window — surviving them is no feat.
   const deadlyApplied = genMult < 1 || farmMult < 1 || roll?.spec.effect === 'epidemic' || skipGapWindow;
   if (deadlyApplied && mortality === 0 && s.pop > 0) mark('event_survived');
-  if (s.fleet.refuelUnlocked) mark('refuel_unlocked');
+  if (s.fleet.refuelStage > 0) mark('refuel_unlocked'); // first rung — the demo campaigns (D-068)
   // finale-boss: a LIVING, built colony passing a window where nothing landed AND nothing was
   // ordered — an empty manifest by choice. A rejected (infeasible) order and the gap window after
   // a skip_window both land nothing too, but neither is independence — they don't count.

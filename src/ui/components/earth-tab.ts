@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
-import type { ResourceKind } from '../../engine';
+import { padClassFor, type ResourceKind } from '../../engine';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -229,8 +229,7 @@ export class EarthTab extends LitElement {
 
   private padCard(tech: 'classic' | 'refuel', title: string, sub: string): TemplateResult {
     const store = this.store;
-    const lp = store.launch();
-    const spec = tech === 'refuel' ? lp.refuel : lp.classic;
+    const spec = padClassFor(store.fleet(), store.launch(), tech); // refuel specs follow the R&D stage (D-068)
     const built = store.fleet().pads[tech];
     return html`<div class="card">
       <div class="h"><span>${title}</span><span class="v">есть ${built} · +${store.padQty(tech)}</span></div>
@@ -243,22 +242,35 @@ export class EarthTab extends LitElement {
     </div>`;
   }
 
+  /** Buy-the-next-R&D-rung card (staged ladder, D-068). */
+  private rndCard(rnd: { stage: number; total: number; next: { index: number; name: string; cost: number } }): TemplateResult {
+    const store = this.store;
+    return html`<div class="card">
+      <div class="h">
+        <span>🚀 R&D ${rnd.next.index}/${rnd.total}: ${rnd.next.name}</span>
+        <span class="v">${rnd.stage === 0 ? '🔒' : `ст. ${rnd.stage}`}</span>
+      </div>
+      <div class="sub">
+        ${money(rnd.next.cost)} — ${rnd.next.index === 1
+          ? 'многоразовый сверхтяж + демо перекачки топлива на орбите: кампании работают, но тест-эра (60 т, дороже, рискованнее)'
+          : 'серийные танкеры, орбитальное депо, посадка 100 т (сверхзвуковая ретротяга): коммерческая цена $1 000/кг'}
+      </div>
+      <label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
+        <input type="checkbox" .checked=${store.unlockRefuelDraft}
+          @change=${() => store.toggleUnlockRefuel()} /> заказать R&D в этом окне
+      </label>
+    </div>`;
+  }
+
   private logistics(): TemplateResult {
     const store = this.store;
-    const lp = store.launch();
-    const unlocked = store.fleet().refuelUnlocked;
+    const rnd = store.refuelRnD();
     return html`<div class="cards">
-      ${this.padCard('classic', '🛫 Классические (одноразовые)', 'дёшево, малый груз, рискованнее')}
-      ${unlocked
-        ? this.padCard('refuel', '🚀 Орбитальная заправка', 'большой груз, дёшево/кг, безопаснее')
-        : html`<div class="card">
-            <div class="h"><span>🚀 Орбитальная заправка</span><span class="v">🔒</span></div>
-            <div class="sub">R&D: ${money(lp.refuelRnDCost)} — многоразовость + дозаправка (D-039)</div>
-            <label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
-              <input type="checkbox" .checked=${store.unlockRefuelDraft}
-                @change=${() => store.toggleUnlockRefuel()} /> заказать R&D в этом окне
-            </label>
-          </div>`}
+      ${this.padCard('classic', '🛫 Классические (одноразовые)', 'дёшево построить, ~3 т на грунт, рискованнее')}
+      ${rnd.stage > 0
+        ? this.padCard('refuel', `🚀 Орбитальная заправка (ст. ${rnd.stage}/${rnd.total})`, rnd.stage < rnd.total ? 'тест-эра кампаний' : 'серийный флот')
+        : nothing}
+      ${rnd.next ? this.rndCard({ stage: rnd.stage, total: rnd.total, next: rnd.next }) : nothing}
     </div>`;
   }
 

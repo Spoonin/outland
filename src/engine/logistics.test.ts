@@ -22,12 +22,22 @@ describe('throughput & pads (D-043, two classes)', () => {
   });
 
   it('refuel pads add big-payload capacity', () => {
-    const f: Fleet = { pads: { classic: 5, refuel: 1 }, refuelUnlocked: true };
+    const f: Fleet = { pads: { classic: 5, refuel: 1 }, refuelStage: 2 };
     expect(throughputMass(f, p)).toBe(25 * 3_000 + 5 * 100_000);
   });
 
+  it('refuel economics follow the R&D stage — same pads, better ships (D-068)', () => {
+    const s1: Fleet = { pads: { classic: 0, refuel: 1 }, refuelStage: 1 };
+    const s2: Fleet = { pads: { classic: 0, refuel: 1 }, refuelStage: 2 };
+    // stage 1 = test-era campaigns: 60t, $250M, riskier; stage 2 = serial fleet: 100t, $100M
+    expect(throughputMass(s1, p)).toBe(5 * 60_000);
+    expect(throughputMass(s2, p)).toBe(5 * 100_000);
+    expect(shipPlan(s1, p, 60_000).flightCost).toBe(2.5e8); // one test-era campaign
+    expect(shipPlan(s2, p, 60_000).flightCost).toBe(1.0e8); // one serial campaign, cheaper AND bigger
+  });
+
   it('maintenance is paid on every built pad of both classes', () => {
-    const f: Fleet = { pads: { classic: 2, refuel: 1 }, refuelUnlocked: true };
+    const f: Fleet = { pads: { classic: 2, refuel: 1 }, refuelStage: 2 };
     expect(padMaintTotal(f, p)).toBe(2 * 0.1 * 1.5e8 + 1 * 0.12 * 5.0e8);
   });
 
@@ -39,7 +49,7 @@ describe('throughput & pads (D-043, two classes)', () => {
 
 describe('shipPlan — cheapest-$/kg class first', () => {
   it('fills refuel before classic (refuel far cheaper per kg)', () => {
-    const f: Fleet = { pads: { classic: 5, refuel: 2 }, refuelUnlocked: true };
+    const f: Fleet = { pads: { classic: 5, refuel: 2 }, refuelStage: 2 };
     const plan = shipPlan(f, p, 150_000); // refuel cap 2×100k=200k covers it
     expect(plan.launches.refuel).toBeGreaterThan(0);
     expect(plan.launches.classic).toBe(0);
@@ -47,7 +57,7 @@ describe('shipPlan — cheapest-$/kg class first', () => {
   });
 
   it('falls back to classic once refuel capacity is exhausted', () => {
-    const f: Fleet = { pads: { classic: 5, refuel: 1 }, refuelUnlocked: true };
+    const f: Fleet = { pads: { classic: 5, refuel: 1 }, refuelStage: 2 };
     // refuel: 1 pad × 5 launches × 100k = 500k cap; 600k spills into classic
     const plan = shipPlan(f, p, 600_000);
     expect(plan.launches.refuel).toBe(5);

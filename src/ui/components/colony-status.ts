@@ -85,7 +85,7 @@ export class ColonyStatusPanel extends LitElement {
         <div class="pop">👥 ${s.pop.toLocaleString('ru-RU')}</div>
         <div class="dim">окно <b>${s.window}</b> · год ~${s.year}</div>
         <div class="dim">
-          🛫 classic ${s.pads.classic}${s.refuelUnlocked ? ` · refuel ${s.pads.refuel}` : ''}
+          🛫 classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (ст. ${s.refuelStage})` : ''}
         </div>
         <div class="dim">
           🛠 износ

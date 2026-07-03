@@ -160,13 +160,37 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.built['nuclear_plant']).toBeUndefined();
   });
 
-  it('refuel R&D unlock + building refuel pads raises throughput', () => {
+  it('refuel R&D stage 1 + building refuel pads raises throughput', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const before = previewOrder(s, emptyOrder()).throughput;
     commitWindow(s, ord({ unlockRefuel: true, padsToBuild: { classic: 0, refuel: 2 } }));
-    expect(s.fleet.refuelUnlocked).toBe(true);
+    expect(s.fleet.refuelStage).toBe(1);
     expect(s.fleet.pads.refuel).toBe(2);
     expect(previewOrder(s, emptyOrder()).throughput).toBeGreaterThan(before);
+  });
+
+  it('R&D stages buy sequentially and stop at the top of the ladder (D-068)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000 }));
+    const stage1Cost = previewOrder(s, ord({ unlockRefuel: true })).rndCost;
+    commitWindow(s, ord({ unlockRefuel: true })); // → stage 1 (test-era: 60t campaigns)
+    expect(s.fleet.refuelStage).toBe(1);
+    const stage2Cost = previewOrder(s, ord({ unlockRefuel: true })).rndCost;
+    expect(stage2Cost).toBeGreaterThan(0);
+    expect(stage2Cost).not.toBeCloseTo(stage1Cost, -6); // a different rung, not a re-buy
+    commitWindow(s, ord({ unlockRefuel: true })); // → stage 2 (serial fleet: 100t)
+    expect(s.fleet.refuelStage).toBe(2);
+    expect(previewOrder(s, ord({ unlockRefuel: true })).rndCost).toBe(0); // ladder complete — nothing to buy
+    commitWindow(s, ord({ unlockRefuel: true }));
+    expect(s.fleet.refuelStage).toBe(2); // capped
+  });
+
+  it('the R&D stage upgrades EXISTING refuel pads (better ships, same complexes)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000 }));
+    commitWindow(s, ord({ unlockRefuel: true, padsToBuild: { classic: 0, refuel: 1 } }));
+    const atStage1 = previewOrder(s, emptyOrder()).throughput;
+    commitWindow(s, ord({ unlockRefuel: true }));
+    const atStage2 = previewOrder(s, emptyOrder()).throughput;
+    expect(atStage2 - atStage1).toBe(5 * (100_000 - 60_000)); // same 1 pad, stage payload 60t → 100t
   });
 
   it('cannot build refuel pads before R&D unlock', () => {

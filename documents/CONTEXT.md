@@ -53,8 +53,12 @@ Shipping is NOT a fixed price `c` (D-038 abolished the magic constant). Landing 
 is bought via a **capital asset** in the single money ledger: capex to build launch
 capacity `K` (kg/window) + per-window maintenance paid even when idle (Earth reuse ≈ 0).
 Effective $/kg is *derived* (`fuel·W + maint·K` ÷ shipped mass), emergently ~$1M, not
-the $400 fuel floor. Player-driven tech ladder: expendable (Tsiolkovsky dead end) →
-reusable+ISRU (Starship — cheapens, doesn't solve). Written `K`. See D-038/D-039, §4.2/§4.5.
+the $400 fuel floor. Player-driven tech ladder priced off the real Starship program
+(D-067/D-068): expendable Gen0 (~$52k per LANDED kg — Tsiolkovsky dead end) → staged
+refuel R&D ($15B demo campaigns at ~$4.2k/kg, then $12B serial fleet+depot+Mars EDL at
+~$1,000/kg — cheapens ×52, doesn't solve); the mature $130–300/kg floor is a V8 rung.
+Existing refuel pads upgrade with the stage (same complex, better ships). Written `K`.
+See D-038/D-039, §4.2/§4.5.
 _Avoid_: cost-per-kg, `c`, shipping cost, freight, mass budget, B
 
 **Demand**:
