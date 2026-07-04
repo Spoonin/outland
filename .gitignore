@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.local
 .DS_Store
+scripts/.play-save*.json
