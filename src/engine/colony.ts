@@ -703,13 +703,15 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     epidemicCovered = (s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0;
     epidemicFrac = epidemicCovered ? roll.spec.coveredMag : roll.mag;
   }
-  // hull_breach casualties (D-072): decompression deaths unless the patch crews have full parts
-  // coverage — the same ЗИП that maintains condition doubles as damage control.
+  // hull_breach casualties (D-072): decompression deaths, patch crews cut them down with the parts
+  // they actually have on hand — the same ЗИП that maintains condition doubles as damage control.
+  // Graduated by sparesCoverage rather than a covered/uncovered binary (playtest-3): autoSpares
+  // floors the order at EXACT upkeep, and the 1-window shipping lag means colonies that grow between
+  // orders sit at ~0.85-0.95 coverage almost permanently — a >=1 cliff would pay out the full
+  // uncovered deathMag nearly every time regardless of how well-stocked the player actually is.
   let breachFrac = 0;
-  let breachCovered = false;
   if (roll?.spec.effect === 'breach') {
-    breachCovered = sparesCoverage >= 1;
-    breachFrac = breachCovered ? roll.spec.coveredMag : roll.spec.deathMag;
+    breachFrac = roll.spec.deathMag - (roll.spec.deathMag - roll.spec.coveredMag) * sparesCoverage;
   }
   // solar_flare casualties (D-072): acute radiation — medbay + pharma (anti-rad meds) cover it
   // like an epidemic, with the same one-time pharma draw.
@@ -806,7 +808,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
       windowEvent.deaths = mortalityBreakdown.epidemic ?? 0;
     }
     if (roll.spec.effect === 'breach') {
-      windowEvent.covered = breachCovered;
+      windowEvent.coverage = sparesCoverage;
       windowEvent.deaths = mortalityBreakdown.breach ?? 0;
     }
     if (roll.spec.effect === 'radiation') {

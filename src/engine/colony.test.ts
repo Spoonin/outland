@@ -703,7 +703,7 @@ describe('storyteller events — engine integration (D-063)', () => {
 });
 
 describe('disaster events — breach / radiation / outage / crash (D-072)', () => {
-  it('hull_breach vents a fraction of the N₂ bank; short ЗИП coverage → decompression deaths', () => {
+  it('hull_breach vents a fraction of the N₂ bank; zero ЗИП coverage → full uncovered deaths', () => {
     const seed = seedForEvent('hull_breach');
     const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
     s.built = { solar_plant: 3 }; // upkeep 900/window, zero spares stock → coverage 0, patch crews empty-handed
@@ -711,7 +711,7 @@ describe('disaster events — breach / radiation / outage / crash (D-072)', () =
     s.stocks.n2 = 100_000;
     const r = commitWindow(s, emptyOrder());
     expect(r.event?.id).toBe('hull_breach');
-    expect(r.event?.covered).toBe(false);
+    expect(r.event?.coverage).toBeCloseTo(0, 5);
     expect(r.mortalityBreakdown.breach).toBeGreaterThan(0);
     expect(s.stocks.n2).toBeLessThanOrEqual(100_000 * (1 - 0.15)); // ≥ minMag vented
     expect(s.stocks.n2).toBeGreaterThanOrEqual(100_000 * (1 - 0.35)); // ≤ maxMag vented
@@ -726,9 +726,33 @@ describe('disaster events — breach / radiation / outage / crash (D-072)', () =
     covered.stocks.spares = 1_000_000; // coverage 1 — patch kits on hand
     const r = commitWindow(covered, emptyOrder());
     expect(r.event?.id).toBe('hull_breach');
-    expect(r.event?.covered).toBe(true);
+    expect(r.event?.coverage).toBeCloseTo(1, 5);
     expect(r.mortalityBreakdown.breach ?? 0).toBeLessThan(10); // coveredMag 0.004 ≈ 4 of 1000, not 40
     expect(covered.stocks.n2).toBeLessThan(100_000); // the hole still vents — cover saves people, not gas
+  });
+
+  it('hull_breach deaths grade with partial ЗИП coverage, not a binary cliff (playtest-3)', () => {
+    // autoSpares floors the order at EXACT upkeep, and the 1-window shipping lag leaves a growing
+    // colony sitting at ~0.85-0.95 coverage almost permanently — a >=1 cliff would treat that
+    // near-miss as if no spares existed at all. Deaths must strictly decrease as coverage rises.
+    const seed = seedForEvent('hull_breach');
+    const upkeep = 900; // 3× solar_plant × upkeepSpares 300
+    const at = (coverageFrac: number) => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+      s.built = { solar_plant: 3 };
+      s.condition = { solar_plant: 1 };
+      s.stocks.n2 = 100_000;
+      s.stocks.spares = upkeep * coverageFrac;
+      return commitWindow(s, emptyOrder());
+    };
+    const zero = at(0);
+    const half = at(0.5);
+    const full = at(1);
+    expect(zero.event?.coverage).toBeCloseTo(0, 5);
+    expect(half.event?.coverage).toBeCloseTo(0.5, 5);
+    expect(full.event?.coverage).toBeCloseTo(1, 5);
+    expect(zero.mortalityBreakdown.breach!).toBeGreaterThan(half.mortalityBreakdown.breach!);
+    expect(half.mortalityBreakdown.breach!).toBeGreaterThan(full.mortalityBreakdown.breach ?? 0);
   });
 
   it('solar_flare throttles ALL structure output (not just farms) the same window it fires', () => {

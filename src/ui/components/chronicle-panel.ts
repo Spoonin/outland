@@ -127,7 +127,7 @@ export class ChroniclePanel extends LitElement {
       case 'epidemic':
         return `${ev.icon} ${ev.name}${ev.covered ? ' — сдержана медблоком' : ''}${ev.deaths ? `: † ${ev.deaths}` : ''}`;
       case 'breach':
-        return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса N₂${ev.covered ? ' — заделана (ЗИП в полном покрытии)' : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+        return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса N₂ · покрытие ЗИП ${pct(ev.coverage ?? 0)}${ev.deaths ? ` · † ${ev.deaths}` : ' · заделана без потерь'}`;
       case 'radiation':
         return `${ev.icon} ${ev.name}: все в укрытии, выпуск −${pct(ev.mag)}${ev.covered ? ' — медблок прикрыл' : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
       case 'outage':

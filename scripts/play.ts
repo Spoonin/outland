@@ -21,7 +21,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ColonyStore, type KV } from '../src/ui/colonyStore';
-import { defaultColonyParams, STRUCTURES, RESOURCES, type ResourceKind } from '../src/engine';
+import { defaultColonyParams, STRUCTURES, STRUCT_BY_ID, RESOURCES, type ResourceKind, type WindowEvent } from '../src/engine';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -58,6 +58,35 @@ function fileKV(path: string): KV {
 
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US') + ' кг';
+const pct = (v: number) => Math.round(v * 100) + '%';
+
+// mirrors chronicle-panel.ts's eventLabel() as plain text — playtest-3 found the old one-liner
+// (icon+name only) dropped target/deaths/coverage, making the CLI unable to show WHY people died
+// or WHAT broke without dumping the save JSON by hand.
+function eventLine(ev: WindowEvent): string {
+  switch (ev.effect) {
+    case 'energy':
+      return `${ev.icon} ${ev.name}: генерация −${pct(ev.mag)} на ${ev.windows} ок`;
+    case 'subsidy':
+      return `${ev.icon} ${ev.name}: субсидия −${pct(ev.mag)} на ${ev.windows} ок`;
+    case 'delay':
+      return `${ev.icon} ${ev.name}: конвой этого окна задержан на окно`;
+    case 'price':
+      return `${ev.icon} ${ev.name}: цены ×${ev.mag.toFixed(1)} на ${ev.windows} ок`;
+    case 'farm':
+      return `${ev.icon} ${ev.name}: выпуск ферм −${pct(ev.mag)} на ${ev.windows} ок`;
+    case 'epidemic':
+      return `${ev.icon} ${ev.name}${ev.covered ? ' — сдержана медблоком' : ''}${ev.deaths ? `: † ${ev.deaths}` : ''}`;
+    case 'breach':
+      return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса N₂ · покрытие ЗИП ${pct(ev.coverage ?? 0)}${ev.deaths ? ` · † ${ev.deaths}` : ' · без потерь'}`;
+    case 'radiation':
+      return `${ev.icon} ${ev.name}: весь выпуск −${pct(ev.mag)}${ev.covered ? ' — медблок прикрыл' : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+    case 'outage':
+      return `${ev.icon} ${ev.name}: ${ev.target ? `${STRUCT_BY_ID[ev.target]?.name ?? ev.target} — стоит ${ev.windows} ок` : 'отказывать нечему — обошлось'}`;
+    case 'crash':
+      return `${ev.icon} ${ev.name}: потеряно ${pct(ev.mag)} конвоя${ev.lostKg ? ` (~${kg(ev.lostKg)})` : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+  }
+}
 
 function printStatus(store: ColonyStore): void {
   const s = store.status();
@@ -87,7 +116,7 @@ function printStatus(store: ColonyStore): void {
   const last = store.lastReport();
   if (last) {
     console.log(`--- прошлое окно (${last.window}) ---`);
-    if (last.event) console.log(`  событие: ${last.event.icon} ${last.event.name}`);
+    if (last.event) console.log(`  событие: ${eventLine(last.event)}`);
     if (last.mortality) console.log(`  † погибло ${last.mortality} (${Object.entries(last.mortalityBreakdown).map(([c, n]) => `${c}:${n}`).join(', ')})`);
     if (last.births) console.log(`  🐣 рождения: +${last.births}`);
     if (last.built.length) console.log(`  🏗 построено: ${last.built.join(', ')}`);

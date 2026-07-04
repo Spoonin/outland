@@ -76,10 +76,11 @@ export interface WindowEvent {
   mag: number;
   windows: number;
   category?: ResourceKind[];
-  covered?: boolean; // epidemic/breach/radiation — did the cover (medbay+pharma / full ЗИП) hold
+  covered?: boolean; // epidemic/radiation — did the cover (medbay+pharma) hold
   deaths?: number; // epidemic/breach/radiation/crash
   target?: string; // outage — the structure type that failed (undefined = nothing to fail)
   lostKg?: number; // crash — cargo mass burned on entry
+  coverage?: number; // breach only — ЗИП coverage 0..1 at the moment it hit (graduated, not binary)
 }
 
 /** Escalation curve: 0 before `startWindow`, ramping linearly to `cap`. */
