@@ -181,11 +181,16 @@ function main(): void {
 
     const plan = store.plan();
     if (!plan.feasible) {
-      console.log('⚠ план НЕ прошёл фильтр фезибильности — ничего не отправится в этом окне:');
+      // mirror the web UI, where the commit button is simply disabled on an infeasible plan —
+      // the CLI used to warn and commit anyway, burning the window (2.2 years) on nothing
+      console.log('⚠ план НЕ прошёл фильтр фезибильности — заказ НЕ отправлен, окно НЕ потрачено:');
       if (plan.overBudget) console.log(`  дороже бюджета: ${money(plan.totalCost)} / ${money(plan.budget)}`);
       if (plan.earth.capped) console.log(`  масса больше пропускной: ${kg(plan.earth.mass)} / ${kg(plan.earth.throughput)}`);
       if (plan.materialsShort.length) console.log(`  не хватает материалов: ${plan.materialsShort.join(', ')}`);
       if (plan.prereqMissing.length) console.log(`  нет пререквизитов: ${plan.prereqMissing.join(', ')}`);
+      console.log('  поправь заказ и повтори команду (пустой order {} — просто пропустить ход).');
+      process.exitCode = 1;
+      return;
     }
     store.commit();
     kv.setItem('ui:autoSpares', String(store.autoSparesEnabled));
