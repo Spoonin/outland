@@ -397,13 +397,21 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const rndCost = order.unlockRefuel && nextStage ? nextStage.stage.cost * mult : 0;
 
   const plan = shipPlan(futureFleet, p.launch, mass);
-  const launchTotal = (plan.flightCost + padMaintTotal(futureFleet, p.launch)) * mult;
+  const maintCost = padMaintTotal(futureFleet, p.launch) * mult; // idle-pad upkeep (D-038) — owed
+  // regardless of what ships this window, same as every other pad already built
+  const launchTotal = plan.flightCost * mult + maintCost;
   const throughput = throughputMass(futureFleet, p.launch);
 
   const total = goodsCost + colonistCost + struct.cost + padCapex + rndCost + launchTotal;
   // subsidy_cut (D-063): an active event can shrink the window's effective budget;
   // subsidyBonus (D-076): milestones raise the baseline itself, permanently
   const budget = (p.M + s.subsidyBonus) * effectMultiplier(s.activeEffects, 'subsidy');
+  // D-079: mandatory idle-pad maintenance alone must never block committing — a colony that asked
+  // for NOTHING beyond upkeep on its existing fleet has to be able to let the window pass, or an
+  // over-built fleet (D-038's own "idle capital" trap) plus unbounded inflation (D-076) can wedge
+  // the game into a permanent soft-lock with no possible feasible order, not even an empty one.
+  // Anything genuinely requested beyond that floor is still checked against budget as before.
+  const discretionary = total - maintCost;
   return {
     goodsCost,
     colonistCost,
@@ -415,7 +423,7 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
     mass,
     throughput,
     capped: mass > throughput,
-    overBudget: total > budget,
+    overBudget: discretionary > 0 && total > budget,
     budget,
     effPerKg: mass > 0 ? (launchTotal + padCapex) / mass : 0,
     futureFleet,

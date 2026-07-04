@@ -8,6 +8,20 @@ function memKV(): KV {
 }
 
 describe('ColonyStore (v2 Earth ordering)', () => {
+  it('an empty draft stays feasible even once mandatory pad maintenance dwarfs the budget (D-079)', () => {
+    // playtest-4's real soft-lock: 60 windows of inflation on an over-built pad fleet pushed
+    // mandatory maintenance past the ENTIRE subsidy, and the game had no way to even skip a window.
+    // Reproduced with deterministic 100%/window inflation — by ~window 9 the default 5 classic
+    // pads' upkeep alone exceeds the default $20B budget, with zero colonists involved at all.
+    const store = new ColonyStore(defaultColonyParams({ inflationMin: 1, inflationMax: 1 }), memKV());
+    for (let w = 0; w < 15; w++) {
+      expect(store.plan().feasible).toBe(true); // an empty draft must ALWAYS be committable
+      store.commit();
+    }
+    expect(store.status().window).toBe(15); // time actually advanced every single window
+    expect(store.plan().earth.total).toBeGreaterThan(store.plan().earth.budget); // maintenance really is ruinous by now
+  });
+
   it('draft → preview reflects ordered goods', () => {
     const store = new ColonyStore(defaultColonyParams(), memKV());
     store.setRes('food', 100_000);

@@ -58,6 +58,23 @@ describe('colony v2 — consumption & startup (D-042/colony-sim)', () => {
 });
 
 describe('order preview (manifest math)', () => {
+  it('mandatory pad maintenance alone never blocks a genuinely empty order — no soft-lock (D-079)', () => {
+    // playtest-4 found a real permanent soft-lock: an over-built pad fleet (D-038's own "idle
+    // capital" trap) plus 60 windows of compounding inflation (D-076) pushed mandatory maintenance
+    // above the ENTIRE window subsidy — even an empty order ("just let time pass") was rejected as
+    // overBudget, freezing the colony forever with no possible feasible order. Reproduced here with
+    // a deterministic 100%/window inflation (not the random 1-7% range) so the blowup is exact.
+    const s = newColony(defaultColonyParams({ pop0: 1000, inflationMin: 1, inflationMax: 1 }));
+    s.window = 20; // mult = 2^20 ≈ 1.05M — maintenance on the default 5 classic pads now dwarfs M
+    const empty = previewOrder(s, emptyOrder());
+    expect(empty.total).toBeGreaterThan(empty.budget); // maintenance alone already exceeds the subsidy
+    expect(empty.overBudget).toBe(false); // ...but a pure skip must still be feasible
+
+    // a real cargo request that ALSO doesn't fit is still correctly blocked — unchanged behavior
+    const withCargo = previewOrder(s, ord({ resources: { food: 1_000_000 } }));
+    expect(withCargo.overBudget).toBe(true);
+  });
+
   it('sums goods cost+mass, flags over-throughput', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const pv = previewOrder(s, ord({ resources: { food: 30_000 } }));
@@ -138,6 +155,15 @@ describe('order preview (manifest math)', () => {
 });
 
 describe('commit window — transit lag, consumption, runway, mortality', () => {
+  it('a window with ruinous mandatory pad maintenance still advances on an empty order (D-079)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, inflationMin: 1, inflationMax: 1 }));
+    s.window = 20;
+    const before = s.window;
+    const r = commitWindow(s, emptyOrder());
+    expect(s.window).toBe(before + 1); // time passes — never permanently stuck
+    expect(r.capped).toBe(false);
+  });
+
   it('preview equals charge: an order exactly at budget still ships (no hidden +1 inflation step)', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const order = ord({ resources: { food: 40_000 } });

@@ -398,8 +398,10 @@ export class ColonyStore {
       ]),
     ];
     const totalCost = earth.total; // Mars build is money-free (D-054)
-    // earth.budget already folds in any active subsidy_cut event (D-063)
-    const overBudget = totalCost > earth.budget;
+    // reuse previewOrder's own overBudget (D-079: exempts a genuinely empty ask from mandatory
+    // idle-pad maintenance alone) rather than re-deriving totalCost > earth.budget here, which would
+    // silently drop that exemption and reopen the soft-lock at the store layer
+    const overBudget = earth.overBudget;
     // R&D "campaigns" need Mars presence already established (D-077) — nobody there to run them
     const rndBlocked = this.draftUnlockRefuel && !this.state.everHadPop;
     // D-078: same principle, wider — nothing ships alone before population is ever established
