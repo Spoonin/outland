@@ -487,7 +487,7 @@ export class ColonyStore {
       pop: Math.round(s.pop),
       pads: { ...s.fleet.pads },
       refuelStage: s.fleet.refuelStage,
-      budget: s.p.M,
+      budget: s.p.M + s.subsidyBonus, // D-076: milestones raise the baseline permanently
       buffer: buf,
       bufferSaturated: buf >= BUFFER_LOOKAHEAD,
       resources,

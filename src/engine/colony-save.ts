@@ -7,7 +7,7 @@ import { RESOURCES, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
 import { type ActiveEffect } from './events';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5; // D-076: added subsidyBonus (no migration, D-069 — old saves discard)
 
 /** The persisted shape — dynamic state only (config is rebuilt from defaults on load). */
 export interface ColonySave {
@@ -26,6 +26,7 @@ export interface ColonySave {
   holdTransit: Transit | null;
   lastEvent: { id: string; window: number } | null;
   milestones: Partial<Record<MilestoneId, number>>;
+  subsidyBonus: number;
 }
 
 export function serializeColony(s: ColonyState): ColonySave {
@@ -45,6 +46,7 @@ export function serializeColony(s: ColonyState): ColonySave {
     holdTransit: s.holdTransit ? { stocks: { ...s.holdTransit.stocks }, colonists: s.holdTransit.colonists, structures: { ...s.holdTransit.structures } } : null,
     lastEvent: s.lastEvent ? { ...s.lastEvent } : null,
     milestones: { ...s.milestones },
+    subsidyBonus: s.subsidyBonus,
   };
 }
 
@@ -71,6 +73,7 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
     holdTransit: save.holdTransit,
     lastEvent: save.lastEvent,
     milestones: { ...save.milestones },
+    subsidyBonus: save.subsidyBonus,
     p,
   };
 }

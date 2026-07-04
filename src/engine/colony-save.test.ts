@@ -18,6 +18,14 @@ describe('save/load (pre-release — no backward compatibility)', () => {
     expect(back.stocks.food).toBeCloseTo(s.stocks.food, 6);
   });
 
+  it('round-trips subsidyBonus (D-076) — a milestone-earned budget bump must survive a reload', () => {
+    const s = newColony(defaultColonyParams({ pop0: 150, startStockWindows: 5 }));
+    commitWindow(s, emptyOrder()); // crosses pop_100 → subsidyBonus > 0
+    expect(s.subsidyBonus).toBeGreaterThan(0);
+    const back = loadColony(JSON.stringify(serializeColony(s)), P)!;
+    expect(back.subsidyBonus).toBe(s.subsidyBonus);
+  });
+
   it('persists only dynamic state — config is reconstructed from defaults', () => {
     const s = newColony(P);
     const save = serializeColony(s) as unknown as Record<string, unknown>;

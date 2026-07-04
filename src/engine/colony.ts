@@ -61,8 +61,9 @@ export interface ResourceSpec {
 export type ResourceCatalog = Record<ResourceKind, ResourceSpec>;
 
 export interface ColonyParams {
-  M: number; // per-window subsidy (D-021)
-  inflation: number; // D-031 erosion
+  M: number; // per-window subsidy (D-021), grows with milestones (D-076) — see ColonyState.subsidyBonus
+  inflationMin: number; // D-076: rolled fresh each window, replacing the flat D-031 rate — every
+  inflationMax: number; // window is its own economic surprise, not a smooth predictable curve
   pop0: number;
   colonistCost: number; // money per colonist
   colonistMass: number; // kg per colonist (life-support kit + body)
@@ -108,6 +109,9 @@ export interface ColonyState {
   holdTransit: Transit | null; // a convoy delayed by a skip_window event, merges into the next launch
   lastEvent: { id: string; window: number } | null; // for the "not two windows in a row" rule
   milestones: Partial<Record<MilestoneId, number>>; // id → window first achieved (D-064)
+  subsidyBonus: number; // D-076: cumulative $ added to p.M by qualifying milestones — lives in
+  // STATE, not params, because save/load always rebuilds p from defaults (colony-save.ts) and this
+  // must survive a reload like everything else earned in-game.
   p: ColonyParams;
 }
 
@@ -149,7 +153,8 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     // бюджет агентства целиком, из-за чего импорт еды/воды навсегда оставался незаметной строчкой
     // расходов при любой достижимой популяции: НАСА не тратит на один марсианский проект вообще всё.
     M: 2.0e10,
-    inflation: 0.03,
+    inflationMin: 0.01, // D-076: was a flat 3%/window; widened to a rolled 1–7% range per window
+    inflationMax: 0.07,
     pop0: 0, // start from nothing — the player orders their own first colonists (V7 redesign)
     colonistCost: 3.0e8,
     colonistMass: 2000,
@@ -227,6 +232,7 @@ export function newColony(p: ColonyParams): ColonyState {
     holdTransit: null,
     lastEvent: null,
     milestones: {},
+    subsidyBonus: 0,
     p,
   };
 }
@@ -330,8 +336,24 @@ export function structureImportPlan(
   return { mass, cost };
 }
 
+/** D-076: the rate rolled for one specific window — a pure function of (seed, window), not a
+ * sequential RNG draw, so it never perturbs the event-roll RNG stream (`s.rngState`) and stays
+ * reproducible from `s.window` alone, exactly like the old flat rate — tests that fast-forward by
+ * setting `s.window` directly keep working unchanged. */
+function windowInflationRate(window: number, seed: number, min: number, max: number): number {
+  const mixed = (Math.imul(seed ^ window, 0x9e3779b1) ^ window) >>> 0;
+  return min + makeRng(mixed).random() * (max - min);
+}
+
+/** Cumulative price multiplier as of the current window — product of every window's own
+ * independently-rolled rate (D-076), replacing the old flat compounding (D-031). Window 0 has
+ * elapsed no windows yet, so it's always exactly 1 (no inflation), matching prior behavior. */
 export function priceMult(s: ColonyState): number {
-  return Math.pow(1 + s.p.inflation, s.window);
+  let mult = 1;
+  for (let w = 1; w <= s.window; w++) {
+    mult *= 1 + windowInflationRate(w, s.p.seed, s.p.inflationMin, s.p.inflationMax);
+  }
+  return mult;
 }
 
 /** Apply an order's pad builds + next-R&D-stage purchase to a fleet copy (no mutation, D-068). */
@@ -379,8 +401,9 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const throughput = throughputMass(futureFleet, p.launch);
 
   const total = goodsCost + colonistCost + struct.cost + padCapex + rndCost + launchTotal;
-  // subsidy_cut (D-063): an active event can shrink the window's effective budget
-  const budget = p.M * effectMultiplier(s.activeEffects, 'subsidy');
+  // subsidy_cut (D-063): an active event can shrink the window's effective budget;
+  // subsidyBonus (D-076): milestones raise the baseline itself, permanently
+  const budget = (p.M + s.subsidyBonus) * effectMultiplier(s.activeEffects, 'subsidy');
   return {
     goodsCost,
     colonistCost,
@@ -450,6 +473,10 @@ export interface MilestoneSpec {
   id: MilestoneId;
   name: string;
   icon: string;
+  subsidyBonus?: number; // D-076: permanent $ added to the subsidy when first achieved — a dry
+  // economic fact (Earth funds a proven colony more), not a "reward" banner; still no win state,
+  // still a checklist first (D-064) — reserved for milestones that demonstrate genuine SCALE, not
+  // early/automatic/luck ones (first landing, first birth, surviving an event get none).
 }
 
 /** Order matches D-064's decision text. `zero_import` is the "finale-boss" — full independence
@@ -457,12 +484,12 @@ export interface MilestoneSpec {
 export const MILESTONES: readonly MilestoneSpec[] = [
   { id: 'first_landing', name: 'Первая высадка', icon: '🛬' },
   { id: 'first_birth', name: 'Первое рождение', icon: '🐣' },
-  { id: 'pop_100', name: '100 колонистов', icon: '👥' },
-  { id: 'bulk_autonomy', name: 'Балк-автономия', icon: '🌾' },
-  { id: 'buffer_2', name: 'Запас без завоза ≥ 2 окон', icon: '🛡' },
+  { id: 'pop_100', name: '100 колонистов', icon: '👥', subsidyBonus: 3.0e9 },
+  { id: 'bulk_autonomy', name: 'Балк-автономия', icon: '🌾', subsidyBonus: 3.0e9 },
+  { id: 'buffer_2', name: 'Запас без завоза ≥ 2 окон', icon: '🛡', subsidyBonus: 2.0e9 },
   { id: 'event_survived', name: 'Пережили событие без потерь', icon: '🕊' },
-  { id: 'refuel_unlocked', name: 'Орбитальная заправка', icon: '⛽' },
-  { id: 'zero_import', name: 'Окно без единого завоза', icon: '🌌' },
+  { id: 'refuel_unlocked', name: 'Орбитальная заправка', icon: '⛽', subsidyBonus: 4.0e9 },
+  { id: 'zero_import', name: 'Окно без единого завоза', icon: '🌌', subsidyBonus: 3.0e9 },
 ];
 
 // N₂ included: habitat hull leak → N₂ shortage → mortality (V7); no habitats → leak=0 → no effect
@@ -883,6 +910,10 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     if (s.milestones[id] === undefined) {
       s.milestones[id] = s.window;
       milestonesThis.push(id);
+      // D-076: a qualifying milestone permanently raises the subsidy baseline — Earth funds a
+      // colony that's demonstrated real scale/viability more than a fresh outpost.
+      const bonus = MILESTONES.find((m) => m.id === id)?.subsidyBonus;
+      if (bonus) s.subsidyBonus += bonus;
     }
   };
   // buffer gauge measured once per REAL window (the simulating guard stops the recursion — the

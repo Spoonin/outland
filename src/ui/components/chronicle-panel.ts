@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
-import { STRUCT_BY_ID, MILESTONES, type ColonyReport, type MortalityCause, type WindowEvent } from '../../engine';
+import { STRUCT_BY_ID, MILESTONES, type ColonyReport, type MilestoneId, type MortalityCause, type WindowEvent } from '../../engine';
 
 const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 
@@ -17,6 +17,15 @@ export const CAUSE_LABEL: Partial<Record<MortalityCause, string>> = {
 };
 const kg = (v: number) => Math.round(v).toLocaleString('ru-RU');
 const pct = (v: number) => Math.round(v * 100) + '%';
+const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
+
+/** D-076: milestone name, plus the subsidy bump if this one carries one — stated as a dry economic
+ * fact ("субсидия +$3B"), not a congratulatory reward banner (D-036/D-064 tone). */
+function milestoneLabel(id: MilestoneId): string {
+  const m = MILESTONE_BY_ID.get(id);
+  const bonus = m?.subsidyBonus;
+  return `${m?.name ?? id}${bonus ? ` · субсидия +${money(bonus)}/окно` : ''}`;
+}
 
 /** Per-window causality report + history (D-061): last window expanded, past windows a
  * collapsible feed — quiet windows compress to one line. Replaces the old single red strip. */
@@ -145,7 +154,7 @@ export class ChroniclePanel extends LitElement {
     if (r.capped) ev.push('⚠ часть завоза не влезла в пропускную способность');
     if (r.built.length) ev.push(`🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
     if (r.births > 0) ev.push(`🐣 рождения: +${r.births}`);
-    for (const id of r.milestones) ev.push(`★ майлстоун: ${MILESTONE_BY_ID.get(id)?.name ?? id}`);
+    for (const id of r.milestones) ev.push(`★ майлстоун: ${milestoneLabel(id)}`);
     return ev;
   }
 
@@ -190,7 +199,7 @@ export class ChroniclePanel extends LitElement {
         ? html`<div class="section ok">
             ${r.built.length ? `🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}` : ''}
             ${r.births > 0 ? ` 🐣 рождения: +${r.births}` : ''}
-            ${r.milestones.map((id) => ` ★ ${MILESTONE_BY_ID.get(id)?.name ?? id}`).join(' ·')}
+            ${r.milestones.map((id) => ` ★ ${milestoneLabel(id)}`).join(' ·')}
           </div>`
         : nothing}
       ${structs.length

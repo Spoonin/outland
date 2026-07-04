@@ -296,7 +296,7 @@ describe('auto-spares — floors the order at upkeep, manual can still add margi
 
 describe('inflation-accurate price display (playtest bug — cards showed window-0 prices forever)', () => {
   it('pricePerKg matches what previewOrder actually charges, and rises with inflation', () => {
-    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, inflation: 0.05 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, inflationMin: 0.05, inflationMax: 0.05 }), memKV());
     const at0 = store.pricePerKg('food');
     store.setRes('food', 1000);
     expect(store.preview().goodsCost).toBeCloseTo(at0 * 1000, 0);
@@ -306,7 +306,7 @@ describe('inflation-accurate price display (playtest bug — cards showed window
   });
 
   it('colonistPriceNow and padPriceNow rise with inflation too', () => {
-    const store = new ColonyStore(defaultColonyParams({ inflation: 0.05 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ inflationMin: 0.05, inflationMax: 0.05 }), memKV());
     const colonist0 = store.colonistPriceNow();
     const pad0 = store.padPriceNow('classic');
     for (let i = 0; i < 5; i++) store.commit();
@@ -315,7 +315,7 @@ describe('inflation-accurate price display (playtest bug — cards showed window
   });
 
   it('deliveryPerKg reflects inflation, not just the window-0 launch price', () => {
-    const store = new ColonyStore(defaultColonyParams({ inflation: 0.05 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ inflationMin: 0.05, inflationMax: 0.05 }), memKV());
     const d0 = store.deliveryPerKg().perKg;
     for (let i = 0; i < 5; i++) store.commit();
     expect(store.deliveryPerKg().perKg).toBeGreaterThan(d0);

@@ -3,6 +3,7 @@ import {
   newColony,
   defaultColonyParams,
   previewOrder,
+  priceMult,
   commitWindow,
   consumption,
   emptyOrder,
@@ -99,6 +100,40 @@ describe('order preview (manifest math)', () => {
     s.window = 10;
     const t10 = previewOrder(s, order).goodsCost;
     expect(t10).toBeGreaterThan(t0);
+  });
+
+  it('inflation is rolled fresh per window within [inflationMin, inflationMax], not a flat rate (D-076)', () => {
+    const s = newColony(defaultColonyParams({ inflationMin: 0.01, inflationMax: 0.07 }));
+    expect(priceMult(s)).toBe(1); // window 0 — no elapsed windows, no inflation yet
+    let prevMult = 1;
+    const stepRates: number[] = [];
+    for (let w = 1; w <= 15; w++) {
+      s.window = w;
+      const mult = priceMult(s);
+      const stepRate = mult / prevMult - 1;
+      expect(stepRate).toBeGreaterThanOrEqual(0.01 - 1e-9); // never below the floor
+      expect(stepRate).toBeLessThanOrEqual(0.07 + 1e-9); // never above the ceiling
+      stepRates.push(stepRate);
+      prevMult = mult;
+    }
+    // not literally flat 3% (or any other constant) — real per-window variation
+    expect(new Set(stepRates.map((r) => r.toFixed(6))).size).toBeGreaterThan(1);
+  });
+
+  it('priceMult is a pure function of (seed, window) — fast-forwarding by setting s.window still works', () => {
+    const a = newColony(defaultColonyParams({ seed: 42 }));
+    const b = newColony(defaultColonyParams({ seed: 42 }));
+    a.window = 7;
+    b.window = 7;
+    expect(priceMult(a)).toBe(priceMult(b)); // same seed+window, computed independently → identical
+  });
+
+  it('a different seed rolls different per-window inflation (not the same sequence for everyone)', () => {
+    const a = newColony(defaultColonyParams({ seed: 1 }));
+    const b = newColony(defaultColonyParams({ seed: 2 }));
+    a.window = 10;
+    b.window = 10;
+    expect(priceMult(a)).not.toBe(priceMult(b));
   });
 });
 
@@ -931,6 +966,30 @@ describe('milestones — a checklist, never a reward (D-064)', () => {
     const s = newColony(defaultColonyParams({ pop0: 150, startStockWindows: 5 }));
     const r = commitWindow(s, emptyOrder());
     expect(r.milestones).toContain('pop_100');
+  });
+
+  it('a subsidy-bearing milestone permanently raises the budget, once, not on later windows (D-076)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 150, startStockWindows: 5 }));
+    const baseM = s.p.M;
+    expect(s.subsidyBonus).toBe(0);
+    expect(previewOrder(s, emptyOrder()).budget).toBe(baseM); // untouched before the milestone
+    const r = commitWindow(s, emptyOrder());
+    expect(r.milestones).toContain('pop_100');
+    expect(s.subsidyBonus).toBe(3.0e9); // pop_100's bonus (colony.ts MILESTONES table)
+    expect(previewOrder(s, emptyOrder()).budget).toBe(baseM + 3.0e9);
+    const before = s.subsidyBonus;
+    commitWindow(s, emptyOrder()); // still pop ≥ 100 — must NOT add the bonus again
+    expect(s.subsidyBonus).toBe(before);
+  });
+
+  it('first_landing/first_birth/event_survived carry no subsidy bonus — only genuine-scale milestones do', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.built = { habitat: 1 };
+    s.condition = { habitat: 1 };
+    commitWindow(s, ord({ colonists: 10 }));
+    const r = commitWindow(s, emptyOrder()); // lands → first_landing
+    expect(r.milestones).toContain('first_landing');
+    expect(s.subsidyBonus).toBe(0);
   });
 
   it('bulk_autonomy fires only when local production fully covers food/water/O₂/N₂', () => {

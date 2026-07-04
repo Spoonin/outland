@@ -21,7 +21,9 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ColonyStore, type KV } from '../src/ui/colonyStore';
-import { defaultColonyParams, STRUCTURES, STRUCT_BY_ID, RESOURCES, type ResourceKind, type WindowEvent } from '../src/engine';
+import { defaultColonyParams, STRUCTURES, STRUCT_BY_ID, MILESTONES, RESOURCES, type ResourceKind, type WindowEvent } from '../src/engine';
+
+const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -121,7 +123,12 @@ function printStatus(store: ColonyStore): void {
     if (last.mortality) console.log(`  † погибло ${last.mortality} (${Object.entries(last.mortalityBreakdown).map(([c, n]) => `${c}:${n}`).join(', ')})`);
     if (last.births) console.log(`  🐣 рождения: +${last.births}`);
     if (last.built.length) console.log(`  🏗 построено: ${last.built.join(', ')}`);
-    if (last.milestones.length) console.log(`  ★ майлстоуны: ${last.milestones.join(', ')}`);
+    if (last.milestones.length) {
+      console.log(`  ★ майлстоуны: ${last.milestones.map((id) => {
+        const m = MILESTONE_BY_ID.get(id);
+        return m?.subsidyBonus ? `${m.name} (субсидия +${money(m.subsidyBonus)}/окно)` : m?.name ?? id;
+      }).join(', ')}`);
+    }
     if (last.capped) console.log('  ⚠ завоз не влез в пропускную способность');
   }
 }
