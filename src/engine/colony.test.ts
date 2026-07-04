@@ -219,6 +219,40 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.stocks.fuel).toBeCloseTo(0, 0); // drew exactly what was on hand, nothing left owed
   });
 
+  it('an understaffed colony throttles EVERY structure proportionally, not just the short-handed one (D-075)', () => {
+    // 1 solar_plant (opsCrew 1) + 1 nuclear_plant (opsCrew 10) = 11 needed; pop 11 → full staffing
+    const staffed = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5 }));
+    staffed.built = { solar_plant: 1, nuclear_plant: 1 };
+    staffed.condition = { solar_plant: 1, nuclear_plant: 1 };
+    staffed.stocks.spares = 1_000_000;
+    staffed.stocks.fuel = 1_000_000;
+    const rFull = commitWindow(staffed, emptyOrder());
+    expect(rFull.energyGen).toBeCloseTo(600, 0); // solar 100 + nuclear 500, fully staffed
+
+    // a mass-casualty event halves pop to ~5.5 mid-game — labor demand (11) now exceeds headcount,
+    // and BOTH structures lose the same fraction of output (a colony-wide pinch, not "who gets fired")
+    const thinned = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5 }));
+    thinned.built = { solar_plant: 1, nuclear_plant: 1 };
+    thinned.condition = { solar_plant: 1, nuclear_plant: 1 };
+    thinned.stocks.spares = 1_000_000;
+    thinned.stocks.fuel = 1_000_000;
+    thinned.pop = 5.5; // half of the 11 needed → laborRatio 0.5
+    const rThin = commitWindow(thinned, emptyOrder());
+    expect(rThin.energyGen).toBeCloseTo(300, 0); // 600 × 0.5 — BOTH plants' share cut equally
+  });
+
+  it('pop===0 with structures already built is "not colonized yet", not a labor collapse (D-075)', () => {
+    // Mars builds aren't gated on colonists physically standing there THIS window (Tsiolkovsky
+    // lag) — a robotically pre-deployed solar_plant sitting at pop 0 must not read as understaffed
+    // just because 0/anything(>0) would otherwise divide out to a full blackout.
+    const s = newColony(defaultColonyParams({ pop0: 0, startStockWindows: 5 }));
+    s.built = { solar_plant: 1 }; // opsCrew 1, but nobody has landed yet
+    s.condition = { solar_plant: 1 };
+    s.stocks.spares = 1_000_000; // full ЗИП coverage — isolate from wear, not what this checks
+    const r = commitWindow(s, emptyOrder());
+    expect(r.energyGen).toBeCloseTo(100, 0); // full rate, not zeroed by the (0 pop / 1 needed) ratio
+  });
+
   it('refuel R&D stage 1 + building refuel pads raises throughput', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const before = previewOrder(s, emptyOrder()).throughput;

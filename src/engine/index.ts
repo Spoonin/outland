@@ -46,6 +46,7 @@ export {
   marsPlanCost,
   marsPlanMaterials,
   prereqMet,
+  importPrereqMet,
   lockReason,
   structureImportPlan,
   bufferRunway,
@@ -61,6 +62,7 @@ export {
   resolveColonyEnergy,
   structureFlows,
   spareUpkeep,
+  laborDemand,
   housingCapacity,
   structuralN2Leak,
 } from './structures';

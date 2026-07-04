@@ -95,6 +95,7 @@ function printStatus(store: ColonyStore): void {
   console.log(`бюджет: ${money(s.budget)}/окно  ·  🛡 без завоза: ${s.buffer}${s.bufferSaturated ? '+' : ''} ок`);
   console.log(`площадки: classic ${s.pads.classic}, refuel ${s.pads.refuel} (R&D ст. ${rnd.stage}/${rnd.total}${rnd.next ? `, следующая: ${rnd.next.name} за ${money(rnd.next.cost)}` : ', максимум'})`);
   console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);
+  if (s.crewCoverage < 1) console.log(`⚠ экипаж: население покрывает только ${(s.crewCoverage * 100).toFixed(0)}% нужного штата — выпуск всех объектов просажен`);
   console.log(`авто-ЗИП: ${store.autoSparesEnabled ? 'вкл' : 'выкл'}`);
   console.log(
     `текущие цены: колонист ${money(store.colonistPriceNow())} · classic-площадка ${money(store.padPriceNow('classic'))}` +
@@ -142,7 +143,7 @@ function printCatalog(): void {
     const mats = Object.entries(st.buildMaterials).map(([r, q]) => `${r}:${q}`).join(',');
     const prod = Object.entries(st.produces).map(([r, q]) => `${r}:+${q}`).join(',');
     const cons = Object.entries(st.consumes).map(([r, q]) => `${r}:-${q}`).join(',');
-    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.n2Leak ? `  n2Leak=${st.n2Leak}/окно` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}${st.minPop ? `  minPop=${st.minPop}` : ''}`);
+    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.n2Leak ? `  n2Leak=${st.n2Leak}/окно` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}${st.minPop ? `  minPop=${st.minPop}` : ''}${st.opsCrew ? `  opsCrew=${st.opsCrew}` : ''}`);
     if (mats) console.log(`      materials: ${mats}`);
     if (prod || cons) console.log(`      ${prod}  ${cons}`);
   }

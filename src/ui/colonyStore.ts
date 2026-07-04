@@ -9,12 +9,14 @@ import {
   emptyOrder,
   marsPlanMaterials,
   prereqMet,
+  importPrereqMet,
   lockReason,
   structureImportPlan,
   colonyPriceMult,
   resolveColonyEnergy,
   structureFlows,
   spareUpkeep,
+  laborDemand,
   housingCapacity,
   structuralN2Leak,
   serializeColony,
@@ -68,6 +70,7 @@ export interface ColonyStatus {
   energyDeficit: number;
   avgCondition: number; // mean structure condition 0..1 (V6)
   sparesCoverage: number; // spares stock vs upkeep need
+  crewCoverage: number; // D-075: pop vs total opsCrew demand — 1 if fully staffed or nothing needs crew
   housingCapacity: number; // total colonist slots from habitats (V7); 0 = unconstrained
   n2LeakKgPerWindow: number; // structural N₂ hull leak per window (V7)
   ended: boolean; // collapsed, or the player clicked "finish" (D-064) — never a time/window limit
@@ -365,6 +368,10 @@ export class ColonyStore {
   prereqMet(id: string): boolean {
     return prereqMet(this.state, id);
   }
+  /** Import prereq (D-075) — skips the minPop labor gate, a turnkey unit ships pre-built. */
+  importPrereqMet(id: string): boolean {
+    return importPrereqMet(this.state, id);
+  }
   /** Why a structure is locked, if it is (D-074) — distinguishes "build the prereq" from "grow first". */
   lockReason(id: string): LockReason | undefined {
     return lockReason(this.state, id);
@@ -379,7 +386,10 @@ export class ColonyStore {
     );
     const importIds = Object.keys(this.draftImport).filter((id) => (this.draftImport[id] ?? 0) > 0);
     const prereqMissing = [
-      ...new Set([...this.draftBuild, ...importIds].filter((id) => !prereqMet(this.state, id))),
+      ...new Set([
+        ...this.draftBuild.filter((id) => !prereqMet(this.state, id)),
+        ...importIds.filter((id) => !importPrereqMet(this.state, id)),
+      ]),
     ];
     const totalCost = earth.total; // Mars build is money-free (D-054)
     // earth.budget already folds in any active subsidy_cut event (D-063)
@@ -445,6 +455,7 @@ export class ColonyStore {
     const energy = resolveColonyEnergy(s.built, s.p.popEnergyPerCapita * s.pop, s.condition);
     const sf = structureFlows(s.built, energy.served, undefined, s.condition);
     const upkeep = spareUpkeep(s.built);
+    const laborNeed = laborDemand(s.built);
     const n2LeakKgPerWindow = structuralN2Leak(s.built);
     const lifeSet = new Set<ResourceKind>(LIFE);
     // per-resource balance: local production − consumption (life-support + structures + spares upkeep)
@@ -485,6 +496,7 @@ export class ColonyStore {
       energyDeficit: energy.deficit,
       avgCondition,
       sparesCoverage: upkeep > 0 ? Math.min(1, s.stocks.spares / upkeep) : 1,
+      crewCoverage: s.pop > 0 && laborNeed > 0 ? Math.min(1, s.pop / laborNeed) : 1,
       housingCapacity: housingCapacity(s.built),
       n2LeakKgPerWindow,
       ended: this.ended,

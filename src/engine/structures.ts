@@ -23,6 +23,8 @@ export interface Structure {
   prereq?: string; // structure id that must exist first (e.g. nuclear → waste pad)
   minPop?: number; // D-074: colonists needed before this is buildable — a 20-person outpost has no
   // trained crew to run a reactor; absent/0 → no gate (bootstrap structures stay buildable at pop 0)
+  opsCrew?: number; // D-075: colonists/unit needed to keep it STAFFED ongoing (recomputed every
+  // window from total pop, not a persistent assignment — see laborDemand/laborRatio in colony.ts)
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -55,6 +57,7 @@ function loadStructures(): Structure[] {
     if (row.n2Leak) s.n2Leak = num(row.n2Leak);
     if (row.prereq) s.prereq = row.prereq;
     if (row.minPop) s.minPop = num(row.minPop);
+    if (row.opsCrew) s.opsCrew = num(row.opsCrew);
     return s;
   });
 }
@@ -206,6 +209,17 @@ export function spareUpkeep(built: BuiltCounts): number {
   let u = 0;
   for (const s of STRUCTURES) u += (built[s.id] ?? 0) * s.upkeepSpares;
   return u;
+}
+
+/** Total colonist-labor needed to keep every built structure staffed this window (D-075) — mirrors
+ * spareUpkeep's aggregate-demand shape, but for people instead of parts. Recomputed fresh each
+ * window from current pop (laborRatio in colony.ts), not a persistent per-structure assignment:
+ * a mass-casualty event thins the whole colony's output proportionally, same window, no "who got
+ * reassigned" bookkeeping. */
+export function laborDemand(built: BuiltCounts): number {
+  let d = 0;
+  for (const s of STRUCTURES) d += (s.opsCrew ?? 0) * (built[s.id] ?? 0);
+  return d;
 }
 
 /** Total colonist housing slots from all built habitat structures (V7). */

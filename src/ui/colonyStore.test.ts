@@ -36,6 +36,14 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(res.find((c) => c.kind === 'chips')).toBeDefined();
   });
 
+  it('status exposes crewCoverage — reads straight through from the engine (D-075)', () => {
+    // the understaffed-throttle MATH itself is exercised precisely at the engine level
+    // (colony.test.ts, "understaffed colony throttles..." / "pop===0 ... not a labor collapse") —
+    // this just guards the store's read-through wiring on the common, well-staffed case.
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }), memKV());
+    expect(store.status().crewCoverage).toBe(1); // no structures built — nothing to staff
+  });
+
   it('Mars build queue feeds the commit plan and builds structures', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
     // need materials in stock to build — order them, land them first (60t ≤ 75t throughput, D-067)

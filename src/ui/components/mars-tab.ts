@@ -142,6 +142,7 @@ export class MarsTab extends LitElement {
           : html`энергия: ${s.energy < 0 ? html`<span class="draw">${s.energy}</span>` : '0'}`}
         ${prod ? html`· выпуск: ${prod}` : nothing} ${cons ? html`· потр.: ${cons}` : nothing}
         · ЗИП ${kg(s.upkeepSpares)}/окно
+        ${s.opsCrew ? html`· экипаж ${s.opsCrew}/шт` : nothing}
         ${s.housing ? html`· жильё +${kg(s.housing)}` : nothing}
         ${s.n2Leak ? html`<span class="short">· N₂ утечка −${kg(s.n2Leak)}/окно</span>` : nothing}
       </div>

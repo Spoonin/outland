@@ -34,6 +34,7 @@ import {
   generationInputGate,
   structureFlows,
   spareUpkeep,
+  laborDemand,
   housingCapacity,
   structuralN2Leak,
   type BuiltCounts,
@@ -251,13 +252,25 @@ export function marsPlanMaterials(build: string[]): Partial<Stocks> {
   return need;
 }
 
-/** Can a structure be built now? (prereq already standing AND minPop reached, D-074). */
+/** Can a structure be LOCALLY BUILT now? (prereq already standing AND minPop reached, D-074/075:
+ * minPop is a construction-labor gate — a 20-person outpost has no trained crew to erect a reactor
+ * from raw steel on-site). */
 export function prereqMet(s: ColonyState, id: string): boolean {
   const st = STRUCT_BY_ID[id];
   if (!st) return false;
   const prereqOk = !st.prereq || (s.built[st.prereq] ?? 0) > 0;
   const popOk = !st.minPop || s.pop >= st.minPop;
   return prereqOk && popOk;
+}
+
+/** Can a structure be IMPORTED (pre-built from Earth, D-057) right now? Only the structure prereq
+ * applies — it ships ready-to-run with no local assembly step, so minPop (a LOCAL build-labor gate)
+ * doesn't apply: nobody on Mars needs to erect a turnkey unit from raw materials (D-075). Its
+ * ongoing opsCrew still counts once it lands, same as anything built locally. */
+export function importPrereqMet(s: ColonyState, id: string): boolean {
+  const st = STRUCT_BY_ID[id];
+  if (!st) return false;
+  return !st.prereq || (s.built[st.prereq] ?? 0) > 0;
 }
 
 /** Why a structure is locked right now, if it is (D-074) — prereqMet only answers yes/no; the
@@ -502,7 +515,8 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     (r) => s.stocks[r] >= (matNeed[r] ?? 0),
   );
   const importIds = Object.keys(order.structures).filter((id) => (order.structures[id] ?? 0) > 0);
-  const prereqsOk = build.every((id) => prereqMet(s, id)) && importIds.every((id) => prereqMet(s, id));
+  // imports skip the minPop labor gate (D-075) — a turnkey unit ships pre-built, no local crew to erect it
+  const prereqsOk = build.every((id) => prereqMet(s, id)) && importIds.every((id) => importPrereqMet(s, id));
 
   const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk;
   const spent = feasible ? pv.total : 0; // only the Earth order costs money
@@ -657,9 +671,24 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     s.condition[s2] = Math.max(0, Math.min(1, c - p.wearRate * (1 - sparesCoverage)));
   }
 
+  // labor (D-075): total colonist-hours the colony's built structures need to stay staffed, vs what's
+  // actually on hand — recomputed fresh every window from CURRENT pop, not a persistent per-structure
+  // assignment: a mass-casualty event thins every structure's output proportionally the same window,
+  // no "who got reassigned first" bookkeeping. Folded into the existing uniform-throttle slots
+  // (genMult/allMult) rather than a new parameter — same shape as solar_flare's allMult.
+  // pop===0 is "not colonized yet", not "workforce wiped out" — a robotically pre-deployed
+  // solar_plant sitting there before the first colonists ever land must not read as a total
+  // blackout; the mechanic is meant to catch DEGRADATION from an established headcount, not the
+  // absence of any headcount ever having existed (same absence≠penalty convention as condOf/energyPower).
+  const laborNeed = laborDemand(s.built);
+  const laborRatio = s.pop > 0 && laborNeed > 0 ? Math.min(1, s.pop / laborNeed) : 1;
+  genMult *= laborRatio;
+  allMult *= laborRatio;
+
   // energy (priority brownout) + input availability (hi-tech) + condition (wear) → structure output;
   // dust_storm/blight (D-063) throttle generation/food-producers via genMult/farmMult above;
-  // struct_outage/solar_flare (D-072) via outMult/allMult; a reactor out of fuel (D-074) via genGate
+  // struct_outage/solar_flare (D-072) via outMult/allMult; a reactor out of fuel (D-074) via genGate;
+  // understaffed colony (D-075) via genMult/allMult too (laborRatio folded in just above)
   const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
   const genGate = generationInputGate(s.built, s.condition, avail);
   const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult, genGate);

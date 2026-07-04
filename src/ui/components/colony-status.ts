@@ -106,6 +106,8 @@ export class ColonyStatusPanel extends LitElement {
             >${(s.avgCondition * 100).toFixed(0)}%</b>
           · ЗИП
           <b style="color:${s.sparesCoverage >= 1 ? '#5ad17a' : '#d96a6a'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
+          ${s.crewCoverage < 1 ? html`· экипаж
+          <b style="color:#d96a6a">${(s.crewCoverage * 100).toFixed(0)}%</b>` : nothing}
         </div>
         ${s.housingCapacity > 0 ? html`<div class="dim">
           🏠 жильё

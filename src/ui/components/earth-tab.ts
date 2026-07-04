@@ -223,7 +223,7 @@ export class EarthTab extends LitElement {
     const del = store.deliveryPerKg();
     const deliveryCost = unit.mass * del.perKg;
     const landedCost = unit.cost + deliveryCost;
-    const prereqOk = store.prereqMet(id);
+    const prereqOk = store.importPrereqMet(id); // D-075: imports skip the minPop labor gate
     return html`<div class="card">
       <div class="h">
         <span>${struct.icon} ${struct.name}</span><span class="v">есть ${store.builtCount(id)} · +${qty}</span>
