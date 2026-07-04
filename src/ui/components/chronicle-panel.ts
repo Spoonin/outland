@@ -136,7 +136,7 @@ export class ChroniclePanel extends LitElement {
     if (r.capped) ev.push('⚠ часть завоза не влезла в пропускную способность');
     if (r.built.length) ev.push(`🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
     if (r.births > 0) ev.push(`🐣 рождения: +${r.births}`);
-    for (const id of r.milestones ?? []) ev.push(`★ майлстоун: ${MILESTONE_BY_ID.get(id)?.name ?? id}`);
+    for (const id of r.milestones) ev.push(`★ майлстоун: ${MILESTONE_BY_ID.get(id)?.name ?? id}`);
     return ev;
   }
 
@@ -149,7 +149,7 @@ export class ChroniclePanel extends LitElement {
       r.built.length === 0 &&
       r.births === 0 &&
       !r.event &&
-      !(r.milestones ?? []).length
+      !r.milestones.length
     );
   }
 
@@ -162,9 +162,8 @@ export class ChroniclePanel extends LitElement {
   }
 
   private detail(r: ColonyReport): TemplateResult {
-    // `?? {}` / `?? []`: chronicle entries saved by earlier builds may predate these fields (D-051)
-    const causes = (Object.entries(r.mortalityBreakdown ?? {}) as [MortalityCause, number][]).filter(([, n]) => (n ?? 0) > 0);
-    const structs = Object.entries(r.structDiag ?? {});
+    const causes = (Object.entries(r.mortalityBreakdown) as [MortalityCause, number][]).filter(([, n]) => (n ?? 0) > 0);
+    const structs = Object.entries(r.structDiag);
     const eShort = r.energyDeficit > 0;
     return html`
       <div class="section">${this.landedLine(r)}</div>
@@ -178,11 +177,11 @@ export class ChroniclePanel extends LitElement {
       ${this.eventTags(r)
         .filter((t) => !t.startsWith('🏗') && !t.startsWith('🐣') && !t.startsWith('★'))
         .map((t) => html`<div class="section warn">${t}</div>`)}
-      ${r.built.length || r.births > 0 || (r.milestones ?? []).length
+      ${r.built.length || r.births > 0 || r.milestones.length
         ? html`<div class="section ok">
             ${r.built.length ? `🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}` : ''}
             ${r.births > 0 ? ` 🐣 рождения: +${r.births}` : ''}
-            ${(r.milestones ?? []).map((id) => ` ★ ${MILESTONE_BY_ID.get(id)?.name ?? id}`).join(' ·')}
+            ${r.milestones.map((id) => ` ★ ${MILESTONE_BY_ID.get(id)?.name ?? id}`).join(' ·')}
           </div>`
         : nothing}
       ${structs.length

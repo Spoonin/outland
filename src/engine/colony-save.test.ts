@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { serializeColony, loadColony, hydrateColony, SAVE_VERSION } from './colony-save';
+import { serializeColony, loadColony, SAVE_VERSION } from './colony-save';
 import { newColony, defaultColonyParams, commitWindow, emptyOrder } from './colony';
 
 const P = defaultColonyParams();
 
-describe('save backward-compat (D-051)', () => {
+describe('save/load (pre-release — no backward compatibility)', () => {
   it('round-trips a played colony', () => {
     const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
     commitWindow(s, emptyOrder());
@@ -18,61 +18,11 @@ describe('save backward-compat (D-051)', () => {
     expect(back.stocks.food).toBeCloseTo(s.stocks.food, 6);
   });
 
-  it('migrates a v3 save: the old single refuel unlock maps onto the staged ladder (D-068)', () => {
-    const v3 = (refuelUnlocked: boolean) =>
-      JSON.stringify({
-        v: 3,
-        window: 6,
-        pop: 40,
-        everHadPop: true,
-        stocks: { food: 10_000 },
-        inTransit: { stocks: {}, colonists: 0 },
-        fleet: { pads: { classic: 5, refuel: 1 }, refuelUnlocked },
-        built: { base_block: 2 },
-        condition: {},
-        rngState: 7,
-      });
-    const withUnlock = loadColony(v3(true), P)!;
-    expect(withUnlock.fleet.refuelStage).toBe(2); // owned capability was single-stage-era = full ladder
-    const withoutUnlock = loadColony(v3(false), P)!;
-    expect(withoutUnlock.fleet.refuelStage).toBe(0);
-  });
-
   it('persists only dynamic state — config is reconstructed from defaults', () => {
     const s = newColony(P);
     const save = serializeColony(s) as unknown as Record<string, unknown>;
     expect(save).not.toHaveProperty('p'); // no catalog/launch/params persisted
     expect(save.v).toBe(SAVE_VERSION);
-  });
-
-  it('forward-compat: a save missing a (newly added) resource hydrates it to default', () => {
-    const s = newColony(P);
-    const save = serializeColony(s);
-    delete (save.stocks as Record<string, number>).chips; // simulate an older save w/o hi-tech
-    const back = hydrateColony(save, P);
-    expect(back.stocks.chips).toBe(0); // self-filled from fresh colony
-  });
-
-  it('migrates a legacy v2 save (fleet.pads was a number, params embedded)', () => {
-    const legacy = JSON.stringify({
-      v: 2,
-      state: {
-        window: 4,
-        pop: 1200,
-        stocks: { food: 50000, water: 90000 }, // old 9-resource set, no hi-tech
-        inTransit: { stocks: {}, colonists: 0 },
-        fleet: { pads: 7 }, // ← old shape: a number
-        built: { solar_plant: 2 },
-        rngState: 42,
-      },
-    });
-    const back = loadColony(legacy, P)!;
-    expect(back).not.toBeNull();
-    expect(back.window).toBe(4);
-    expect(back.fleet.pads.classic).toBe(7); // number → classic
-    expect(back.fleet.pads.refuel).toBe(0);
-    expect(back.stocks.pharma).toBe(0); // hi-tech self-filled
-    expect(back.built.solar_plant).toBe(2);
   });
 
   it('round-trips the chronicle (D-061)', () => {
@@ -83,14 +33,6 @@ describe('save backward-compat (D-051)', () => {
     expect(back.chronicle.length).toBe(2);
     expect(back.chronicle[0]!.window).toBe(1);
     expect(back.chronicle[1]!.window).toBe(2);
-  });
-
-  it('an older save without a chronicle field hydrates to an empty one (back-compat)', () => {
-    const s = newColony(P);
-    const save = serializeColony(s);
-    delete save.chronicle;
-    const back = hydrateColony(save, P);
-    expect(back.chronicle).toEqual([]);
   });
 
   it('round-trips storyteller state — activeEffects, holdTransit, lastEvent (D-063)', () => {
@@ -104,21 +46,9 @@ describe('save backward-compat (D-051)', () => {
     expect(back.lastEvent).toEqual(s.lastEvent);
   });
 
-  it('an older save without storyteller fields hydrates to empty defaults (back-compat)', () => {
-    const s = newColony(P);
-    const save = serializeColony(s);
-    delete save.activeEffects;
-    delete save.holdTransit;
-    delete save.lastEvent;
-    const back = hydrateColony(save, P);
-    expect(back.activeEffects).toEqual([]);
-    expect(back.holdTransit).toBeNull();
-    expect(back.lastEvent).toBeNull();
-  });
-
-  it('garbage / unknown version → null (graceful new game, never throws)', () => {
+  it('garbage / mismatched version → null (graceful new game, never throws)', () => {
     expect(loadColony('not json', P)).toBeNull();
     expect(loadColony(JSON.stringify({ v: 999 }), P)).toBeNull();
-    expect(loadColony(JSON.stringify({ v: 3 }), P)).toBeNull(); // missing fields → invalid
+    expect(loadColony(JSON.stringify({ v: SAVE_VERSION - 1 }), P)).toBeNull(); // any older schema → discard
   });
 });

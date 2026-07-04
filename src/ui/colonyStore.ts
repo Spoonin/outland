@@ -119,7 +119,7 @@ export interface KV {
   removeItem(key: string): void;
 }
 
-const SAVE_KEY = 'outland.colony'; // versioning handled inside the save blob (D-051), not the key
+const SAVE_KEY = 'outland.colony'; // versioning handled inside the save blob, not the key
 const memoryKV: KV = (() => {
   const m = new Map<string, string>();
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v), removeItem: (k) => void m.delete(k) };
@@ -528,7 +528,7 @@ export class ColonyStore {
   private tryLoad(): ColonyState | null {
     try {
       const raw = this.storage.getItem(SAVE_KEY);
-      return raw ? loadColony(raw, defaultColonyParams()) : null; // migrate+hydrate+validate (D-051)
+      return raw ? loadColony(raw, defaultColonyParams()) : null; // hydrate+validate; version mismatch → null
     } catch {
       return null;
     }
