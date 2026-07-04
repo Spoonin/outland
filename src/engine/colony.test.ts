@@ -103,6 +103,14 @@ describe('order preview (manifest math)', () => {
 });
 
 describe('commit window — transit lag, consumption, runway, mortality', () => {
+  it('preview equals charge: an order exactly at budget still ships (no hidden +1 inflation step)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000 }));
+    const order = ord({ resources: { food: 40_000 } });
+    s.p = { ...s.p, M: previewOrder(s, order).total }; // budget = the displayed price, to the dollar
+    commitWindow(s, order);
+    expect(s.inTransit.stocks.food).toBe(40_000); // pre-fix: repriced +3% inside commit → silently rejected
+  });
+
   it('ordered goods land the NEXT window (Tsiolkovsky lag)', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const before = s.stocks.food;

@@ -472,8 +472,11 @@ function mergeTransit(a: Transit, b: Transit | null): Transit {
  */
 export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] = []): ColonyReport {
   const p = s.p;
-  s.window += 1;
+  // price the order at the window the player planned it in — BEFORE advancing — so the preview
+  // shown in the UI/CLI is exactly the charge; incrementing first silently repriced everything
+  // +1 inflation step and let near-budget orders pass the plan() check yet die inside commit
   const pv = previewOrder(s, order);
+  s.window += 1;
 
   // Mars build plan: materials + prerequisites only — command economy, no money capex (D-054).
   // The dollar (subsidy) is Earth-side procurement; building on Mars costs local materials + labour.
