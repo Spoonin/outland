@@ -6,7 +6,7 @@ const P = defaultColonyParams();
 
 describe('save/load (pre-release — no backward compatibility)', () => {
   it('round-trips a played colony', () => {
-    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 })); // Mars presence (D-077)
     commitWindow(s, emptyOrder());
     commitWindow(s, { ...emptyOrder(), unlockRefuel: true }); // buys R&D stage 1 (D-068)
     const raw = JSON.stringify(serializeColony(s));

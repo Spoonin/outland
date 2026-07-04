@@ -327,6 +327,28 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.fleet.pads.refuel).toBe(0);
   });
 
+  it('cannot unlock R&D before any colonist has ever landed on Mars — the whole order is rejected (D-077)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 })); // pop0 defaults to 0
+    expect(s.everHadPop).toBe(false);
+    const r = commitWindow(s, ord({ unlockRefuel: true, resources: { food: 1000 } }));
+    expect(s.fleet.refuelStage).toBe(0); // not bought
+    expect(r.spent).toBe(0); // nothing charged — the whole order was rejected, not just the R&D line
+    expect(r.landed.stocks.food ?? 0).toBe(0); // the food in the SAME order didn't ship either
+  });
+
+  it('R&D unlocks the window after the first colonist actually lands (not just gets ordered)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.built = { habitat: 1 };
+    s.condition = { habitat: 1 };
+    commitWindow(s, ord({ colonists: 10 })); // ships — not landed yet, everHadPop still false
+    expect(s.everHadPop).toBe(false);
+    commitWindow(s, ord({ unlockRefuel: true })); // same window they'd land — still blocked (order checked pre-landing)
+    expect(s.fleet.refuelStage).toBe(0);
+    expect(s.everHadPop).toBe(true); // they landed THIS window
+    commitWindow(s, ord({ unlockRefuel: true })); // next window — now allowed
+    expect(s.fleet.refuelStage).toBe(1);
+  });
+
   it('a guaranteed on-pad explosion loses a pad (D-043)', () => {
     const params = defaultColonyParams({ pop0: 1000,  startStockWindows: 5 });
     params.launch.classic.explodeProb = 1; // force it
@@ -1033,7 +1055,7 @@ describe('milestones — a checklist, never a reward (D-064)', () => {
   });
 
   it('refuel_unlocked fires the window the R&D lands', () => {
-    const s = newColony(defaultColonyParams());
+    const s = newColony(defaultColonyParams({ pop0: 1000 })); // Mars presence required first (D-077)
     const r = commitWindow(s, ord({ unlockRefuel: true }));
     expect(r.milestones).toContain('refuel_unlocked');
   });

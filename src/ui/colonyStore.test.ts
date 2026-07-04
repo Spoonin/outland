@@ -44,6 +44,25 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.status().crewCoverage).toBe(1); // no structures built — nothing to staff
   });
 
+  it('R&D unlock is locked before any colonist has landed, unlocked after (D-077)', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV()); // pop0 defaults to 0
+    expect(store.rndLocked).toBe(true);
+    store.toggleUnlockRefuel();
+    expect(store.plan().rndBlocked).toBe(true);
+    expect(store.plan().feasible).toBe(false);
+    store.toggleUnlockRefuel(); // uncheck — plan.feasible only reflects a REAL attempt
+    store.commit(); // just advances the window, nothing landed
+    expect(store.rndLocked).toBe(true); // still nobody there
+
+    store.setImportQty('habitat', 1);
+    store.setColonists(10);
+    store.commit(); // ships
+    store.commit(); // lands
+    expect(store.rndLocked).toBe(false);
+    store.toggleUnlockRefuel();
+    expect(store.plan().rndBlocked).toBe(false);
+  });
+
   it('Mars build queue feeds the commit plan and builds structures', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
     // need materials in stock to build — order them, land them first (60t ≤ 75t throughput, D-067)

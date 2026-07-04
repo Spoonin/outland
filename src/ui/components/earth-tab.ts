@@ -259,6 +259,7 @@ export class EarthTab extends LitElement {
   /** Buy-the-next-R&D-rung card (staged ladder, D-068). */
   private rndCard(rnd: { stage: number; total: number; next: { index: number; name: string; cost: number } }): TemplateResult {
     const store = this.store;
+    const locked = store.rndLocked; // D-077: campaigns need somebody on Mars to run them
     return html`<div class="card">
       <div class="h">
         <span>🚀 R&D ${rnd.next.index}/${rnd.total}: ${rnd.next.name}</span>
@@ -269,10 +270,12 @@ export class EarthTab extends LitElement {
           ? 'многоразовый сверхтяж + демо перекачки топлива на орбите: кампании работают, но тест-эра (60 т, дороже, рискованнее)'
           : 'серийные танкеры, орбитальное депо, посадка 100 т (сверхзвуковая ретротяга): коммерческая цена $1 000/кг'}
       </div>
-      <label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
-        <input type="checkbox" .checked=${store.unlockRefuelDraft}
-          @change=${() => store.toggleUnlockRefuel()} /> заказать R&D в этом окне
-      </label>
+      ${locked
+        ? html`<div class="sub" style="opacity:.7">🔒 нужен хотя бы один колонист на Марсе — некому вести кампанию</div>`
+        : html`<label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
+            <input type="checkbox" .checked=${store.unlockRefuelDraft}
+              @change=${() => store.toggleUnlockRefuel()} /> заказать R&D в этом окне
+          </label>`}
     </div>`;
   }
 

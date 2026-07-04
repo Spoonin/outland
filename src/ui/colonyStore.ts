@@ -113,6 +113,7 @@ export interface CommitPlan {
   overBudget: boolean;
   materialsShort: ResourceKind[];
   prereqMissing: string[];
+  rndBlocked: boolean; // D-077: R&D unlock ordered before any colonist has ever landed on Mars
   feasible: boolean;
 }
 
@@ -239,6 +240,10 @@ export class ColonyStore {
   }
   get unlockRefuelDraft(): boolean {
     return this.draftUnlockRefuel;
+  }
+  /** D-077: R&D campaigns need Mars presence — no colonist has ever landed yet. */
+  get rndLocked(): boolean {
+    return !this.state.everHadPop;
   }
   toggleUnlockRefuel(): void {
     this.draftUnlockRefuel = !this.draftUnlockRefuel;
@@ -394,6 +399,8 @@ export class ColonyStore {
     const totalCost = earth.total; // Mars build is money-free (D-054)
     // earth.budget already folds in any active subsidy_cut event (D-063)
     const overBudget = totalCost > earth.budget;
+    // R&D "campaigns" need Mars presence already established (D-077) — nobody there to run them
+    const rndBlocked = this.draftUnlockRefuel && !this.state.everHadPop;
     return {
       earth,
       totalCost,
@@ -401,8 +408,13 @@ export class ColonyStore {
       overBudget,
       materialsShort,
       prereqMissing,
+      rndBlocked,
       feasible:
-        !earth.capped && !overBudget && materialsShort.length === 0 && prereqMissing.length === 0,
+        !earth.capped &&
+        !overBudget &&
+        materialsShort.length === 0 &&
+        prereqMissing.length === 0 &&
+        !rndBlocked,
     };
   }
 

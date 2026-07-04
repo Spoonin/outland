@@ -544,8 +544,11 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   const importIds = Object.keys(order.structures).filter((id) => (order.structures[id] ?? 0) > 0);
   // imports skip the minPop labor gate (D-075) — a turnkey unit ships pre-built, no local crew to erect it
   const prereqsOk = build.every((id) => prereqMet(s, id)) && importIds.every((id) => importPrereqMet(s, id));
+  // R&D needs Mars presence already established (D-077) — "campaigns" testing propellant transfer/EDL
+  // are meaningless with nobody there to run them; everHadPop = at least one colonist has landed, ever.
+  const rndOk = !order.unlockRefuel || s.everHadPop;
 
-  const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk;
+  const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk && rndOk;
   const spent = feasible ? pv.total : 0; // only the Earth order costs money
   const builtThis: string[] = [];
 

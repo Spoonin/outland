@@ -225,6 +225,7 @@ function main(): void {
       if (plan.earth.capped) console.log(`  масса больше пропускной: ${kg(plan.earth.mass)} / ${kg(plan.earth.throughput)}`);
       if (plan.materialsShort.length) console.log(`  не хватает материалов: ${plan.materialsShort.join(', ')}`);
       if (plan.prereqMissing.length) console.log(`  нет пререквизитов: ${plan.prereqMissing.join(', ')}`);
+      if (plan.rndBlocked) console.log('  R&D требует высадки: на Марсе ещё никого нет');
       console.log('  поправь заказ и повтори команду (пустой order {} — просто пропустить ход).');
       process.exitCode = 1;
       return;
