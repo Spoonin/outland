@@ -702,6 +702,96 @@ describe('storyteller events — engine integration (D-063)', () => {
   });
 });
 
+describe('disaster events — breach / radiation / outage / crash (D-072)', () => {
+  it('hull_breach vents a fraction of the N₂ bank; short ЗИП coverage → decompression deaths', () => {
+    const seed = seedForEvent('hull_breach');
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 3 }; // upkeep 900/window, zero spares stock → coverage 0, patch crews empty-handed
+    s.condition = { solar_plant: 1 };
+    s.stocks.n2 = 100_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('hull_breach');
+    expect(r.event?.covered).toBe(false);
+    expect(r.mortalityBreakdown.breach).toBeGreaterThan(0);
+    expect(s.stocks.n2).toBeLessThanOrEqual(100_000 * (1 - 0.15)); // ≥ minMag vented
+    expect(s.stocks.n2).toBeGreaterThanOrEqual(100_000 * (1 - 0.35)); // ≤ maxMag vented
+  });
+
+  it('hull_breach with full ЗИП coverage is patched — minimal covered mortality', () => {
+    const seed = seedForEvent('hull_breach');
+    const covered = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    covered.built = { solar_plant: 3 };
+    covered.condition = { solar_plant: 1 };
+    covered.stocks.n2 = 100_000;
+    covered.stocks.spares = 1_000_000; // coverage 1 — patch kits on hand
+    const r = commitWindow(covered, emptyOrder());
+    expect(r.event?.id).toBe('hull_breach');
+    expect(r.event?.covered).toBe(true);
+    expect(r.mortalityBreakdown.breach ?? 0).toBeLessThan(10); // coveredMag 0.004 ≈ 4 of 1000, not 40
+    expect(covered.stocks.n2).toBeLessThan(100_000); // the hole still vents — cover saves people, not gas
+  });
+
+  it('solar_flare throttles ALL structure output (not just farms) the same window it fires', () => {
+    const seed = seedForEvent('solar_flare');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 3, steel_plant: 1, medbay: 1 };
+    s.condition = { solar_plant: 1, steel_plant: 1, medbay: 1 };
+    s.stocks.spares = 1_000_000;
+    s.stocks.pharma = 10_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('solar_flare');
+    expect(r.event?.covered).toBe(true); // medbay + pharma = anti-rad meds
+    expect(r.structDiag.steel_plant!.runFrac).toBeLessThanOrEqual(0.5); // mag ≥ 0.5 hits non-food producers too
+    expect(r.energyGen).toBeLessThanOrEqual(150); // generation shelters as well (3×100 × ≤0.5)
+  });
+
+  it('struct_outage knocks one working structure to zero for its whole duration, then it restarts', () => {
+    const seed = seedForEvent('struct_outage');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2, farm: 1 }; // farm is the only produces/consumes candidate → deterministic target
+    s.condition = { solar_plant: 1, farm: 1 };
+    s.stocks.water = 1_000_000;
+    s.stocks.spares = 1_000_000;
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.event?.id).toBe('struct_outage');
+    expect(r1.event?.target).toBe('farm');
+    expect(r1.structDiag.farm!.runFrac).toBe(0);
+    s.p.eventChanceCap = 0; // no fresh rolls — isolate the outage's tail
+    for (let w = 2; w <= r1.event!.windows; w++) {
+      expect(commitWindow(s, emptyOrder()).structDiag.farm!.runFrac).toBe(0); // still down
+    }
+    expect(commitWindow(s, emptyOrder()).structDiag.farm!.runFrac).toBeGreaterThan(0); // back online
+  });
+
+  it('struct_outage with nothing operable built is a dud — no target, nothing breaks', () => {
+    const seed = seedForEvent('struct_outage');
+    const s = newColony(defaultColonyParams({ pop0: 0, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('struct_outage');
+    expect(r.event?.target).toBeUndefined();
+  });
+
+  it('convoy_crash burns part of the landing convoy — cargo lost, colonists aboard die as `crash`', () => {
+    const seed = seedForEvent('convoy_crash');
+    const s = newColony(defaultColonyParams({ startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    s.built = { habitat: 1 };
+    s.condition = { habitat: 1 };
+    for (const r of ['food', 'water', 'o2', 'n2'] as const) s.stocks[r] = 1_000_000; // isolate crash deaths
+    s.inTransit = { stocks: { ...s.inTransit.stocks, food: 100_000 }, colonists: 10, structures: {} };
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('convoy_crash');
+    expect(r.event?.deaths).toBeGreaterThan(0);
+    expect(r.mortalityBreakdown.crash).toBe(r.event?.deaths);
+    expect(r.mortality).toBeGreaterThanOrEqual(r.event!.deaths!); // crash deaths counted in the window's toll
+    expect(r.landed.stocks.food).toBeLessThan(100_000); // part of the cargo burned on entry
+    expect(r.landed.stocks.food).toBeGreaterThan(0); // mag ≤ 0.6 — part survives
+    expect(s.pop).toBeGreaterThan(0);
+    expect(s.pop).toBeLessThan(10); // survivors only
+    expect(r.milestones).toContain('first_landing'); // someone DID land alive
+    expect(r.milestones).not.toContain('zero_import'); // a crashed convoy is not independence
+  });
+});
+
 describe('milestones — a checklist, never a reward (D-064)', () => {
   it('first_landing fires the window colonists actually land', () => {
     const s = newColony(defaultColonyParams({ startStockWindows: 5 }));

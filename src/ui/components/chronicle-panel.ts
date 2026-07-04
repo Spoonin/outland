@@ -12,7 +12,8 @@ const ICON: Record<string, string> = {
 };
 /** Shared with the debrief (D-064) — one Russian label per named mortality cause (D-061/D-063). */
 export const CAUSE_LABEL: Partial<Record<MortalityCause, string>> = {
-  food: 'голод', water: 'жажда', o2: 'нехватка O₂', n2: 'разгерметизация', energy: 'браунаут ЖО', epidemic: 'эпидемия',
+  food: 'голод', water: 'жажда', o2: 'нехватка O₂', n2: 'удушье (N₂)', energy: 'браунаут ЖО', epidemic: 'эпидемия',
+  breach: 'декомпрессия', radiation: 'радиация', crash: 'крушение при посадке',
 };
 const kg = (v: number) => Math.round(v).toLocaleString('ru-RU');
 const pct = (v: number) => Math.round(v * 100) + '%';
@@ -125,6 +126,14 @@ export class ChroniclePanel extends LitElement {
         return `${ev.icon} ${ev.name}: выпуск ферм −${pct(ev.mag)} на ${ev.windows} ок`;
       case 'epidemic':
         return `${ev.icon} ${ev.name}${ev.covered ? ' — сдержана медблоком' : ''}${ev.deaths ? `: † ${ev.deaths}` : ''}`;
+      case 'breach':
+        return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса N₂${ev.covered ? ' — заделана (ЗИП в полном покрытии)' : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+      case 'radiation':
+        return `${ev.icon} ${ev.name}: все в укрытии, выпуск −${pct(ev.mag)}${ev.covered ? ' — медблок прикрыл' : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+      case 'outage':
+        return `${ev.icon} ${ev.name}: ${ev.target ? `${STRUCT_BY_ID[ev.target]?.name ?? ev.target} — стоит ${ev.windows} ок` : 'отказывать нечему — обошлось'}`;
+      case 'crash':
+        return `${ev.icon} ${ev.name}: потеряно ${pct(ev.mag)} конвоя${ev.lostKg ? ` (~${kg(ev.lostKg)} кг)` : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
     }
   }
 

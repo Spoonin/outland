@@ -113,6 +113,8 @@ export interface StructureDiag {
  * Aggregate structure production/consumption. Run fraction = condition × energy served × input
  * availability. Condition (V6) and input availability (D-050) both throttle output → cascades.
  * `farmMult` (D-063, blight) additionally throttles any structure that produces food.
+ * `outMult` (D-072, struct_outage) throttles specific structure types by id (0 = knocked out).
+ * `allMult` (D-072, solar_flare) throttles EVERY structure — the colony shelters underground.
  */
 export function structureFlows(
   built: BuiltCounts,
@@ -120,6 +122,8 @@ export function structureFlows(
   avail?: Partial<Stocks>,
   condition?: Condition,
   farmMult = 1,
+  outMult?: Record<string, number>,
+  allMult = 1,
 ): { production: Partial<Stocks>; consumption: Partial<Stocks>; diag: Record<string, StructureDiag> } {
   const add = (acc: Partial<Stocks>, r: ResourceKind, v: number) => (acc[r] = (acc[r] ?? 0) + v);
   const energyPower = (s: Structure): number => (s.energy < 0 ? (served[s.id] ?? 0) : 1);
@@ -152,9 +156,10 @@ export function structureFlows(
     const isFarm = (s.produces.food ?? 0) > 0;
     const cond = condOf(condition, s.id);
     const eFrac = energyPower(s);
-    const blight = isFarm ? farmMult : 1;
-    const runFrac = cond * eFrac * inputCap * blight;
-    diag[s.id] = { condition: cond, energyFrac: eFrac, inputFrac: inputCap * blight, runFrac };
+    // event throttles compound: blight (food producers) × outage (this type) × radiation (everyone)
+    const eventMult = (isFarm ? farmMult : 1) * (outMult?.[s.id] ?? 1) * allMult;
+    const runFrac = cond * eFrac * inputCap * eventMult;
+    diag[s.id] = { condition: cond, energyFrac: eFrac, inputFrac: inputCap * eventMult, runFrac };
     for (const r of Object.keys(s.produces) as ResourceKind[]) add(production, r, (s.produces[r] ?? 0) * n * runFrac);
     for (const r of Object.keys(s.consumes) as ResourceKind[]) add(consumption, r, (s.consumes[r] ?? 0) * n * runFrac);
   }

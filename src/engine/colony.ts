@@ -373,7 +373,7 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
 
 /** Named mortality cause for the chronicle (D-061): the binding life-support resource (Liebig),
  * energy brownout, or an epidemic event (D-063). */
-export type MortalityCause = ResourceKind | 'energy' | 'epidemic';
+export type MortalityCause = ResourceKind | 'energy' | 'epidemic' | 'breach' | 'radiation' | 'crash';
 
 export interface ColonyReport {
   window: number;
@@ -513,6 +513,62 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   if (roll?.spec.effect === 'energy') genMult *= 1 - roll.mag;
   if (roll?.spec.effect === 'farm') farmMult *= 1 - roll.mag;
 
+  // solar_flare (D-072): SPE — the colony shelters under regolith for the window: ALL structure
+  // output and generation take the hit at once (the "cascade" disaster class), same-window like
+  // the other Mars-physical events.
+  let allMult = 1;
+  if (roll?.spec.effect === 'radiation') {
+    allMult = 1 - roll.mag;
+    genMult *= 1 - roll.mag;
+  }
+
+  // struct_outage (D-072): one working organ of the colony stops cold (MOXIE, recycler, farm…).
+  // Candidates are built structure types that actually produce/consume something — pure power
+  // plants stay the dust storm's prey, housing has nothing to stop. Lingering outages from past
+  // windows keep the same type down via activeEffects.
+  const outMult: Record<string, number> = {};
+  for (const e of s.activeEffects) {
+    if (e.effect === 'outage' && e.windowsLeft > 0 && e.target) outMult[e.target] = 0;
+  }
+  let outageTarget: string | undefined;
+  if (roll?.spec.effect === 'outage') {
+    const candidates = Object.keys(s.built).filter((id) => {
+      const spec = STRUCT_BY_ID[id];
+      return (
+        (s.built[id] ?? 0) > 0 &&
+        spec !== undefined &&
+        (Object.keys(spec.produces).length > 0 || Object.keys(spec.consumes).length > 0)
+      );
+    });
+    if (candidates.length > 0) {
+      outageTarget = rng.choice(candidates);
+      outMult[outageTarget] = 0;
+    }
+  }
+
+  // convoy_crash (D-072): EDL failure — the convoy the player has watched "в пути" burns on entry.
+  // A rolled fraction of everything aboard is lost the moment it lands; colonists aboard die (named
+  // cause `crash`, they never join s.pop). `landed` keeps the PRE-crash manifest: zero_import must
+  // judge what was SENT, not what survived.
+  let landedEff = landed;
+  let crashDeaths = 0;
+  let crashLostKg = 0;
+  if (roll?.spec.effect === 'crash') {
+    const keep = 1 - roll.mag;
+    const kept = emptyStocks(0);
+    for (const r of RESOURCES) {
+      const v = landed.stocks[r] ?? 0;
+      kept[r] = v * keep;
+      crashLostKg += v - kept[r];
+    }
+    const keptStructures: Record<string, number> = {};
+    for (const id of Object.keys(landed.structures)) {
+      keptStructures[id] = Math.round((landed.structures[id] ?? 0) * keep);
+    }
+    crashDeaths = Math.round(landed.colonists * roll.mag);
+    landedEff = { stocks: kept, colonists: landed.colonists - crashDeaths, structures: keptStructures };
+  }
+
   if (feasible) {
     // apply pad builds + refuel unlock (futureFleet already computed in the preview)
     s.fleet = { refuelStage: pv.futureFleet.refuelStage, pads: { ...pv.futureFleet.pads } };
@@ -559,12 +615,12 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     s.holdTransit = null;
   }
 
-  // colonists from the landed convoy arrive
-  s.pop += landed.colonists;
+  // colonists from the landed convoy arrive (post-crash survivors, D-072)
+  s.pop += landedEff.colonists;
 
   // imported structures from the landed convoy arrive ready-to-run (no local assembly step, D-057)
-  for (const id of Object.keys(landed.structures)) {
-    const n = landed.structures[id] ?? 0;
+  for (const id of Object.keys(landedEff.structures)) {
+    const n = landedEff.structures[id] ?? 0;
     if (n <= 0 || !STRUCT_BY_ID[id]) continue;
     s.built[id] = (s.built[id] ?? 0) + n;
     if (s.condition[id] === undefined) s.condition[id] = 1;
@@ -573,7 +629,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
 
   // available resources this window = stock + landed convoy
   const avail: Partial<Stocks> = {};
-  for (const r of RESOURCES) avail[r] = s.stocks[r] + (landed.stocks[r] ?? 0);
+  for (const r of RESOURCES) avail[r] = s.stocks[r] + (landedEff.stocks[r] ?? 0);
 
   // wear (V6): spares maintain condition; shortfall → structures degrade (output falls → cascade)
   const upkeep = spareUpkeep(s.built);
@@ -585,10 +641,11 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   }
 
   // energy (priority brownout) + input availability (hi-tech) + condition (wear) → structure output;
-  // dust_storm/blight (D-063) throttle generation/food-producers via genMult/farmMult above
+  // dust_storm/blight (D-063) throttle generation/food-producers via genMult/farmMult above;
+  // struct_outage/solar_flare (D-072) via outMult/allMult
   const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
   const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult);
-  const sf = structureFlows(s.built, energy.served, avail, s.condition, farmMult);
+  const sf = structureFlows(s.built, energy.served, avail, s.condition, farmMult, outMult, allMult);
 
   // life-support + structure consumption + spares upkeep; arrivals + structure production
   const cons = consumption(s);
@@ -602,12 +659,18 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   if (n2LeakKg > 0) combinedCons.n2 = (combinedCons.n2 ?? 0) + n2LeakKg;
   const recycle = recycleMap(p);
   const { stocks, deficit } = applyFlows(s.stocks, {
-    arrivals: landed.stocks,
+    arrivals: landedEff.stocks,
     production: sf.production,
     consumption: combinedCons,
     recycleEff: recycle,
   });
   s.stocks = stocks;
+
+  // hull_breach (D-072): decompression vents a rolled fraction of the N₂ bank the same window —
+  // the stock hit lands after flows resolve (the hole doesn't care what the recyclers did today)
+  if (roll?.spec.effect === 'breach') {
+    s.stocks.n2 = Math.max(0, s.stocks.n2 * (1 - roll.mag));
+  }
 
   // mortality from the worst life-support shortfall (Liebig), stock resources only (food/water/o2/n2);
   // track WHICH resource is binding — Liebig means only the worst one drives consumableFrac, so it's
@@ -640,17 +703,36 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     epidemicCovered = (s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0;
     epidemicFrac = epidemicCovered ? roll.spec.coveredMag : roll.mag;
   }
+  // hull_breach casualties (D-072): decompression deaths unless the patch crews have full parts
+  // coverage — the same ЗИП that maintains condition doubles as damage control.
+  let breachFrac = 0;
+  let breachCovered = false;
+  if (roll?.spec.effect === 'breach') {
+    breachCovered = sparesCoverage >= 1;
+    breachFrac = breachCovered ? roll.spec.coveredMag : roll.spec.deathMag;
+  }
+  // solar_flare casualties (D-072): acute radiation — medbay + pharma (anti-rad meds) cover it
+  // like an epidemic, with the same one-time pharma draw.
+  let radFrac = 0;
+  let radCovered = false;
+  if (roll?.spec.effect === 'radiation') {
+    radCovered = (s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0;
+    radFrac = radCovered ? roll.spec.coveredMag : roll.spec.deathMag;
+  }
 
-  const mortality = s.pop * (1 - (1 - consumableFrac) * (1 - energyFrac) * (1 - epidemicFrac));
+  const mortality =
+    s.pop *
+    (1 - (1 - consumableFrac) * (1 - energyFrac) * (1 - epidemicFrac) * (1 - breachFrac) * (1 - radFrac));
   s.pop -= mortality;
-  if (epidemicCovered && roll) {
+  if ((epidemicCovered || radCovered) && roll) {
     s.stocks.pharma = Math.max(0, s.stocks.pharma - roll.spec.pharmaCost * s.pop);
   }
 
   // named attribution (D-061): split `mortality` between its independent risks proportionally to
   // their (pre-combination) fractions — consumableFrac has exactly one binding resource (Liebig).
+  // Crash deaths (D-072) sit OUTSIDE the soft-OR: those colonists died on entry, never joined s.pop.
   const mortalityBreakdown: Partial<Record<MortalityCause, number>> = {};
-  const causeWeight = consumableFrac + energyFrac + epidemicFrac;
+  const causeWeight = consumableFrac + energyFrac + epidemicFrac + breachFrac + radFrac;
   if (causeWeight > 0) {
     if (consumableFrac > 0 && worstResource) {
       mortalityBreakdown[worstResource] = Math.round(mortality * (consumableFrac / causeWeight));
@@ -661,7 +743,14 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     if (epidemicFrac > 0) {
       mortalityBreakdown.epidemic = Math.round(mortality * (epidemicFrac / causeWeight));
     }
+    if (breachFrac > 0) {
+      mortalityBreakdown.breach = Math.round(mortality * (breachFrac / causeWeight));
+    }
+    if (radFrac > 0) {
+      mortalityBreakdown.radiation = Math.round(mortality * (radFrac / causeWeight));
+    }
   }
+  if (crashDeaths > 0) mortalityBreakdown.crash = crashDeaths;
 
   // births: medbay + pharma enable growth (D-030); gated by housing (V7) and a fully-fed, fully-powered
   // colony (no growth mid-famine or mid-brownout)
@@ -684,7 +773,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   let importedMass = 0;
   for (const r of RESOURCES) {
     localMass += sf.production[r] ?? 0;
-    importedMass += landed.stocks[r] ?? 0;
+    importedMass += landedEff.stocks[r] ?? 0;
   }
   const autonomyByMass = localMass + importedMass > 0 ? localMass / (localMass + importedMass) : 0;
 
@@ -697,6 +786,9 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     s.activeEffects.push({ id: roll.spec.id, effect: roll.spec.effect, mag: roll.mag, windowsLeft: roll.dur, category: roll.category });
   } else if (roll && (roll.spec.effect === 'energy' || roll.spec.effect === 'farm') && roll.dur > 1) {
     s.activeEffects.push({ id: roll.spec.id, effect: roll.spec.effect, mag: roll.mag, windowsLeft: roll.dur - 1 });
+  } else if (roll && roll.spec.effect === 'outage' && outageTarget && roll.dur > 1) {
+    // the knocked-out type stays down for the remainder (bit this window already, like storms)
+    s.activeEffects.push({ id: roll.spec.id, effect: 'outage', mag: roll.mag, windowsLeft: roll.dur - 1, target: outageTarget });
   }
   let windowEvent: WindowEvent | undefined;
   if (roll) {
@@ -712,6 +804,19 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     if (roll.spec.effect === 'epidemic') {
       windowEvent.covered = epidemicCovered;
       windowEvent.deaths = mortalityBreakdown.epidemic ?? 0;
+    }
+    if (roll.spec.effect === 'breach') {
+      windowEvent.covered = breachCovered;
+      windowEvent.deaths = mortalityBreakdown.breach ?? 0;
+    }
+    if (roll.spec.effect === 'radiation') {
+      windowEvent.covered = radCovered;
+      windowEvent.deaths = mortalityBreakdown.radiation ?? 0;
+    }
+    if (roll.spec.effect === 'outage') windowEvent.target = outageTarget;
+    if (roll.spec.effect === 'crash') {
+      windowEvent.deaths = crashDeaths;
+      windowEvent.lostKg = Math.round(crashLostKg);
     }
     s.lastEvent = { id: roll.spec.id, window: s.window };
   }
@@ -735,7 +840,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // gauge itself runs commitWindow on a clone) — stored in the report so the store reads it for
   // free and the debrief gets a historical series (D-062/D-064).
   const buffer = simulating ? undefined : bufferRunway(s);
-  if (landed.colonists > 0) mark('first_landing');
+  if (landedEff.colonists > 0) mark('first_landing'); // someone must land ALIVE (D-072 crash)
   if (births > 0) mark('first_birth');
   if (s.pop >= 100) mark('pop_100');
   if (bulkAutonomyOk) mark('bulk_autonomy');
@@ -743,8 +848,16 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // "survive an event with zero deaths" counts only windows where a DEADLY effect actually applied:
   // a storm/blight throttling output, an epidemic, or the supply gap a skipped convoy left behind.
   // Economic events (subsidy/price) can't kill in their own window — surviving them is no feat.
-  const deadlyApplied = genMult < 1 || farmMult < 1 || roll?.spec.effect === 'epidemic' || skipGapWindow;
-  if (deadlyApplied && mortality === 0 && s.pop > 0) mark('event_survived');
+  const deadlyApplied =
+    genMult < 1 ||
+    farmMult < 1 ||
+    allMult < 1 ||
+    Object.keys(outMult).length > 0 ||
+    roll?.spec.effect === 'epidemic' ||
+    roll?.spec.effect === 'breach' ||
+    (roll?.spec.effect === 'crash' && (landed.colonists > 0 || crashLostKg > 0)) ||
+    skipGapWindow;
+  if (deadlyApplied && mortality === 0 && crashDeaths === 0 && s.pop > 0) mark('event_survived');
   if (s.fleet.refuelStage > 0) mark('refuel_unlocked'); // first rung — the demo campaigns (D-068)
   // finale-boss: a LIVING, built colony passing a window where nothing landed AND nothing was
   // ordered — an empty manifest by choice. A rejected (infeasible) order and the gap window after
@@ -762,9 +875,9 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     pop: Math.round(s.pop),
     runway: colonyRunway(s.stocks, cons, sf.production, recycle),
     stocks: { ...s.stocks },
-    landed,
+    landed: landedEff, // what actually arrived (post-crash, D-072) — the event line reports the loss
     deficit,
-    mortality: Math.round(mortality),
+    mortality: Math.round(mortality) + crashDeaths,
     mortalityBreakdown,
     births,
     spent,

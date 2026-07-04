@@ -7,7 +7,13 @@ import type { ResourceKind } from './resources';
 import { parseCsv, num } from '../data/csv';
 import eventsCsv from '../data/events.csv?raw';
 
-export type EventEffect = 'energy' | 'subsidy' | 'delay' | 'price' | 'farm' | 'epidemic';
+// D-072 (плейтест-2 "больше событий"): breach = разгерметизация (вентит сток N₂ + жертвы, ЗИП
+// прикрывает), radiation = солнечная вспышка SPE (все в укрытие: весь выпуск падает + жертвы,
+// медблок прикрывает), outage = отказ узла (случайная рабочая структура встаёт), crash =
+// EDL-крушение конвоя, который садится в это окно.
+export type EventEffect =
+  | 'energy' | 'subsidy' | 'delay' | 'price' | 'farm' | 'epidemic'
+  | 'breach' | 'radiation' | 'outage' | 'crash';
 
 export interface EventSpec {
   id: string;
@@ -18,8 +24,9 @@ export interface EventSpec {
   maxMag: number;
   minDur: number;
   maxDur: number;
-  coveredMag: number; // epidemic only — mortality fraction when medbay+pharma cover it
-  pharmaCost: number; // epidemic only — one-time pharma kg/colonist consumed when covered
+  coveredMag: number; // epidemic/breach/radiation — mortality fraction when the cover holds
+  pharmaCost: number; // epidemic/radiation — one-time pharma kg/colonist consumed when covered
+  deathMag: number; // breach/radiation — uncovered mortality fraction (mag is the physical hit, not deaths)
 }
 
 function loadEvents(): EventSpec[] {
@@ -34,6 +41,7 @@ function loadEvents(): EventSpec[] {
     maxDur: num(row.maxDur),
     coveredMag: num(row.coveredMag),
     pharmaCost: num(row.pharmaCost),
+    deathMag: num(row.deathMag),
   }));
 }
 
@@ -56,6 +64,7 @@ export interface ActiveEffect {
   mag: number;
   windowsLeft: number;
   category?: ResourceKind[]; // price_spike only
+  target?: string; // outage only — the structure type knocked out
 }
 
 /** What actually fired this window — for the chronicle (D-061) to announce. */
@@ -67,8 +76,10 @@ export interface WindowEvent {
   mag: number;
   windows: number;
   category?: ResourceKind[];
-  covered?: boolean; // epidemic only
-  deaths?: number; // epidemic only
+  covered?: boolean; // epidemic/breach/radiation — did the cover (medbay+pharma / full ЗИП) hold
+  deaths?: number; // epidemic/breach/radiation/crash
+  target?: string; // outage — the structure type that failed (undefined = nothing to fail)
+  lostKg?: number; // crash — cargo mass burned on entry
 }
 
 /** Escalation curve: 0 before `startWindow`, ramping linearly to `cap`. */
