@@ -14,8 +14,10 @@
 // order JSON shape (all fields optional):
 //   { "resources": {"food": 50000, "water": 20000}, "colonists": 10,
 //     "build": ["farm", "farm"], "structures": {"habitat": 1}, "importStruct": {"habitat": 1},
-//     "pads": {"classic": 1, "refuel": 0}, "unlockRefuel": true }
+//     "pads": {"classic": 1, "refuel": 0}, "unlockRefuel": true, "autoSpares": true }
 // ("structures"/"importStruct" are aliases — both mean import-fully-built from Earth.)
+// "autoSpares": true keeps the spares order floored at current upkeep need every window from here
+// on (set once, it stays on) — you can still order MORE spares than the floor, never less.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ColonyStore, type KV } from '../src/ui/colonyStore';
@@ -64,9 +66,21 @@ function printStatus(store: ColonyStore): void {
   console.log(`бюджет: ${money(s.budget)}/окно  ·  🛡 без завоза: ${s.buffer}${s.bufferSaturated ? '+' : ''} ок`);
   console.log(`площадки: classic ${s.pads.classic}, refuel ${s.pads.refuel} (R&D ст. ${rnd.stage}/${rnd.total}${rnd.next ? `, следующая: ${rnd.next.name} за ${money(rnd.next.cost)}` : ', максимум'})`);
   console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);
-  console.log('ресурсы (сток, net/окно, запас в окнах):');
+  console.log(`авто-ЗИП: ${store.autoSparesEnabled ? 'вкл' : 'выкл'}`);
+  console.log(
+    `текущие цены: колонист ${money(store.colonistPriceNow())} · classic-площадка ${money(store.padPriceNow('classic'))}` +
+      (s.refuelStage > 0 ? ` · refuel-площадка ${money(store.padPriceNow('refuel'))}` : '') +
+      ` · доставка ~${money(store.deliveryPerKg().perKg)}/кг (${store.deliveryPerKg().tech})`,
+  );
+  const t = store.inTransit();
+  const tParts: string[] = [];
+  if (t.colonists > 0) tParts.push(`колонисты ${t.colonists}`);
+  for (const [k, v] of Object.entries(t.stocks)) if ((v ?? 0) > 0) tParts.push(`${k} ${kg(v!)}`);
+  for (const [id, n] of Object.entries(t.structures)) if ((n ?? 0) > 0) tParts.push(`${id}×${n}`);
+  console.log(`в пути (придёт след. окно): ${tParts.length ? tParts.join(', ') : 'пусто'}`);
+  console.log('ресурсы (сток, net/окно, запас в окнах, текущая цена/кг):');
   for (const r of s.resources) {
-    console.log(`  ${r.kind.padEnd(9)} ${kg(r.stock).padStart(14)}  ${(r.net >= 0 ? '+' : '') + Math.round(r.net)}/ок${Number.isFinite(r.windows) ? `  (${r.windows.toFixed(1)} ок)` : ''}`);
+    console.log(`  ${r.kind.padEnd(9)} ${kg(r.stock).padStart(14)}  ${(r.net >= 0 ? '+' : '') + Math.round(r.net)}/ок${Number.isFinite(r.windows) ? `  (${r.windows.toFixed(1)} ок)` : ''}  @ ${money(store.pricePerKg(r.kind))}/кг`);
   }
   const built = STRUCTURES.filter((st) => store.builtCount(st.id) > 0);
   if (built.length) console.log('построено: ' + built.map((st) => `${st.name}×${store.builtCount(st.id)}`).join(', '));
@@ -84,17 +98,22 @@ function printStatus(store: ColonyStore): void {
 
 function printCatalog(): void {
   const p = defaultColonyParams();
-  console.log('=== ресурсы ($/кг, потребление/чел/окно, recycle, тара) ===');
+  console.log('=== ресурсы (window-0 $/кг — inflates every window, check `status` for the CURRENT price; потребление/чел/окно, recycle, тара) ===');
   for (const r of RESOURCES as readonly ResourceKind[]) {
     const c = p.catalog[r];
     console.log(`  ${r.padEnd(9)} ${money(c.earthPerKg)}/кг  perCapita=${c.perCapita}  η=${c.recycle}  тара=${c.tare}`);
   }
+  console.log(
+    '  NOTE: n2 perCapita=0 (life support draws none directly), BUT habitat-class structures leak\n' +
+      '        n2 through the hull regardless of population (structural, see their n2Leak field below)\n' +
+      '        — `status` shows the live total drain, it is NOT visible from perCapita.',
+  );
   console.log('\n=== структуры (capex, энергия, материалы, produces/consumes) ===');
   for (const st of STRUCTURES) {
     const mats = Object.entries(st.buildMaterials).map(([r, q]) => `${r}:${q}`).join(',');
     const prod = Object.entries(st.produces).map(([r, q]) => `${r}:+${q}`).join(',');
     const cons = Object.entries(st.consumes).map(([r, q]) => `${r}:-${q}`).join(',');
-    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}`);
+    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.n2Leak ? `  n2Leak=${st.n2Leak}/окно` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}`);
     if (mats) console.log(`      materials: ${mats}`);
     if (prod || cons) console.log(`      ${prod}  ${cons}`);
   }
@@ -114,10 +133,16 @@ function printDebrief(store: ColonyStore): void {
 }
 
 function main(): void {
-  const store = new ColonyStore(cmd === 'new' ? defaultColonyParams({ seed: Number(flag('seed', '1')) }) : undefined, fileKV(savePath));
+  // autoSpares is a UI-only preference (like a browser tab, not part of the save) — the real UI
+  // keeps it in memory for the whole session, but this CLI is one fresh process per command, so it
+  // needs its own tiny side-channel in the same file to survive across invocations.
+  const kv = fileKV(savePath);
+  const store = new ColonyStore(cmd === 'new' ? defaultColonyParams({ seed: Number(flag('seed', '1')) }) : undefined, kv);
+  if (kv.getItem('ui:autoSpares') === 'true' && !store.autoSparesEnabled) store.toggleAutoSpares();
 
   if (cmd === 'new') {
     store.reset(defaultColonyParams({ seed: Number(flag('seed', '1')) }));
+    kv.removeItem('ui:autoSpares');
     console.log(`новая партия (seed=${flag('seed', '1')}), сохранение: ${savePath}`);
     printStatus(store);
     return;
@@ -142,8 +167,10 @@ function main(): void {
       importStruct?: Record<string, number>;
       pads?: { classic?: number; refuel?: number };
       unlockRefuel?: boolean;
+      autoSpares?: boolean;
     };
     // housing (build/import) must be queued BEFORE setColonists — maxColonists() reads the draft
+    if (o.autoSpares !== undefined && o.autoSpares !== store.autoSparesEnabled) store.toggleAutoSpares();
     for (const [r, qty] of Object.entries(o.resources ?? {})) store.setRes(r as ResourceKind, qty ?? 0);
     for (const id of o.build ?? []) store.addBuild(id);
     for (const [id, n] of Object.entries({ ...(o.structures ?? {}), ...(o.importStruct ?? {}) })) store.setImportQty(id, n);
@@ -161,6 +188,7 @@ function main(): void {
       if (plan.prereqMissing.length) console.log(`  нет пререквизитов: ${plan.prereqMissing.join(', ')}`);
     }
     store.commit();
+    kv.setItem('ui:autoSpares', String(store.autoSparesEnabled));
     printStatus(store);
     return;
   }

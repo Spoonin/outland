@@ -140,10 +140,12 @@ export class EarthTab extends LitElement {
     const del = store.deliveryPerKg();
     const shipPerKg = 1 + spec.tare; // container/tare adds ship mass
     const deliveryPerKg = del.perKg * shipPerKg;
-    const lineCost = qty * (spec.earthPerKg + deliveryPerKg);
+    const earthPerKgNow = store.pricePerKg(r); // inflation/price-spike-aware, matches what commit() bills
+    const lineCost = qty * (earthPerKgNow + deliveryPerKg);
+    const auto = r === 'spares' && store.autoSparesEnabled;
     return html`<div class="card">
       <div class="h">
-        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)} кг</span>
+        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)} кг${auto ? ' (авто)' : ''}</span>
       </div>
       <input
         type="range"
@@ -154,8 +156,17 @@ export class EarthTab extends LitElement {
         @input=${(e: Event) => store.setRes(r, Number((e.target as HTMLInputElement).value))}
       />
       <div class="sub">
-        товар ${money(spec.earthPerKg)}/кг + доставка ~${money(deliveryPerKg)}/кг${spec.tare ? ` (тара ×${shipPerKg.toFixed(2)})` : ''} (${del.tech})${spec.perCapita ? ` · потр. ${spec.perCapita}/чел` : ''}${spec.recycle ? ` · η ${(spec.recycle * 100).toFixed(0)}%` : ''}
+        товар ${money(earthPerKgNow)}/кг + доставка ~${money(deliveryPerKg)}/кг${spec.tare ? ` (тара ×${shipPerKg.toFixed(2)})` : ''} (${del.tech})${spec.perCapita ? ` · потр. ${spec.perCapita}/чел` : ''}${spec.recycle ? ` · η ${(spec.recycle * 100).toFixed(0)}%` : ''}
       </div>
+      ${r === 'n2'
+        ? html`<div class="sub">⚠ утечка идёт от жилых модулей (корпус негерметичен), не от населения — «потр./чел» тут ни при чём</div>`
+        : nothing}
+      ${r === 'spares'
+        ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">
+            <input type="checkbox" .checked=${store.autoSparesEnabled} @change=${() => store.toggleAutoSpares()} />
+            авто-ЗИП: держать заказ не ниже текущего расхода на обслуживание
+          </label>`
+        : nothing}
       ${qty > 0 ? html`<div class="sub">≈ ${money(lineCost)} за позицию</div>` : nothing}
     </div>`;
   }
@@ -174,6 +185,7 @@ export class EarthTab extends LitElement {
       `;
     if (this.tab === 'people') {
       const max = store.maxColonists();
+      const perHead = store.colonistPriceNow();
       return html`<div class="cards">
         <div class="card">
           <div class="h"><span>🧑‍🚀 колонисты</span><span class="v">${store.colonists} / ${max}</span></div>
@@ -183,8 +195,9 @@ export class EarthTab extends LitElement {
           <div class="sub">
             ${max === 0
               ? 'нет свободного жилья — постройте хабитат на Марсе или закажите готовую структуру с жильём (📦 Импорт построек)'
-              : 'прибудут через окно (лаг) · вес + вечный шлейф потребления'}
+              : `${money(perHead)}/чел (без учёта доставки) · прибудут через окно (лаг) · вес + вечный шлейф потребления`}
           </div>
+          ${store.colonists > 0 ? html`<div class="sub">≈ ${money(perHead * store.colonists)} за позицию (без доставки)</div>` : nothing}
         </div>
       </div>`;
     }
@@ -231,12 +244,13 @@ export class EarthTab extends LitElement {
     const store = this.store;
     const spec = padClassFor(store.fleet(), store.launch(), tech); // refuel specs follow the R&D stage (D-068)
     const built = store.fleet().pads[tech];
+    const priceNow = store.padPriceNow(tech); // inflation-adjusted — spec.padCapex alone is the window-0 price
     return html`<div class="card">
       <div class="h"><span>${title}</span><span class="v">есть ${built} · +${store.padQty(tech)}</span></div>
       <input type="range" min="0" max="10" step="1" .value=${String(store.padQty(tech))}
         @input=${(e: Event) => store.setPad(tech, Number((e.target as HTMLInputElement).value))} />
       <div class="sub">
-        ${money(spec.padCapex)}/площадка · содержание ${(spec.padMaintFrac * 100).toFixed(0)}%/окно ·
+        ${money(priceNow)}/площадка · содержание ${(spec.padMaintFrac * 100).toFixed(0)}%/окно ·
         payload ${kg(spec.payload)} кг · риск взрыва ${(spec.explodeProb * 100).toFixed(2)}%/пуск. ${sub}
       </div>
     </div>`;

@@ -246,3 +246,82 @@ describe('no win state — collapse or finish only (D-064)', () => {
     expect(Object.keys(d.collapseCause).length).toBeGreaterThan(0);
   });
 });
+
+describe('auto-spares — floors the order at upkeep, manual can still add margin (playtest finding)', () => {
+  it('off by default: no spares ordered unless the player sets some', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    expect(store.autoSparesEnabled).toBe(false);
+    expect(store.resQty('spares')).toBe(0);
+  });
+
+  it('on: floors the order at spareUpkeep(built) even with the slider at 0', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    store.setRes('steel', 30_000);
+    store.setRes('glass', 30_000);
+    store.commit();
+    store.commit(); // materials land
+    store.addBuild('solar_plant'); // upkeepSpares=300/window (structures.csv)
+    store.commit(); // built
+
+    store.toggleAutoSpares();
+    expect(store.autoSparesEnabled).toBe(true);
+    expect(store.resQty('spares')).toBe(300); // solar_plant's upkeepSpares, slider untouched
+    expect(store.order().resources.spares).toBe(300); // flows through to the actual order
+  });
+
+  it('manual slider can still ask for MORE than the auto floor, never less', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    store.setRes('steel', 30_000);
+    store.setRes('glass', 30_000);
+    store.commit();
+    store.commit();
+    store.addBuild('solar_plant');
+    store.commit();
+    store.toggleAutoSpares();
+
+    store.setRes('spares', 1000); // above the 300 floor
+    expect(store.resQty('spares')).toBe(1000);
+    store.setRes('spares', 10); // below the floor — auto still wins
+    expect(store.resQty('spares')).toBe(300);
+  });
+});
+
+describe('inflation-accurate price display (playtest bug — cards showed window-0 prices forever)', () => {
+  it('pricePerKg matches what previewOrder actually charges, and rises with inflation', () => {
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, inflation: 0.05 }), memKV());
+    const at0 = store.pricePerKg('food');
+    store.setRes('food', 1000);
+    expect(store.preview().goodsCost).toBeCloseTo(at0 * 1000, 0);
+    for (let i = 0; i < 5; i++) store.commit();
+    const atWindow5 = store.pricePerKg('food');
+    expect(atWindow5).toBeGreaterThan(at0);
+  });
+
+  it('colonistPriceNow and padPriceNow rise with inflation too', () => {
+    const store = new ColonyStore(defaultColonyParams({ inflation: 0.05 }), memKV());
+    const colonist0 = store.colonistPriceNow();
+    const pad0 = store.padPriceNow('classic');
+    for (let i = 0; i < 5; i++) store.commit();
+    expect(store.colonistPriceNow()).toBeGreaterThan(colonist0);
+    expect(store.padPriceNow('classic')).toBeGreaterThan(pad0);
+  });
+
+  it('deliveryPerKg reflects inflation, not just the window-0 launch price', () => {
+    const store = new ColonyStore(defaultColonyParams({ inflation: 0.05 }), memKV());
+    const d0 = store.deliveryPerKg().perKg;
+    for (let i = 0; i < 5; i++) store.commit();
+    expect(store.deliveryPerKg().perKg).toBeGreaterThan(d0);
+  });
+});
+
+describe('inTransit — visible cargo already shipped (playtest bug — this was invisible)', () => {
+  it('reflects an order the window after it ships, empties out the window after it lands', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    expect(store.inTransit().colonists).toBe(0);
+    store.setRes('food', 40_000);
+    store.commit(); // ships
+    expect(store.inTransit().stocks.food).toBe(40_000);
+    store.commit(); // lands
+    expect(store.inTransit().stocks.food).toBe(0);
+  });
+});

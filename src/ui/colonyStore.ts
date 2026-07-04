@@ -146,6 +146,10 @@ export class ColonyStore {
   private draftColonists = 0;
   private draftBuild: string[] = [];
   private draftImport: Record<string, number> = {}; // structures to import fully built (V8, D-057)
+  // auto-spares (playtest finding): topping up ЗИП every single window was pure arithmetic upkeep
+  // with no strategic content — this toggle floors the spares order at current upkeep need so the
+  // player only has to think about it when they want a bigger buffer than break-even.
+  private autoSpares = false;
   // D-062: the honest buffer simulation only depends on the committed state, not the draft order
   // being edited — cache by window so it isn't re-run on every slider tick (would be a 12-window
   // engine simulation per keystroke otherwise).
@@ -196,18 +200,29 @@ export class ColonyStore {
   order(): EarthOrder {
     return {
       ...emptyOrder(),
-      resources: { ...this.draftRes },
+      resources: Object.fromEntries(RESOURCES.map((r) => [r, this.resQty(r)])),
       padsToBuild: { ...this.draftPads },
       unlockRefuel: this.draftUnlockRefuel,
       colonists: this.draftColonists,
       structures: { ...this.draftImport },
     };
   }
+  /** Effective quantity to order — floored at upkeep need for spares when auto-spares is on
+   * (the manual slider still adds MORE buffer on top, it just can't go below break-even). */
   resQty(r: ResourceKind): number {
-    return this.draftRes[r] ?? 0;
+    const manual = this.draftRes[r] ?? 0;
+    if (r === 'spares' && this.autoSpares) return Math.max(manual, spareUpkeep(this.state.built));
+    return manual;
   }
   setRes(r: ResourceKind, qty: number): void {
     this.draftRes[r] = Math.max(0, Math.round(qty || 0));
+    this.emit();
+  }
+  get autoSparesEnabled(): boolean {
+    return this.autoSpares;
+  }
+  toggleAutoSpares(): void {
+    this.autoSpares = !this.autoSpares;
     this.emit();
   }
   padQty(tech: LaunchTech): number {
@@ -230,8 +245,10 @@ export class ColonyStore {
   launch(): LaunchParams {
     return this.state.p.launch;
   }
-  /** Marginal delivery cost per kg = cheapest usable pad class's launchCost/payload (D-038);
-   * refuel economics depend on the bought R&D stage (D-068). */
+  /** Marginal delivery cost per kg = cheapest usable pad class's launchCost/payload (D-038),
+   * inflation-adjusted (playtest bug: this used to show the WINDOW-0 price forever, silently
+   * diverging from what previewOrder actually charges as the game goes on) — refuel economics
+   * depend on the bought R&D stage (D-068). */
   deliveryPerKg(): { perKg: number; tech: LaunchTech } {
     const lp = this.state.p.launch;
     const usable: LaunchTech[] = this.state.fleet.refuelStage > 0 ? ['classic', 'refuel'] : ['classic'];
@@ -245,7 +262,25 @@ export class ColonyStore {
         best = t;
       }
     }
-    return { perKg: bestV, tech: best };
+    return { perKg: bestV * colonyPriceMult(this.state), tech: best };
+  }
+
+  /** Effective price for one kg of a resource RIGHT NOW — goods cost only (delivery is separate,
+   * see deliveryPerKg), via the SAME previewOrder path the real charge uses, so it always matches
+   * what commit() actually bills (inflation, D-031, and any active price_spike event, D-063). */
+  pricePerKg(r: ResourceKind): number {
+    return previewOrder(this.state, { ...emptyOrder(), resources: { [r]: 1 } }).goodsCost;
+  }
+
+  /** Effective per-colonist price right now (inflation-adjusted, same previewOrder path). */
+  colonistPriceNow(): number {
+    return previewOrder(this.state, { ...emptyOrder(), colonists: 1 }).colonistCost;
+  }
+
+  /** Effective price to build one more pad of a class right now (inflation-adjusted). */
+  padPriceNow(tech: LaunchTech): number {
+    const order = { ...emptyOrder(), padsToBuild: { classic: tech === 'classic' ? 1 : 0, refuel: tech === 'refuel' ? 1 : 0 } };
+    return previewOrder(this.state, order).padCapex;
   }
 
   /** The refuel R&D ladder position (D-068): current stage + the next rung's label/cost, if any. */
@@ -453,6 +488,16 @@ export class ColonyStore {
 
   stocks(): Stocks {
     return { ...this.state.stocks };
+  }
+  /** What's already shipped and will land NEXT window (playtest bug: this was invisible — an
+   * infeasible order silently ships nothing while the player has no way to see what, if anything,
+   * is already inbound from last window's commit). */
+  inTransit(): { stocks: Stocks; colonists: number; structures: Record<string, number> } {
+    return {
+      stocks: { ...this.state.inTransit.stocks },
+      colonists: this.state.inTransit.colonists,
+      structures: { ...this.state.inTransit.structures },
+    };
   }
   lastReport(): ColonyReport | undefined {
     return this.last;

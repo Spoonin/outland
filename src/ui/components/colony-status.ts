@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import type { ColonyStatus, ResourceLine } from '../colonyStore';
+import { STRUCT_BY_ID, type Stocks } from '../../engine';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -15,6 +16,8 @@ const dkg = (v: number) => (v >= 0 ? '+' : '−') + kg(Math.abs(v));
 @customElement('colony-status')
 export class ColonyStatusPanel extends LitElement {
   @property({ attribute: false }) status!: ColonyStatus;
+  /** What's already shipped, landing NEXT window (playtest bug: this was invisible before). */
+  @property({ attribute: false }) inTransit?: { stocks: Stocks; colonists: number; structures: Record<string, number> };
 
   static styles = css`
     :host {
@@ -64,6 +67,16 @@ export class ColonyStatusPanel extends LitElement {
     }
   `;
 
+  private transitLine(): TemplateResult | typeof nothing {
+    const t = this.inTransit;
+    if (!t) return nothing;
+    const parts: string[] = [];
+    if (t.colonists > 0) parts.push(`🧑‍🚀 ${t.colonists}`);
+    for (const [k, v] of Object.entries(t.stocks)) if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? k} ${kg(v!)}`);
+    for (const [id, n] of Object.entries(t.structures)) if ((n ?? 0) > 0) parts.push(`${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id}×${n}`);
+    return html`<div class="dim">🚀 в пути (придёт след. окно): ${parts.length ? parts.join(' · ') : 'пусто'}</div>`;
+  }
+
   private cell(r: ResourceLine): TemplateResult {
     // colour by trend / urgency: draining + <1 window cover = critical
     const draining = r.net < 0;
@@ -107,6 +120,7 @@ export class ColonyStatusPanel extends LitElement {
         </div>
         <div class="dim">субсидия ${money(s.budget)}/окно</div>
       </div>
+      ${this.transitLine()}
       <div class="grid">${s.resources.map((r) => this.cell(r))}</div>
     `;
   }
