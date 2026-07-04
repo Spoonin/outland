@@ -101,6 +101,7 @@ describe('resource set (dробный набор, D-042)', () => {
     expect(RESOURCES).toContain('polymers');
     expect(RESOURCES).toContain('pharma'); // hi-tech, import-only (D-046/D-045)
     expect(RESOURCES).toContain('chips');
-    expect(RESOURCES.length).toBe(12);
+    expect(RESOURCES).toContain('fuel'); // nuclear fuel, import-only (D-074)
+    expect(RESOURCES.length).toBe(13);
   });
 });

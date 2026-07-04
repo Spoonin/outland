@@ -6,7 +6,7 @@ import { STRUCT_BY_ID, type Stocks } from '../../engine';
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
   steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
-  pharma: '💊', chips: '🔌', catalyst: '⚗️',
+  pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
 };
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');

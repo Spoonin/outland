@@ -52,7 +52,7 @@ export const EVENT_BY_ID: Readonly<Record<string, EventSpec>> = Object.fromEntri
 export const PRICE_CATEGORIES: readonly ResourceKind[][] = [
   ['food', 'water', 'o2', 'n2'],
   ['steel', 'metals', 'polymers', 'glass', 'spares'],
-  ['pharma', 'chips', 'catalyst'],
+  ['pharma', 'chips', 'catalyst', 'fuel'],
 ];
 
 /** A rolling effect from a past event, still counting down (D-063). Read at the TOP of the window

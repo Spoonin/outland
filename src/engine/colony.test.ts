@@ -168,6 +168,57 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.built['nuclear_plant']).toBeUndefined();
   });
 
+  it('refuses nuclear_plant below its minPop, even with the waste_pad prereq standing (D-074)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 5 })); // a 20-person outpost
+    s.built = { waste_pad: 1 };
+    s.condition = { waste_pad: 1 };
+    s.stocks.steel = 200_000;
+    s.stocks.metals = 100_000;
+    const r = commitWindow(s, emptyOrder(), ['nuclear_plant']);
+    expect(r.built).toEqual([]); // pop 20 < minPop 100 → infeasible
+    expect(s.built['nuclear_plant']).toBeUndefined();
+  });
+
+  it('an established colony (pop ≥ minPop) with the prereq standing can build the reactor (D-074)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    s.built = { waste_pad: 1 };
+    s.condition = { waste_pad: 1 };
+    s.stocks.steel = 200_000;
+    s.stocks.metals = 100_000;
+    const r = commitWindow(s, emptyOrder(), ['nuclear_plant']);
+    expect(r.built).toEqual(['nuclear_plant']);
+    expect(s.built['nuclear_plant']).toBe(1);
+  });
+
+  it('a reactor out of fuel does not generate rated power — fuel gates ITS OWN share, not the whole grid (D-074)', () => {
+    const withFuel = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    withFuel.built = { solar_plant: 1, nuclear_plant: 1 };
+    withFuel.condition = { solar_plant: 1, nuclear_plant: 1 };
+    withFuel.stocks.spares = 1_000_000; // full ЗИП coverage — isolate from wear, not what this checks
+    withFuel.stocks.fuel = 1_000_000; // plenty
+    const rFed = commitWindow(withFuel, emptyOrder());
+    expect(rFed.energyGen).toBeCloseTo(600, 0); // solar 100 + nuclear 500, both full rate
+
+    const noFuel = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    noFuel.built = { solar_plant: 1, nuclear_plant: 1 };
+    noFuel.condition = { solar_plant: 1, nuclear_plant: 1 };
+    noFuel.stocks.spares = 1_000_000;
+    noFuel.stocks.fuel = 0; // reactor has nothing to burn
+    const rStarved = commitWindow(noFuel, emptyOrder());
+    expect(rStarved.energyGen).toBeCloseTo(100, 0); // solar keeps generating — only nuclear's share drops
+  });
+
+  it('partial fuel throttles the reactor proportionally, and it only draws what it actually got', () => {
+    const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
+    s.built = { nuclear_plant: 1 };
+    s.condition = { nuclear_plant: 1 };
+    s.stocks.spares = 1_000_000;
+    s.stocks.fuel = 1_500; // half of the 3,000/window it wants
+    const r = commitWindow(s, emptyOrder());
+    expect(r.energyGen).toBeCloseTo(250, 0); // 500 rated × 0.5 fuel ratio
+    expect(s.stocks.fuel).toBeCloseTo(0, 0); // drew exactly what was on hand, nothing left owed
+  });
+
   it('refuel R&D stage 1 + building refuel pads raises throughput', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     const before = previewOrder(s, emptyOrder()).throughput;

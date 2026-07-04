@@ -21,6 +21,8 @@ export interface Structure {
   housing?: number; // colonists this structure can house (habitat); absent → 0
   n2Leak?: number; // kg N₂ leaked per unit per window (pressurized volume, V7); absent → 0
   prereq?: string; // structure id that must exist first (e.g. nuclear → waste pad)
+  minPop?: number; // D-074: colonists needed before this is buildable — a 20-person outpost has no
+  // trained crew to run a reactor; absent/0 → no gate (bootstrap structures stay buildable at pop 0)
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -52,6 +54,7 @@ function loadStructures(): Structure[] {
     if (row.housing) s.housing = num(row.housing);
     if (row.n2Leak) s.n2Leak = num(row.n2Leak);
     if (row.prereq) s.prereq = row.prereq;
+    if (row.minPop) s.minPop = num(row.minPop);
     return s;
   });
 }
@@ -71,11 +74,42 @@ const condOf = (c: Condition | undefined, id: string): number => {
   return v === undefined ? 1 : Math.max(0, Math.min(1, v));
 };
 
-/** Total energy generation from built power plants, scaled by condition (V6). */
-export function energyGeneration(built: BuiltCounts, condition?: Condition): number {
+/** Total energy generation from built power plants, scaled by condition (V6) and, per-structure,
+ * by how much of its OWN inputs it actually got (D-074, `genGate`) — a reactor out of fuel doesn't
+ * generate rated power just because the panels-side of the grid is fine. */
+export function energyGeneration(built: BuiltCounts, condition?: Condition, genGate?: Record<string, number>): number {
   let g = 0;
-  for (const s of STRUCTURES) if (s.energy > 0) g += s.energy * (built[s.id] ?? 0) * condOf(condition, s.id);
+  for (const s of STRUCTURES) {
+    if (s.energy <= 0) continue;
+    g += s.energy * (built[s.id] ?? 0) * condOf(condition, s.id) * (genGate?.[s.id] ?? 1);
+  }
   return g;
+}
+
+/** D-074: any generating structure that ALSO consumes something (currently only nuclear_plant +
+ * fuel) only generates at the rate its inputs allow — generalizes rather than hardcoding one id,
+ * so a future reactor type gets the same honesty for free. Mirrors structureFlows' own `ratio()`
+ * for the same resource, so the plant's throttled generation and its throttled fuel DRAW agree. */
+export function generationInputGate(
+  built: BuiltCounts,
+  condition: Condition | undefined,
+  avail: Partial<Stocks>,
+): Record<string, number> {
+  const gate: Record<string, number> = {};
+  for (const s of STRUCTURES) {
+    if (s.energy <= 0) continue;
+    const n = built[s.id] ?? 0;
+    if (n <= 0 || Object.keys(s.consumes).length === 0) continue;
+    let cap = 1;
+    for (const r of Object.keys(s.consumes) as ResourceKind[]) {
+      const desired = (s.consumes[r] ?? 0) * n * condOf(condition, s.id);
+      if (desired <= 0) continue;
+      const have = avail[r] ?? 0;
+      cap = Math.min(cap, have >= desired ? 1 : have / desired);
+    }
+    gate[s.id] = cap;
+  }
+  return gate;
 }
 
 export interface EnergyResolution {
@@ -91,13 +125,14 @@ export function resolveColonyEnergy(
   lifeSupportDemand: number,
   condition?: Condition,
   genMult = 1,
+  genGate?: Record<string, number>,
 ): EnergyResolution {
   const demands: EnergyDemand[] = [{ name: 'lifesupport', priority: 0, demand: lifeSupportDemand }];
   for (const s of STRUCTURES) {
     const n = built[s.id] ?? 0;
     if (n > 0 && s.energy < 0) demands.push({ name: s.id, priority: s.energyPriority, demand: -s.energy * n * condOf(condition, s.id) });
   }
-  const r = resolveEnergy(energyGeneration(built, condition) * genMult, demands);
+  const r = resolveEnergy(energyGeneration(built, condition, genGate) * genMult, demands);
   return { generation: r.generation, served: r.served, deficit: r.deficit };
 }
 

@@ -9,6 +9,7 @@ import {
   emptyOrder,
   marsPlanMaterials,
   prereqMet,
+  lockReason,
   structureImportPlan,
   colonyPriceMult,
   resolveColonyEnergy,
@@ -41,6 +42,7 @@ import {
   type LaunchParams,
   type MilestoneId,
   type MortalityCause,
+  type LockReason,
 } from '../engine';
 
 export interface ResourceLine {
@@ -362,6 +364,10 @@ export class ColonyStore {
   }
   prereqMet(id: string): boolean {
     return prereqMet(this.state, id);
+  }
+  /** Why a structure is locked, if it is (D-074) — distinguishes "build the prereq" from "grow first". */
+  lockReason(id: string): LockReason | undefined {
+    return lockReason(this.state, id);
   }
 
   /** Combined Earth+Mars plan for the shared commit footer. */

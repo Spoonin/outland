@@ -142,7 +142,7 @@ function printCatalog(): void {
     const mats = Object.entries(st.buildMaterials).map(([r, q]) => `${r}:${q}`).join(',');
     const prod = Object.entries(st.produces).map(([r, q]) => `${r}:+${q}`).join(',');
     const cons = Object.entries(st.consumes).map(([r, q]) => `${r}:-${q}`).join(',');
-    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.n2Leak ? `  n2Leak=${st.n2Leak}/окно` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}`);
+    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.n2Leak ? `  n2Leak=${st.n2Leak}/окно` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}${st.minPop ? `  minPop=${st.minPop}` : ''}`);
     if (mats) console.log(`      materials: ${mats}`);
     if (prod || cons) console.log(`      ${prod}  ${cons}`);
   }

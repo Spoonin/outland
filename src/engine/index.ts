@@ -46,6 +46,7 @@ export {
   marsPlanCost,
   marsPlanMaterials,
   prereqMet,
+  lockReason,
   structureImportPlan,
   bufferRunway,
   BUFFER_LOOKAHEAD,
@@ -78,6 +79,7 @@ export type {
   MortalityCause,
   MilestoneId,
   MilestoneSpec,
+  LockReason,
 } from './colony';
 export { EVENTS, EVENT_BY_ID } from './events';
 export type { EventSpec, EventEffect, ActiveEffect, WindowEvent } from './events';

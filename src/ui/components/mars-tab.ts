@@ -102,6 +102,16 @@ export class MarsTab extends LitElement {
     }
   `;
 
+  /** D-074: locked can mean "build the prereq" or "grow the colony first" — say which. */
+  private lockLine(s: Structure): TemplateResult | typeof nothing {
+    const why = this.store.lockReason(s.id);
+    if (!why) return nothing;
+    const parts: string[] = [];
+    if (why.missingStructure) parts.push(`нужен сначала: ${why.missingStructure}`);
+    if (why.minPopNeeded) parts.push(`нужно населения ≥ ${why.minPopNeeded.toLocaleString('ru-RU')}`);
+    return html`<div class="lock">🔒 ${parts.join(' · ')}</div>`;
+  }
+
   private card(s: Structure): TemplateResult {
     const store = this.store;
     const locked = !store.prereqMet(s.id);
@@ -135,7 +145,7 @@ export class MarsTab extends LitElement {
         ${s.housing ? html`· жильё +${kg(s.housing)}` : nothing}
         ${s.n2Leak ? html`<span class="short">· N₂ утечка −${kg(s.n2Leak)}/окно</span>` : nothing}
       </div>
-      ${locked ? html`<div class="lock">🔒 нужен сначала: ${s.prereq}</div>` : nothing}
+      ${locked ? this.lockLine(s) : nothing}
       <div class="ctrl">
         <button ?disabled=${locked || queued === 0} @click=${() => store.removeBuild(s.id)}>−</button>
         <span class="q">${queued}</span>

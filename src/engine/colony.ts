@@ -31,6 +31,7 @@ import storytellerCsv from '../data/storyteller.csv?raw';
 import {
   STRUCT_BY_ID,
   resolveColonyEnergy,
+  generationInputGate,
   structureFlows,
   spareUpkeep,
   housingCapacity,
@@ -250,11 +251,27 @@ export function marsPlanMaterials(build: string[]): Partial<Stocks> {
   return need;
 }
 
-/** Can a structure be built now? (prereq already standing). */
+/** Can a structure be built now? (prereq already standing AND minPop reached, D-074). */
 export function prereqMet(s: ColonyState, id: string): boolean {
   const st = STRUCT_BY_ID[id];
   if (!st) return false;
-  return !st.prereq || (s.built[st.prereq] ?? 0) > 0;
+  const prereqOk = !st.prereq || (s.built[st.prereq] ?? 0) > 0;
+  const popOk = !st.minPop || s.pop >= st.minPop;
+  return prereqOk && popOk;
+}
+
+/** Why a structure is locked right now, if it is (D-074) — prereqMet only answers yes/no; the
+ * UI needs to tell "build the prereq first" apart from "grow the colony first". */
+export interface LockReason {
+  missingStructure?: string; // s.prereq, if that structure isn't standing yet
+  minPopNeeded?: number; // st.minPop, if current pop falls short
+}
+export function lockReason(s: ColonyState, id: string): LockReason | undefined {
+  const st = STRUCT_BY_ID[id];
+  if (!st) return undefined;
+  const missingStructure = st.prereq && (s.built[st.prereq] ?? 0) <= 0 ? st.prereq : undefined;
+  const minPopNeeded = st.minPop && s.pop < st.minPop ? st.minPop : undefined;
+  return missingStructure || minPopNeeded ? { missingStructure, minPopNeeded } : undefined;
 }
 
 // ---- order preview (for the UI manifest) --------------------------------
@@ -642,9 +659,10 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
 
   // energy (priority brownout) + input availability (hi-tech) + condition (wear) → structure output;
   // dust_storm/blight (D-063) throttle generation/food-producers via genMult/farmMult above;
-  // struct_outage/solar_flare (D-072) via outMult/allMult
+  // struct_outage/solar_flare (D-072) via outMult/allMult; a reactor out of fuel (D-074) via genGate
   const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
-  const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult);
+  const genGate = generationInputGate(s.built, s.condition, avail);
+  const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult, genGate);
   const sf = structureFlows(s.built, energy.served, avail, s.condition, farmMult, outMult, allMult);
 
   // life-support + structure consumption + spares upkeep; arrivals + structure production

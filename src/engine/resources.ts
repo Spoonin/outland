@@ -18,6 +18,10 @@ export const RESOURCES = [
   'pharma',
   'chips',
   'catalyst',
+  // nuclear fuel (D-074): the ONE recurring import a nuclear_plant needs — enrichment/fabrication
+  // never happens on Mars, so unlike its capex (built once from local steel/metals) this resource
+  // never stops needing an Earth leg. Heavy tare (0.5): a bare fuel assembly ships in a shielding cask.
+  'fuel',
 ] as const;
 export type ResourceKind = (typeof RESOURCES)[number];
 export type Stocks = Record<ResourceKind, number>;

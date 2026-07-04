@@ -8,7 +8,7 @@ const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
   steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
-  pharma: '💊', chips: '🔌', catalyst: '⚗️',
+  pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
 };
 /** Shared with the debrief (D-064) — one Russian label per named mortality cause (D-061/D-063). */
 export const CAUSE_LABEL: Partial<Record<MortalityCause, string>> = {
