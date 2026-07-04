@@ -154,6 +154,7 @@ export class ColonyApp extends LitElement {
       ${plan.materialsShort.length ? html`<div class="neg">⚠ не хватает материалов на стройку: ${plan.materialsShort.join(', ')}</div>` : nothing}
       ${plan.prereqMissing.length ? html`<div class="neg">⚠ нет пререквизитов: ${plan.prereqMissing.join(', ')}</div>` : nothing}
       ${plan.rndBlocked ? html`<div class="neg">⚠ R&D требует высадки — на Марсе ещё никого нет</div>` : nothing}
+      ${plan.bootstrapBlocked ? html`<div class="neg">⚠ первая партия должна включать колонистов — груз не летит один</div>` : nothing}
       <button class="commit" ?disabled=${!plan.feasible || st.ended} @click=${() => this.store.commit()}>
         Коммит ▸ ход (≈2.2 года)
       </button>

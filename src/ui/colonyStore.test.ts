@@ -17,7 +17,7 @@ describe('ColonyStore (v2 Earth ordering)', () => {
   });
 
   it('commit advances a window, lands the convoy next window, clears draft', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }), memKV()); // Mars presence (D-078)
     store.setRes('food', 60_000);
     store.commit();
     expect(store.status().window).toBe(1);
@@ -63,8 +63,29 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.plan().rndBlocked).toBe(false);
   });
 
+  it('cargo alone is bootstrap-blocked before any colonist has landed, freely once established (D-078)', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV()); // pop0 defaults to 0
+    store.setRes('steel', 20_000); // resources, no colonists in the draft
+    expect(store.plan().bootstrapBlocked).toBe(true);
+    expect(store.plan().feasible).toBe(false);
+
+    store.setColonists(1); // maxColonists() is 0 (no housing) — this alone won't help, but confirms
+    expect(store.colonists).toBe(0); // clamped — can't add colonists without housing yet either
+
+    // the legal path: housing + colonists together unblocks everything in the SAME manifest
+    store.setImportQty('base_block', 1);
+    store.setColonists(20);
+    expect(store.plan().bootstrapBlocked).toBe(false);
+    store.commit(); // ships
+    store.commit(); // lands — presence established
+
+    // now a resource-only order (no colonists) ships freely
+    store.setRes('spares', 300);
+    expect(store.plan().bootstrapBlocked).toBe(false);
+  });
+
   it('Mars build queue feeds the commit plan and builds structures', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }), memKV()); // Mars presence (D-078)
     // need materials in stock to build — order them, land them first (60t ≤ 75t throughput, D-067)
     store.setRes('steel', 30_000);
     store.setRes('glass', 30_000);
@@ -91,16 +112,23 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     store.setColonists(50);
     expect(store.colonists).toBe(0);
 
-    // build a habitat (200 housing) — order just its materials (31.5t ≤ 75t throughput, D-067)
-    store.setRes('steel', 10_000);
-    store.setRes('glass', 10_000);
-    store.setRes('polymers', 10_000);
-    store.commit();
-    store.commit(); // materials land
-    store.addBuild('habitat');
-    store.commit(); // habitat built
+    // establish Mars presence first (D-078: nothing ships alone before it) — BOOTSTRAP GUARANTEE
+    // recipe (food + spares from day one — an unmaintained block wears the very window it lands)
+    // so all 20 land with zero mortality and base_block's own 20 housing is exactly full
+    store.setImportQty('base_block', 1);
+    store.setColonists(20);
+    store.setRes('food', 20_000);
+    store.setRes('spares', 500);
+    store.commit(); // ship
+    store.commit(); // land — base_block built, 20 colonists alive, housing exactly full
 
-    expect(store.maxColonists()).toBe(200);
+    // NOW import a second habitat (200 housing) — an import-only shipment is legal once presence
+    // exists. maxColonists() already credits IN-TRANSIT housing (not just landed, see the sibling
+    // test), so check it right after shipping — no need to survive a 4th real window for this.
+    store.setImportQty('habitat', 1);
+    store.commit(); // ship habitat alone — no colonists in this manifest
+
+    expect(store.maxColonists()).toBe(200); // habitat's 200 — base_block's 20 already filled
     store.setColonists(500); // over the cap
     expect(store.colonists).toBe(200); // clamped
   });
@@ -150,17 +178,28 @@ describe('ColonyStore (v2 Earth ordering)', () => {
 
   it('housing already in transit from an earlier order counts toward maxColonists (V8)', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    // establish Mars presence first (D-078) — the FIRST shipment must carry colonists;
+    // BOOTSTRAP GUARANTEE recipe (food + spares from day one) for zero mortality on arrival
     store.setImportQty('base_block', 1);
-    store.commit(); // ship base_block alone — no colonists in this manifest
-    expect(store.builtCount('base_block')).toBe(0); // still in transit, not landed yet
+    store.setColonists(20);
+    store.setRes('food', 20_000);
+    store.setRes('spares', 500);
+    store.commit(); // ship
+    store.commit(); // land — base_block built, 20 colonists alive, housing exactly full
 
-    // base_block lands at the start of THIS coming commit — before any colonists ordered in the
+    // a LATER shipment (presence already established) can send more housing alone, no colonists —
+    // checked while still IN TRANSIT (one commit only), so the 2-window food buffer isn't in play
+    store.setImportQty('habitat', 1);
+    store.commit(); // ship habitat alone — no colonists in this manifest
+    expect(store.builtCount('habitat')).toBe(0); // still in transit, not landed yet
+
+    // habitat lands at the start of THIS coming commit — before any colonists ordered in the
     // current draft would themselves land (they wait one more cycle) — so it must already count
     // toward free housing now. Otherwise the player is wrongly blocked the window right after
     // sending a housing module on its own (only the same-manifest case was covered before).
-    expect(store.maxColonists()).toBe(20);
-    store.setColonists(20);
-    expect(store.colonists).toBe(20);
+    expect(store.maxColonists()).toBe(200); // habitat's 200 — base_block's 20 already filled
+    store.setColonists(200);
+    expect(store.colonists).toBe(200);
   });
 
   it('exposes a live buffer gauge that ignores the in-progress draft (D-062)', () => {
@@ -282,7 +321,7 @@ describe('auto-spares — floors the order at upkeep, manual can still add margi
   });
 
   it('on: floors the order at spareUpkeep(built) even with the slider at 0', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }), memKV()); // Mars presence (D-078)
     store.setRes('steel', 30_000);
     store.setRes('glass', 30_000);
     store.commit();
@@ -297,7 +336,7 @@ describe('auto-spares — floors the order at upkeep, manual can still add margi
   });
 
   it('manual slider can still ask for MORE than the auto floor, never less', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }), memKV()); // Mars presence (D-078)
     store.setRes('steel', 30_000);
     store.setRes('glass', 30_000);
     store.commit();
@@ -343,7 +382,7 @@ describe('inflation-accurate price display (playtest bug — cards showed window
 
 describe('inTransit — visible cargo already shipped (playtest bug — this was invisible)', () => {
   it('reflects an order the window after it ships, empties out the window after it lands', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }), memKV()); // Mars presence (D-078)
     expect(store.inTransit().colonists).toBe(0);
     store.setRes('food', 40_000);
     store.commit(); // ships

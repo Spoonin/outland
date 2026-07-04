@@ -349,6 +349,57 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.fleet.refuelStage).toBe(1);
   });
 
+  it('nothing ships alone before population is ever established — the whole order is rejected (D-078)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 })); // pop0 defaults to 0
+    expect(s.everHadPop).toBe(false);
+    const r = commitWindow(s, ord({ resources: { steel: 20_000 } })); // resources alone, no colonists
+    expect(r.spent).toBe(0); // whole order rejected, not silently ignored
+    expect(r.landed.stocks.steel ?? 0).toBe(0);
+    expect(s.stocks.steel).toBe(0); // nothing accumulated on Mars either
+  });
+
+  it('cargo ships fine once colonists are included in the SAME order (D-078)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.built = { habitat: 1 };
+    s.condition = { habitat: 1 };
+    const r = commitWindow(s, ord({ colonists: 10, resources: { steel: 20_000 } }));
+    expect(r.spent).toBeGreaterThan(0); // the order actually shipped
+  });
+
+  it('cargo ships fine alone once population has EVER been established, even much later (D-078)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 })); // already established
+    const r = commitWindow(s, ord({ resources: { steel: 20_000 } })); // no colonists this window
+    expect(r.spent).toBeGreaterThan(0);
+  });
+
+  it('building pads alone before population is ever established is also rejected (D-078)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    const r = commitWindow(s, ord({ padsToBuild: { classic: 1, refuel: 0 } }));
+    expect(r.spent).toBe(0);
+    expect(s.fleet.pads.classic).toBe(5); // startPads default — unchanged, nothing bought
+  });
+
+  it('importing a structure alone before population is ever established is also rejected (D-078)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    const r = commitWindow(s, ord({ structures: { habitat: 1 } })); // no colonists in this manifest
+    expect(r.spent).toBe(0);
+    expect(s.built.habitat ?? 0).toBe(0);
+  });
+
+  it('a colonist-only order (no other cargo) is never blocked by the bootstrap gate (D-078)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    s.built = { habitat: 1 };
+    s.condition = { habitat: 1 };
+    const r = commitWindow(s, ord({ colonists: 5 })); // nothing else in the manifest
+    expect(r.spent).toBeGreaterThan(0);
+  });
+
+  it('a genuinely empty order is never blocked by the bootstrap gate (D-078)', () => {
+    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    const r = commitWindow(s, emptyOrder()); // skip the window — always legal, pop or not
+    expect(r.mortality).toBe(0);
+  });
+
   it('a guaranteed on-pad explosion loses a pad (D-043)', () => {
     const params = defaultColonyParams({ pop0: 1000,  startStockWindows: 5 });
     params.launch.classic.explodeProb = 1; // force it
@@ -561,7 +612,7 @@ describe('import finished structures from Earth (V8, D-057)', () => {
   });
 
   it('an imported structure lands built and ready — no extra local assembly window', () => {
-    const s = newColony(defaultColonyParams({ startStockWindows: 5 }));
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 })); // Mars presence (D-078)
     s.stocks.spares = 1000; // fully covered upkeep so wear doesn't muddy this check
     commitWindow(s, ord({ structures: { habitat: 1 } })); // ship
     expect(s.built.habitat ?? 0).toBe(0); // still in transit
@@ -799,7 +850,7 @@ describe('storyteller events — engine integration (D-063)', () => {
 
   it('skip_window delays this window\'s shipment by one extra window (arrives with the next)', () => {
     const seed = seedForEvent('skip_window');
-    const s = newColony(defaultColonyParams({ seed, ...ALWAYS_FIRE }));
+    const s = newColony(defaultColonyParams({ pop0: 1000, seed, ...ALWAYS_FIRE })); // Mars presence (D-078)
     const r1 = commitWindow(s, ord({ resources: { food: 50_000 } })); // ships, but skip fires
     expect(r1.event?.id).toBe('skip_window');
     s.p.eventChanceCap = 0;

@@ -547,8 +547,18 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // R&D needs Mars presence already established (D-077) — "campaigns" testing propellant transfer/EDL
   // are meaningless with nobody there to run them; everHadPop = at least one colonist has landed, ever.
   const rndOk = !order.unlockRefuel || s.everHadPop;
+  // D-078: same principle, wider — nothing ships to Mars ALONE before population is ever
+  // established (no free pre-colonist stockpiling of materials/structures/pads); the first
+  // shipment of anything else must carry colonists in the SAME order. Once population has ever
+  // existed, cargo flows freely again (an established colony still needs feeding forever).
+  const shippingCargo =
+    RESOURCES.some((r) => Math.max(0, order.resources[r] ?? 0) > 0) ||
+    importIds.length > 0 ||
+    Math.max(0, Math.floor(order.padsToBuild.classic)) > 0 ||
+    Math.max(0, Math.floor(order.padsToBuild.refuel)) > 0;
+  const bootstrapOk = !shippingCargo || s.everHadPop || Math.floor(order.colonists) > 0;
 
-  const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk && rndOk;
+  const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk && rndOk && bootstrapOk;
   const spent = feasible ? pv.total : 0; // only the Earth order costs money
   const builtThis: string[] = [];
 

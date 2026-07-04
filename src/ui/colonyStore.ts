@@ -114,6 +114,7 @@ export interface CommitPlan {
   materialsShort: ResourceKind[];
   prereqMissing: string[];
   rndBlocked: boolean; // D-077: R&D unlock ordered before any colonist has ever landed on Mars
+  bootstrapBlocked: boolean; // D-078: cargo ordered alone, before any colonist has ever landed
   feasible: boolean;
 }
 
@@ -401,6 +402,14 @@ export class ColonyStore {
     const overBudget = totalCost > earth.budget;
     // R&D "campaigns" need Mars presence already established (D-077) — nobody there to run them
     const rndBlocked = this.draftUnlockRefuel && !this.state.everHadPop;
+    // D-078: same principle, wider — nothing ships alone before population is ever established
+    // (no free pre-colonist stockpiling); the first shipment of anything else must carry colonists.
+    const shippingCargo =
+      RESOURCES.some((r) => this.resQty(r) > 0) ||
+      importIds.length > 0 ||
+      this.draftPads.classic > 0 ||
+      this.draftPads.refuel > 0;
+    const bootstrapBlocked = shippingCargo && !this.state.everHadPop && this.draftColonists <= 0;
     return {
       earth,
       totalCost,
@@ -409,12 +418,14 @@ export class ColonyStore {
       materialsShort,
       prereqMissing,
       rndBlocked,
+      bootstrapBlocked,
       feasible:
         !earth.capped &&
         !overBudget &&
         materialsShort.length === 0 &&
         prereqMissing.length === 0 &&
-        !rndBlocked,
+        !rndBlocked &&
+        !bootstrapBlocked,
     };
   }
 
