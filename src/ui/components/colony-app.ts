@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { ColonyStore } from '../colonyStore';
+import { updatePending, applyPendingUpdate } from '../pwa';
 import './colony-status';
 import './chronicle-panel';
 import './colony-debrief';
@@ -158,6 +159,15 @@ export class ColonyApp extends LitElement {
     </div>`;
   }
 
+  /** "Новая партия" is the one safe boundary to swap app versions: reset writes a fresh save,
+   * THEN (if a service-worker update finished downloading in the background) we activate it and
+   * reload — the reload picks up the save just written, so the new game continues seamlessly on
+   * the updated build instead of silently swapping assets under a game already in progress. */
+  private startNewGame(): void {
+    this.store.reset();
+    if (updatePending()) applyPendingUpdate();
+  }
+
   render() {
     void this.tick;
     const st = this.store.status();
@@ -172,7 +182,7 @@ export class ColonyApp extends LitElement {
               ${!st.collapsed
                 ? html`<button class="reset" @click=${() => this.store.resume()}>‹ Вернуться к колонии</button>`
                 : nothing}
-              <button class="reset" @click=${() => this.store.reset()}>Новая партия</button>
+              <button class="reset" @click=${() => this.startNewGame()}>Новая партия</button>
             </div>`
         : html`
             <div class="toptabs">

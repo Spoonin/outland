@@ -37,6 +37,11 @@
   **240 тестов зелёных.** Headless-плейтест: `scripts/play.ts` (см. ниже).
   Запуск: `npm run dev`.
 - Платформа: **веб, TypeScript** (D-040), UI на **Lit**. Движок v2 (`src/engine/`) — субстрат.
+  Деплой: GitHub Pages через `.github/workflows/deploy-pages.yml` (push в `main` → build+test →
+  `actions/deploy-pages`), URL `https://spoonin.github.io/outland/`. PWA (`vite-plugin-pwa`,
+  `registerType: 'prompt'`) кэширует офлайн и НЕ активирует новую версию сама — апдейт применяется
+  только по клику «Новая партия» (`src/ui/pwa.ts` + `colony-app.ts::startNewGame`), текущая партия
+  никогда не подменяется под игроком.
 - Дальше до полного v1: **V8 дерево продвинутых технологий** (ИИ/роботы/термояд) — единственная
   оставшаяся фаза роадмапа (`colony-sim.md` §9).
 - Прототип (`prototype/`, throwaway, Python) — референс для золотых тестов движка-среза (v1).
