@@ -255,7 +255,7 @@ export class EarthTab extends LitElement {
       </div>
       ${built > 0
         ? html`<label class="sub" style="display:block;margin-top:.3rem;cursor:pointer">
-            🔧 утилизировать (возврат ${(store.launch().padScrapRefundFrac * 100).toFixed(0)}% капекса):
+            🔧 утилизировать (стоимость демонтажа ${(store.launch().padScrapCostFrac * 100).toFixed(0)}% капекса):
             <input type="range" min="0" max=${built} step="1" .value=${String(store.padScrapQty(tech))}
               @input=${(e: Event) => store.setPadScrap(tech, Number((e.target as HTMLInputElement).value))} />
             ${store.padScrapQty(tech)} шт

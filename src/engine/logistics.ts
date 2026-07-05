@@ -33,7 +33,11 @@ export interface LaunchParams {
   classic: PadClass;
   refuelPad: { padCapex: number; padMaintFrac: number }; // the launch complex — stage-independent
   refuelStages: readonly RefuelStage[]; // sequential R&D ladder (D-068); stage N needs stages 1..N−1
-  padScrapRefundFrac: number; // D-080: fraction of current capex refunded per pad decommissioned
+  // D-082 (corrects D-080's mistake): decommissioning is a NET COST, matching reality — safely
+  // tearing a launch complex down (residual propellant handling, structural teardown, site
+  // remediation) costs more than the scrap you recover from it. One fraction of CURRENT capex,
+  // charged as a cost — not a refund.
+  padScrapCostFrac: number;
 }
 
 export interface Fleet {
@@ -61,7 +65,10 @@ export function defaultLaunchParams(overrides: Partial<LaunchParams> = {}): Laun
       // serial tankers + cryo depot + 100-t Mars EDL proven → the D-067 commercial point
       { name: 'Серийный флот, депо и марсианский EDL', cost: 1.2e10, payload: 100_000, launchCost: 1.0e8, explodeProb: 0.0005 },
     ],
-    padScrapRefundFrac: 0.4, // D-080: scrap value, not full resale — discourages build-then-sell arbitrage
+    // D-082: net cost ≈20% of current capex to decommission a pad — equivalent to ~2 windows of
+    // maintenance (10-12%/window), so it's a real, worthwhile escape valve for an over-built fleet
+    // (cheaper than paying upkeep forever) without being free money the way a straight refund was.
+    padScrapCostFrac: 0.2,
     ...overrides,
   };
 }
@@ -115,10 +122,11 @@ export function padBuildCost(p: LaunchParams, tech: LaunchTech, n: number): numb
   return Math.max(0, n) * capex;
 }
 
-/** D-080: cash refund for decommissioning `n` pads of a class — scrap value (a fraction of
- * current capex), not a full resale, so over-building and immediately reselling isn't free money. */
-export function padScrapRefund(p: LaunchParams, tech: LaunchTech, n: number): number {
-  return padBuildCost(p, tech, n) * p.padScrapRefundFrac;
+/** D-082: cost to decommission `n` pads of a class — a NET expense (fraction of current capex),
+ * matching real decommissioning economics (safe teardown costs more than the scrap you recover).
+ * Still cheaper than paying idle maintenance forever, but never a source of profit. */
+export function padScrapCost(p: LaunchParams, tech: LaunchTech, n: number): number {
+  return padBuildCost(p, tech, n) * p.padScrapCostFrac;
 }
 
 export interface ShipPlan {

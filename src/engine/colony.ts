@@ -18,7 +18,7 @@ import {
   throughputMass,
   padMaintTotal,
   padBuildCost,
-  padScrapRefund,
+  padScrapCost,
   nextRefuelStage,
   TECHS,
   type Fleet,
@@ -310,7 +310,7 @@ export interface OrderPreview {
   colonistCost: number;
   structCost: number; // pre-built structures imported this window (V8, D-057)
   padCapex: number; // capex to build pads this window
-  padScrapRefund: number; // D-080: cash refunded for pads decommissioned this window
+  padScrapCost: number; // D-082: net cost to decommission pads this window (not a refund)
   rndCost: number; // refuel R&D unlock this window
   launchTotal: number; // flight cost + pad maintenance (whole fleet)
   total: number;
@@ -415,15 +415,16 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const mass = goodsMass + colonists * p.colonistMass + struct.mass;
 
   const futureFleet = fleetAfter(s, order);
-  // D-080: build and scrap are priced off their own ACTUAL counts, never a net delta — building 3
-  // and scrapping 5 in the same order charges capex for the 3 AND refunds the 5, rather than
-  // netting to "shrank by 2, nothing changes hands" (which would make the 3 built pads free).
+  // D-080/082: build and scrap are priced off their own ACTUAL counts, never a net delta — building
+  // 3 and scrapping 5 in the same order charges capex for the 3 AND the decommission cost for the
+  // 5, rather than netting to "shrank by 2, nothing changes hands" (which would make the 3 built
+  // pads free).
   let padCapex = 0;
   for (const t of TECHS) padCapex += padBuildCost(p.launch, t, padsBuilt(s, order, t));
   padCapex *= mult;
-  let padScrapRefundTotal = 0;
-  for (const t of TECHS) padScrapRefundTotal += padScrapRefund(p.launch, t, padsScrapped(s, order, t));
-  padScrapRefundTotal *= mult;
+  let padScrapCostTotal = 0;
+  for (const t of TECHS) padScrapCostTotal += padScrapCost(p.launch, t, padsScrapped(s, order, t));
+  padScrapCostTotal *= mult;
   const nextStage = nextRefuelStage(s.fleet, p.launch);
   const rndCost = order.unlockRefuel && nextStage ? nextStage.stage.cost * mult : 0;
 
@@ -433,10 +434,7 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const launchTotal = plan.flightCost * mult + maintCost;
   const throughput = throughputMass(futureFleet, p.launch);
 
-  const total = Math.max(
-    0,
-    goodsCost + colonistCost + struct.cost + padCapex + rndCost + launchTotal - padScrapRefundTotal,
-  );
+  const total = goodsCost + colonistCost + struct.cost + padCapex + padScrapCostTotal + rndCost + launchTotal;
   // subsidy_cut (D-063): an active event can shrink the window's effective budget;
   // subsidyBonus (D-076): milestones raise the baseline itself, permanently
   const budget = (p.M + s.subsidyBonus) * effectMultiplier(s.activeEffects, 'subsidy');
@@ -444,14 +442,18 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   // for NOTHING beyond upkeep on its existing fleet has to be able to let the window pass, or an
   // over-built fleet (D-038's own "idle capital" trap) plus unbounded inflation (D-076) can wedge
   // the game into a permanent soft-lock with no possible feasible order, not even an empty one.
-  // Anything genuinely requested beyond that floor is still checked against budget as before.
-  const discretionary = total - maintCost;
+  // D-082: the cost of SHRINKING that same fleet gets the same exemption — otherwise an extreme
+  // enough D-079 scenario could make the escape valve itself unaffordable (scrap cost scales with
+  // the same inflated capex driving the ruinous maintenance in the first place). Both are real,
+  // nonzero charges reflected in `total`/`spent` — just never a reason to reject the whole order.
+  // Anything genuinely NEW requested beyond that floor is still checked against budget as before.
+  const discretionary = total - maintCost - padScrapCostTotal;
   return {
     goodsCost,
     colonistCost,
     structCost: struct.cost,
     padCapex,
-    padScrapRefund: padScrapRefundTotal,
+    padScrapCost: padScrapCostTotal,
     rndCost,
     launchTotal,
     total,

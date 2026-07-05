@@ -251,10 +251,11 @@ export class ColonyStore {
     this.draftPadsScrap[tech] = Math.max(0, Math.min(this.state.fleet.pads[tech], Math.floor(n || 0)));
     this.emit();
   }
-  /** Cash refund the current draft's scrap order would bring in (D-080) — same previewOrder path
-   * as every other price on screen, so it's always exactly what commit() will actually credit. */
-  padScrapRefundNow(): number {
-    return this.preview().padScrapRefund;
+  /** Net cost the current draft's scrap order would charge (D-082 — decommissioning is an expense,
+   * not a refund) — same previewOrder path as every other price on screen, so it's always exactly
+   * what commit() will actually charge. */
+  padScrapCostNow(): number {
+    return this.preview().padScrapCost;
   }
   get unlockRefuelDraft(): boolean {
     return this.draftUnlockRefuel;

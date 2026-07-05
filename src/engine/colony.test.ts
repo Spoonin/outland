@@ -426,12 +426,12 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.fleet.pads.refuel).toBe(0);
   });
 
-  describe('pad decommissioning (D-080)', () => {
-    it('scrapping reduces the fleet and refunds a fraction of capex', () => {
+  describe('pad decommissioning (D-080, cost corrected D-082)', () => {
+    it('scrapping reduces the fleet and CHARGES a net cost — never a refund (D-082)', () => {
       const s = newColony(defaultColonyParams({ pop0: 1000 }));
       expect(s.fleet.pads.classic).toBe(5); // startPads default
       const pv = previewOrder(s, ord({ padsToScrap: { classic: 2, refuel: 0 } }));
-      expect(pv.padScrapRefund).toBeCloseTo(2 * 1.5e8 * 0.4, 0); // 2 pads × window-0 capex × 40%
+      expect(pv.padScrapCost).toBeCloseTo(2 * 1.5e8 * 0.2, 0); // 2 pads × window-0 capex × 20% net cost
       commitWindow(s, ord({ padsToScrap: { classic: 2, refuel: 0 } }));
       expect(s.fleet.pads.classic).toBe(3);
     });
@@ -444,19 +444,23 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
 
     it('building and scrapping in the SAME order price independently, not netted against each other', () => {
       const s = newColony(defaultColonyParams({ pop0: 1000 }));
-      // build 1 (capex charged) + scrap 3 (refunded) — net fleet change is -2, but both money
-      // flows must be real: capex for the 1 built, refund for the 3 scrapped, not "net -2, nothing changes hands"
+      // build 1 (capex charged) + scrap 3 (cost charged) — net fleet change is -2, but both money
+      // flows must be real: capex for the 1 built, decommission cost for the 3 scrapped, not
+      // "net -2, nothing changes hands" (which would make the 1 built pad free)
       const pv = previewOrder(s, ord({ padsToBuild: { classic: 1, refuel: 0 }, padsToScrap: { classic: 3, refuel: 0 } }));
-      expect(pv.padCapex).toBeCloseTo(1.5e8, 0); // capex for the 1 net-new pad... wait see below
-      expect(pv.padScrapRefund).toBeCloseTo(3 * 1.5e8 * 0.4, 0); // refund for all 3 scrapped, not net
+      expect(pv.padCapex).toBeCloseTo(1.5e8, 0); // capex for the 1 built, priced off the real count
+      expect(pv.padScrapCost).toBeCloseTo(3 * 1.5e8 * 0.2, 0); // cost for all 3 scrapped, not net
       commitWindow(s, ord({ padsToBuild: { classic: 1, refuel: 0 }, padsToScrap: { classic: 3, refuel: 0 } }));
       expect(s.fleet.pads.classic).toBe(3); // 5 + 1 − 3
     });
 
-    it('a pure scrap order (no other spend) never blocks on budget — always an available escape valve', () => {
+    it('a pure scrap order (no other spend) never blocks on budget — same exemption as mandatory maintenance (D-079)', () => {
       const s = newColony(defaultColonyParams({ pop0: 1000, M: 1 })); // an absurdly tiny budget
       const pv = previewOrder(s, ord({ padsToScrap: { classic: 5, refuel: 0 } }));
-      expect(pv.overBudget).toBe(false); // pure scrap generates a credit, never something to "afford"
+      expect(pv.padScrapCost).toBeGreaterThan(0); // a REAL cost, not waived...
+      expect(pv.overBudget).toBe(false); // ...but exempt from blocking, same principle as D-079's
+      // maintenance exemption — otherwise an extreme D-079 scenario could make the escape valve
+      // itself unaffordable, since scrap cost scales with the same inflated capex as the ruinous maintenance
       commitWindow(s, ord({ padsToScrap: { classic: 5, refuel: 0 } }));
       expect(s.fleet.pads.classic).toBe(0);
     });

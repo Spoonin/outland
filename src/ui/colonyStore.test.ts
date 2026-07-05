@@ -113,13 +113,13 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.buildQueue().length).toBe(0); // queue cleared after commit
   });
 
-  it('pad scrap draft: clamped to what exists, refund shows in the plan, fleet shrinks on commit (D-080)', () => {
+  it('pad scrap draft: clamped to what exists, net cost shows in the plan, fleet shrinks on commit (D-080/082)', () => {
     const store = new ColonyStore(defaultColonyParams({ pop0: 1000 }), memKV());
     expect(store.fleet().pads.classic).toBe(5); // startPads default
     store.setPadScrap('classic', 99); // way more than owned
     expect(store.padScrapQty('classic')).toBe(5); // clamped to what's actually there
-    expect(store.padScrapRefundNow()).toBeGreaterThan(0);
-    expect(store.plan().feasible).toBe(true); // scrapping alone is always affordable
+    expect(store.padScrapCostNow()).toBeGreaterThan(0); // a real expense, not a refund (D-082)
+    expect(store.plan().feasible).toBe(true); // scrapping alone is always affordable (D-079-style exemption)
     store.commit();
     expect(store.fleet().pads.classic).toBe(0);
   });

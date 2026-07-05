@@ -22,9 +22,10 @@
 // on (set once, it stays on) — you can still order MORE spares than the floor, never less.
 // "demolish": D-081 — tear down existing Mars structures, money-free, recycles a fraction of their
 // build materials back to stock, costs one-time colonist labor (shared with ongoing crew, D-075).
-// "scrapPads": D-080 — decommission existing launch pads for a cash refund (fraction of capex) —
-// the escape valve for an over-built fleet whose idle maintenance (D-038) would otherwise only grow
-// with inflation forever.
+// "scrapPads": D-080/082 — decommission existing launch pads for a net COST (~20% of current
+// capex, matching real decommissioning economics — never a source of profit) — still the escape
+// valve for an over-built fleet whose idle maintenance (D-038) would otherwise only grow with
+// inflation forever, just not free money.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ColonyStore, type KV } from '../src/ui/colonyStore';
