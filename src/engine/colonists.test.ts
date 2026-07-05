@@ -15,9 +15,17 @@ import {
 import { colonistRng, YEARS_PER_WINDOW } from './colonists';
 import { serializeColony, loadColony } from './colony-save';
 
-/** No storyteller noise, no births unless the test asks — demographics in isolation. */
+/** Demographics in isolation: no storyteller noise, no births unless the test asks, and no
+ * life-support energy draw (these fixtures build no power plants, and unpowered life support
+ * kills on its own — D-059 — which would tangle every count below). */
 function demoParams(over: Partial<ColonyParams> = {}): ColonyParams {
-  return defaultColonyParams({ startStockWindows: 8, eventChanceCap: 0, birthRate: 0, ...over });
+  return defaultColonyParams({
+    startStockWindows: 8,
+    eventChanceCap: 0,
+    birthRate: 0,
+    popEnergyPerCapita: 0,
+    ...over,
+  });
 }
 
 describe('colonists as individuals (D-083)', () => {
