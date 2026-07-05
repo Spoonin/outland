@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import type { ColonyStatus, ResourceLine } from '../colonyStore';
-import { STRUCT_BY_ID, type Stocks } from '../../engine';
+import { STRUCT_BY_ID, type Stocks, type ColonyReport } from '../../engine';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -18,6 +18,11 @@ export class ColonyStatusPanel extends LitElement {
   @property({ attribute: false }) status!: ColonyStatus;
   /** What's already shipped, landing NEXT window (playtest bug: this was invisible before). */
   @property({ attribute: false }) inTransit?: { stocks: Stocks; colonists: number; structures: Record<string, number> };
+  /** D-084: last window's report, to note when spares surplus actually repaired condition. */
+  @property({ attribute: false }) lastReport?: ColonyReport;
+  /** D-084: repairRate + upkeep as of NOW — used only to turn lastReport.repairSpentKg into the
+   * displayed percentage; an approximation if the fleet changed since (informational only). */
+  @property({ attribute: false }) repairInfo?: { rate: number; upkeep: number };
 
   static styles = css`
     :host {
@@ -111,6 +116,11 @@ export class ColonyStatusPanel extends LitElement {
             >${(s.avgCondition * 100).toFixed(0)}%</b>
           · ЗИП
           <b style="color:${s.sparesCoverage >= 1 ? '#5ad17a' : '#d96a6a'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
+          ${this.lastReport && this.lastReport.repairSpentKg > 0 && this.repairInfo && this.repairInfo.upkeep > 0
+            ? html`· <b style="color:#5ad17a"
+                >🔧 ремонт +${(this.repairInfo.rate * (this.lastReport.repairSpentKg / this.repairInfo.upkeep) * 100).toFixed(1)}%</b
+              >`
+            : nothing}
           ${s.crewCoverage < 1 ? html`· экипаж
           <b style="color:#d96a6a">${(s.crewCoverage * 100).toFixed(0)}%</b>` : nothing}
         </div>

@@ -87,6 +87,9 @@ export interface ColonyParams extends DemographicParams {
   // instant + total every window it persists), so the same rate as food/water would be far deadlier
   // for what's conceptually the same kind of danger.
   wearRate: number; // condition lost/window for a fully-unmaintained structure (V6)
+  repairRate: number; // D-084: condition gained/window from spares ordered BEYOND upkeep, capped
+  // at one extra upkeep's worth per window — deliberately a THIRD of wearRate: repair is heavier
+  // than maintenance, not a free undo of neglect (D-052's pressure survives this).
   birthRate: number; // per-window growth when a supplied medbay is running (D-030)
   popEnergyPerCapita: number; // life-support energy draw per colonist (priority 0)
   catalog: ResourceCatalog;
@@ -185,6 +188,7 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     mortFactor: 0.8,
     energyMortFactor: 0.3, // softer than mortFactor (D-060) — a slower death spiral, not instant wipeout
     wearRate: 0.12,
+    repairRate: 0.04, // D-084: a third of wearRate — restoring from 0.5 needs ~12 windows of double ЗИП
     birthRate: 0.05,
     // D-083 demographics (individual colonists). illnessProb is 0.03, not the spec's 0.05: with
     // cureProb 0.5 even a fully-bedded colony loses P/2 per window to illness, and at 0.05 the
@@ -540,6 +544,7 @@ export interface ColonyReport {
   energyDeficit: number;
   avgCondition: number; // mean structure condition 0..1 (V6)
   sparesCoverage: number; // fraction of spares upkeep met this window
+  repairSpentKg: number; // D-084: spares spent on repair (beyond upkeep) this window — 0 if none
   housingCapacity: number; // total colonist slots from habitat structures (V7); 0 = unconstrained
   n2LeakKg: number; // kg N₂ leaked from hull this window (V7)
   structDiag: Record<string, StructureDiag>; // per-structure-type output breakdown (D-061)
@@ -777,8 +782,13 @@ export function commitWindow(
     for (const r of Object.keys(matNeed) as ResourceKind[]) s.stocks[r] -= matNeed[r] ?? 0;
     for (const id of build) {
       if (STRUCT_BY_ID[id]) {
-        s.built[id] = (s.built[id] ?? 0) + 1;
-        if (s.condition[id] === undefined) s.condition[id] = 1; // fresh type starts at full condition
+        // D-084: a new unit DILUTES the type's condition (weighted average) rather than inheriting
+        // it wholesale — building fresh capacity is a real (if expensive, in materials/labor) way
+        // to pull a worn-out fleet back up, not just more of the same neglect.
+        const prev = s.built[id] ?? 0;
+        s.built[id] = prev + 1;
+        const c = s.condition[id] ?? 1;
+        s.condition[id] = prev > 0 ? (c * prev + 1) / (prev + 1) : 1;
         builtThis.push(id);
       }
     }
@@ -839,8 +849,11 @@ export function commitWindow(
   for (const id of Object.keys(landedEff.structures)) {
     const n = landedEff.structures[id] ?? 0;
     if (n <= 0 || !STRUCT_BY_ID[id]) continue;
-    s.built[id] = (s.built[id] ?? 0) + n;
-    if (s.condition[id] === undefined) s.condition[id] = 1;
+    // D-084: same dilution as local build — n fresh units at a time
+    const prev = s.built[id] ?? 0;
+    s.built[id] = prev + n;
+    const c = s.condition[id] ?? 1;
+    s.condition[id] = prev > 0 ? (c * prev + n) / (prev + n) : 1;
     for (let i = 0; i < n; i++) builtThis.push(id);
   }
 
@@ -855,6 +868,22 @@ export function commitWindow(
     if ((s.built[s2] ?? 0) <= 0) continue;
     const c = s.condition[s2] ?? 1;
     s.condition[s2] = Math.max(0, Math.min(1, c - p.wearRate * (1 - sparesCoverage)));
+  }
+
+  // repair (D-084): spares ordered BEYOND upkeep are a real repair budget — up to one extra
+  // upkeep's worth per window buys repairRate×(spent/upkeep) condition for every built type at
+  // once (colony-wide, same uniform philosophy as laborRatio, D-075). Drawn ONLY if anything is
+  // actually worn; autoSpares (D-070) floors the order at EXACTLY upkeep, so repair never happens
+  // by itself — ordering the surplus is a deliberate choice, not an automatic side effect.
+  const worn = Object.keys(s.built).some((id) => (s.built[id] ?? 0) > 0 && (s.condition[id] ?? 1) < 1);
+  const sparesSurplus = Math.max(0, (avail.spares ?? 0) - upkeep);
+  const repairSpend = worn && upkeep > 0 ? Math.min(sparesSurplus, upkeep) : 0;
+  const repairGain = upkeep > 0 ? p.repairRate * (repairSpend / upkeep) : 0;
+  if (repairGain > 0) {
+    for (const id of Object.keys(s.built)) {
+      if ((s.built[id] ?? 0) <= 0) continue;
+      s.condition[id] = Math.min(1, (s.condition[id] ?? 1) + repairGain);
+    }
   }
 
   // ---- demographics, phase C (D-083): illness roll + bed triage --------------------------------
@@ -919,7 +948,7 @@ export function commitWindow(
   for (const r of Object.keys(sf.consumption) as ResourceKind[]) {
     combinedCons[r] = (combinedCons[r] ?? 0) + (sf.consumption[r] ?? 0);
   }
-  combinedCons.spares = (combinedCons.spares ?? 0) + upkeep;
+  combinedCons.spares = (combinedCons.spares ?? 0) + upkeep + repairSpend; // D-084: repair really spends stock
   // N₂ structural hull leak: each habitat module bleeds N₂ regardless of occupancy (V7)
   const n2LeakKg = structuralN2Leak(s.built);
   if (n2LeakKg > 0) combinedCons.n2 = (combinedCons.n2 ?? 0) + n2LeakKg;
@@ -1177,6 +1206,7 @@ export function commitWindow(
     energyDeficit: energy.deficit,
     avgCondition: avgCondition(s),
     sparesCoverage,
+    repairSpentKg: repairSpend,
     housingCapacity: housing,
     n2LeakKg,
     structDiag: sf.diag,

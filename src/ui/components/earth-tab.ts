@@ -165,7 +165,12 @@ export class EarthTab extends LitElement {
         ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">
             <input type="checkbox" .checked=${store.autoSparesEnabled} @change=${() => store.toggleAutoSpares()} />
             авто-ЗИП: держать заказ не ниже текущего расхода на обслуживание
-          </label>`
+          </label>
+          <div class="sub">
+            излишек сверх обслуживания чинит парк (D-084): ещё +${kg(store.repairInfo().upkeep)}
+            сверху даёт +${(store.repairInfo().rate * 100).toFixed(0)}% износа/окно всем сооружениям —
+            авто-ЗИП сам ремонт не включает (флорит ровно на обслуживание), это отдельное решение
+          </div>`
         : nothing}
       ${r === 'pharma'
         ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">

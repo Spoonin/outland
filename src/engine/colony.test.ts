@@ -639,6 +639,114 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
   });
 });
 
+// D-084: condition is per-TYPE, not per-unit — a fresh build/import DILUTES the type's average
+// rather than inheriting it wholesale, and spares ordered BEYOND upkeep buy real repair. Every
+// fixture below pins s.stocks.spares to EXACTLY the post-action upkeep (surplus 0) unless the
+// test is specifically about surplus/repair, so wear/repair never contaminates the number being
+// checked — solar_plant's upkeepSpares is 300/unit (structures.csv), a stable single-type anchor.
+describe('wear repair (D-084)', () => {
+  it('a fresh LOCAL build dilutes the type\'s condition (weighted average), not inherits it', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 0.4 };
+    s.stocks.steel = 5000; // solar_plant's buildMaterials (structures.csv)
+    s.stocks.glass = 2000;
+    s.stocks.spares = 600; // upkeep AFTER build = 2×300 — exact break-even, no wear/repair noise
+    commitWindow(s, emptyOrder(), ['solar_plant']);
+    expect(s.built.solar_plant).toBe(2);
+    expect(s.condition.solar_plant).toBeCloseTo((0.4 * 1 + 1 * 1) / 2, 10); // 0.7
+  });
+
+  it('an IMPORT landing dilutes the same way, n units at once', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 2 };
+    s.condition = { solar_plant: 0.5 };
+    s.everHadPop = true; // skip the D-078 bootstrap gate — not what this test is about
+    s.stocks.spares = 600; // this window's upkeep (2 units) — exact break-even
+    const order = { ...emptyOrder(), structures: { solar_plant: 2 } };
+    commitWindow(s, order); // ships — condition untouched (still 2 units, break-even)
+    expect(s.condition.solar_plant).toBeCloseTo(0.5, 10);
+    s.stocks.spares = 1200; // NEXT window's upkeep once landed (4 units) — exact break-even again
+    commitWindow(s, emptyOrder()); // lands — the 2 fresh units dilute in
+    expect(s.built.solar_plant).toBe(4);
+    expect(s.condition.solar_plant).toBeCloseTo((0.5 * 2 + 1 * 2) / 4, 10); // 0.75
+  });
+
+  it('the first-ever unit of a type still starts at full condition', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.stocks.steel = 5000;
+    s.stocks.glass = 2000;
+    s.stocks.spares = 300; // this window's upkeep (1 fresh unit) — exact break-even
+    commitWindow(s, emptyOrder(), ['solar_plant']);
+    expect(s.condition.solar_plant).toBe(1);
+  });
+
+  it('spares ordered beyond upkeep repair the fleet, proportional to the surplus (capped at one extra upkeep)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1 }; // upkeep 300
+    s.condition = { solar_plant: 0.5 };
+    s.stocks.spares = 600; // upkeep (300) + exactly one more upkeep's worth of surplus (300)
+    const r = commitWindow(s, emptyOrder());
+    expect(r.repairSpentKg).toBe(300);
+    expect(s.condition.solar_plant).toBeCloseTo(0.5 + s.p.repairRate, 10); // 0.54 by default
+    expect(s.stocks.spares).toBeCloseTo(0, 10); // upkeep + repair both drawn from stock
+  });
+
+  it('a surplus with nothing worn spends only on upkeep — no repair, no waste', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 1 }; // fully healthy
+    s.stocks.spares = 600; // same surplus as the previous test, but nothing to repair
+    const r = commitWindow(s, emptyOrder());
+    expect(r.repairSpentKg).toBe(0);
+    expect(s.condition.solar_plant).toBe(1);
+    expect(s.stocks.spares).toBeCloseTo(300, 10); // only upkeep drawn — the surplus is untouched
+  });
+
+  it('autoSpares\' own floor (exactly upkeep, zero surplus) never triggers repair by itself', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 0.5 }; // worn — but there's no surplus to spend on it
+    s.stocks.spares = 300; // exactly upkeep, the autoSpares (D-070) break-even floor
+    const r = commitWindow(s, emptyOrder());
+    expect(r.repairSpentKg).toBe(0);
+    expect(s.condition.solar_plant).toBe(0.5); // unchanged — no decay (coverage 1), no repair (no surplus)
+  });
+
+  it('surplus far beyond upkeep still caps repair spend at one extra upkeep\'s worth', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1 }; // upkeep 300
+    s.condition = { solar_plant: 0.3 };
+    s.stocks.spares = 1200; // upkeep (300) + a 900 surplus — 3× the repair cap
+    const r = commitWindow(s, emptyOrder());
+    expect(r.repairSpentKg).toBe(300); // capped, not the full 900 surplus
+    expect(s.condition.solar_plant).toBeCloseTo(0.3 + s.p.repairRate, 10); // 0.34
+    expect(s.stocks.spares).toBeCloseTo(600, 10); // 1200 − (300 upkeep + 300 repair) — excess untouched
+  });
+
+  it('repair never pushes condition past 1 (clamped)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1 };
+    s.condition = { solar_plant: 0.99 };
+    s.stocks.spares = 600; // upkeep + one full repair cap's worth of surplus
+    const r = commitWindow(s, emptyOrder());
+    expect(r.repairSpentKg).toBe(300); // the repair budget is still spent...
+    expect(s.condition.solar_plant).toBe(1); // ...but the GAIN clamps, doesn't overshoot
+  });
+
+  it('repair is colony-wide, like laborRatio (D-075) — one type\'s surplus lifts every built type at once', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1, farm: 1 }; // upkeep 300 + 400 = 700
+    s.condition = { solar_plant: 0.4, farm: 0.6 };
+    s.stocks.spares = 1400; // upkeep (700) + exactly one more upkeep's worth (700)
+    const r = commitWindow(s, emptyOrder());
+    expect(r.repairSpentKg).toBe(700);
+    const gain = s.p.repairRate; // spend/upkeep == 1 → the full rate
+    expect(s.condition.solar_plant).toBeCloseTo(0.4 + gain, 10);
+    expect(s.condition.farm).toBeCloseTo(0.6 + gain, 10);
+  });
+});
+
 describe('V7: atmosphere & BIOS — housing, N₂ structural leak, concentrator (D-048)', () => {
   it('housingCapacity sums habitat slots across built structures', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000,  startStockWindows: 5 }));

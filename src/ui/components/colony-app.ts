@@ -211,7 +211,12 @@ export class ColonyApp extends LitElement {
     const st = this.store.status();
     return html`
       <h1>OUTLAND</h1>
-      <colony-status .status=${st} .inTransit=${this.store.inTransit()}></colony-status>
+      <colony-status
+        .status=${st}
+        .inTransit=${this.store.inTransit()}
+        .lastReport=${this.store.lastReport()}
+        .repairInfo=${this.store.repairInfo()}
+      ></colony-status>
       <chronicle-panel .store=${this.store}></chronicle-panel>
       ${st.ended
         ? html`${st.collapsed ? html`<div style="color:#d1b65a;margin:1rem 0">► Колония схлопнулась.</div>` : nothing}

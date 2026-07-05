@@ -275,6 +275,11 @@ export class ColonyStore {
     this.autoPharma = !this.autoPharma;
     this.emit();
   }
+  /** D-084: repair rate + current upkeep — the UI/CLI use these to explain what a spares order
+   * BEYOND upkeep buys (autoSpares itself never triggers repair — it floors at exactly upkeep). */
+  repairInfo(): { rate: number; upkeep: number } {
+    return { rate: this.state.p.repairRate, upkeep: spareUpkeep(this.state.built) };
+  }
   padQty(tech: LaunchTech): number {
     return this.draftPads[tech];
   }

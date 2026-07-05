@@ -113,7 +113,13 @@ function printStatus(store: ColonyStore): void {
   console.log(`\n=== окно ${s.window} · год ~${s.year} · pop ${s.pop} ${s.collapsed ? '[СХЛОПНУЛАСЬ]' : s.ended ? '[ЗАВЕРШЕНО]' : ''} ===`);
   console.log(`бюджет: ${money(s.budget)}/окно  ·  🛡 без завоза: ${s.buffer}${s.bufferSaturated ? '+' : ''} ок`);
   console.log(`площадки: classic ${s.pads.classic}, refuel ${s.pads.refuel} (R&D ст. ${rnd.stage}/${rnd.total}${rnd.next ? `, следующая: ${rnd.next.name} за ${money(rnd.next.cost)}` : ', максимум'})`);
-  console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);
+  const lastForRepair = store.lastReport();
+  const repairInfo = store.repairInfo();
+  const repairPct =
+    lastForRepair && lastForRepair.repairSpentKg > 0 && repairInfo.upkeep > 0
+      ? repairInfo.rate * (lastForRepair.repairSpentKg / repairInfo.upkeep) * 100
+      : 0;
+  console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%${repairPct > 0 ? ` (🔧 ремонт +${repairPct.toFixed(1)}%)` : ''}  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);
   if (s.crewCoverage < 1) console.log(`⚠ экипаж: население покрывает только ${(s.crewCoverage * 100).toFixed(0)}% нужного штата — выпуск всех объектов просажен`);
   console.log(`авто-ЗИП: ${store.autoSparesEnabled ? 'вкл' : 'выкл'} · авто-фарма: ${store.autoPharmaEnabled ? 'вкл' : 'выкл'}`);
   console.log(
@@ -144,6 +150,7 @@ function printStatus(store: ColonyStore): void {
     if (last.births) console.log(`  🐣 рождения: +${last.births}`);
     if (last.built.length) console.log(`  🏗 построено: ${last.built.join(', ')}`);
     if (last.demolished.length) console.log(`  🔧 демонтировано: ${last.demolished.join(', ')}`);
+    if (last.repairSpentKg > 0) console.log(`  🔧 ремонт: потрачено ${kg(last.repairSpentKg)} сверх обслуживания (D-084)`);
     if (last.milestones.length) {
       console.log(`  ★ майлстоуны: ${last.milestones.map((id) => {
         const m = MILESTONE_BY_ID.get(id);
