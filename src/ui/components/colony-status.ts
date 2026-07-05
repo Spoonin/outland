@@ -10,7 +10,19 @@ const ICON: Record<string, string> = {
 };
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
-const dkg = (v: number) => (v >= 0 ? '+' : '−') + kg(Math.abs(v));
+/** Net flow rate — rounding a SMALL rate (e.g. n2 leak barely offset by production, ~1.6 kg/ок)
+ * to the nearest whole kg used to read as "−2/ок" next to a "28125.7 ок" cover computed from the
+ * real ~1.6 — technically consistent (both derive from the same unrounded net) but visibly not,
+ * since 45001/2 ≠ 45001/1.6. One decimal below 50 kg/ок keeps small flows self-consistent with
+ * the cover number beside them; larger flows stay clean whole numbers. */
+const dkg = (v: number): string => {
+  const abs = Math.abs(v);
+  const text =
+    abs > 0 && abs < 50
+      ? (Math.round(abs * 10) / 10).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+      : kg(abs);
+  return (v >= 0 ? '+' : '−') + text;
+};
 
 /** Header dashboard: window/pop/fleet/wear + ALL resource stocks with per-window net & runway. */
 @customElement('colony-status')

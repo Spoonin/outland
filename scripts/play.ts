@@ -77,6 +77,15 @@ function fileKV(path: string): KV {
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US') + ' кг';
 const pct = (v: number) => Math.round(v * 100) + '%';
+/** Net flow rate, sign-prefixed — mirrors colony-status.ts's dkg(): a small rate (e.g. n2 leak
+ * barely offset by production, ~1.6 kg/ок) rounded to the nearest whole kg used to print
+ * "+2/ок" right next to a "(28125.7 ок)" cover computed from the real ~1.6 — technically
+ * consistent (same unrounded net) but visibly not, since 45001/2 ≠ 45001/1.6. */
+const dnet = (v: number): string => {
+  const abs = Math.abs(v);
+  const text = abs > 0 && abs < 50 ? (Math.round(abs * 10) / 10).toFixed(1) : String(Math.round(abs));
+  return (v >= 0 ? '+' : '-') + text;
+};
 
 // mirrors chronicle-panel.ts's eventLabel() as plain text — playtest-3 found the old one-liner
 // (icon+name only) dropped target/deaths/coverage, making the CLI unable to show WHY people died
@@ -149,7 +158,7 @@ function printStatus(store: ColonyStore): void {
   for (const w of store.projectionWarnings()) console.log(`  ${w}`);
   console.log('ресурсы (сток, net/окно, запас в окнах, текущая цена/кг):');
   for (const r of s.resources) {
-    console.log(`  ${r.kind.padEnd(9)} ${kg(r.stock).padStart(14)}  ${(r.net >= 0 ? '+' : '') + Math.round(r.net)}/ок${Number.isFinite(r.windows) ? `  (${r.windows.toFixed(1)} ок)` : ''}  @ ${money(store.pricePerKg(r.kind))}/кг`);
+    console.log(`  ${r.kind.padEnd(9)} ${kg(r.stock).padStart(14)}  ${dnet(r.net)}/ок${Number.isFinite(r.windows) ? `  (${r.windows.toFixed(1)} ок)` : ''}  @ ${money(store.pricePerKg(r.kind))}/кг`);
   }
   const built = STRUCTURES.filter((st) => store.builtCount(st.id) > 0);
   if (built.length) console.log('построено: ' + built.map((st) => `${st.name}×${store.builtCount(st.id)}`).join(', '));
