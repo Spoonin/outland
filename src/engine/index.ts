@@ -54,6 +54,9 @@ export {
   collapseRunway,
   COLLAPSE_LOOKAHEAD,
   MILESTONES,
+  supplyDeaths,
+  projectOrder,
+  pharmaNeed,
 } from './colony';
 export {
   STRUCTURES,

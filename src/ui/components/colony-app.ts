@@ -87,6 +87,9 @@ export class ColonyApp extends LitElement {
     .ok {
       color: #5ad17a;
     }
+    .warn {
+      color: #d1b65a;
+    }
     .ebar {
       height: 0.6rem;
       background: #26262e;
@@ -128,6 +131,31 @@ export class ColonyApp extends LitElement {
     }
   `;
 
+  /** roadmap-1 C1: some of the missing materials are already in transit — they just haven't
+   * LANDED yet (arrivals land at commit, but a build queued the SAME window still checks against
+   * stock-on-hand as of the start of it — so it always needs one more window after landing). */
+  private materialsInTransitHint(materialsShort: readonly string[]) {
+    const t = this.store.inTransit().stocks;
+    const arriving = materialsShort.filter((r) => (t[r as keyof typeof t] ?? 0) > 0);
+    if (!arriving.length) return nothing;
+    return html`<div class="warn">
+      (${arriving.join(', ')} уже в пути — сядут к началу следующего окна; стройка станет доступна следующим ходом)
+    </div>`;
+  }
+
+  /** roadmap-1 C3/C4: an empty-looking manifest that auto-spares/auto-pharma will still ship —
+   * the player needs to know BEFORE committing that this window won't count toward zero_import
+   * (D-064 finale-boss requires two truly empty windows in a row). */
+  private zeroImportAutoHint() {
+    const blocked = this.store.zeroImportBlockedByAuto();
+    if (!blocked) return nothing;
+    const who = [blocked.spares ? 'авто-ЗИП' : null, blocked.pharma ? 'авто-фарма' : null].filter(Boolean).join(' и ');
+    return html`<div class="warn">
+      ℹ автоматика (${who}) всё равно дошлёт груз в этом окне — оно не засчитается как «🌌 окно без единого завоза»
+      (нужны два подряд пустых окна; на них ${who} придётся выключить)
+    </div>`;
+  }
+
   private footer() {
     const st = this.store.status();
     const plan = this.store.plan();
@@ -155,7 +183,15 @@ export class ColonyApp extends LitElement {
       ${plan.prereqMissing.length ? html`<div class="neg">⚠ нет пререквизитов: ${plan.prereqMissing.join(', ')}</div>` : nothing}
       ${plan.rndBlocked ? html`<div class="neg">⚠ R&D требует высадки — на Марсе ещё никого нет</div>` : nothing}
       ${plan.bootstrapBlocked ? html`<div class="neg">⚠ первая партия должна включать колонистов — груз не летит один</div>` : nothing}
-      <button class="commit" ?disabled=${!plan.feasible || st.ended} @click=${() => this.store.commit()}>
+      ${this.store.inTransit().colonists > 0 && plan.bootstrapBlocked
+        ? html`<div class="warn">(первая партия уже в полёте — пока она не села, каждый заказ с грузом должен сам везти колонистов)</div>`
+        : nothing}
+      ${plan.materialsShort.length ? this.materialsInTransitHint(plan.materialsShort) : nothing}
+      ${plan.feasible
+        ? html`${this.store.projectionWarnings().map((w) => html`<div class="warn">${w}</div>`)}
+            ${this.zeroImportAutoHint()}`
+        : nothing}
+      <button class="commit" ?disabled=${!plan.feasible || st.ended} @click=${() => this.store.commit()}
         Коммит ▸ ход (≈2.2 года)
       </button>
     </div>`;

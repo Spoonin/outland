@@ -1239,11 +1239,50 @@ export const BUFFER_LOOKAHEAD = 12;
 /** Deaths caused by SUPPLY this window — the binding life-support resource or an energy brownout.
  * The D-062 gauge measures buffers, so background demography (illness/old age, D-083) must not
  * trip it: a grown colony loses someone most windows regardless of how stocked it is, and stopping
- * on ANY death would pin the gauge to 0–1 forever. */
-function supplyDeaths(r: ColonyReport): number {
+ * on ANY death would pin the gauge to 0–1 forever. Exported for the UI/CLI projection warnings
+ * (roadmap-1): they filter on the same definition of "supply" the gauge uses. */
+export function supplyDeaths(r: ColonyReport): number {
   let n = r.mortalityBreakdown.energy ?? 0;
   for (const res of LIFE_R) n += r.mortalityBreakdown[res] ?? 0;
   return n;
+}
+
+/** Draft-aware two-window projection (roadmap-1, плейтест-5: every mass death was computable
+ * before the commit). Clones the state, commits the DRAFT order, then one empty window — i.e.
+ * "what lands, and what runs out, if I send this and then order nothing". The same honest-sim
+ * instrument as the D-062 gauge, so the same rules: storyteller off in the clone (no telegraph,
+ * D-063), buffer-gauge recursion skipped (`simulating`). Reports come back for the UI/CLI to
+ * derive warnings from — supply deaths via `supplyDeaths`, named deficits via `report.deficit`. */
+export function projectOrder(
+  s: ColonyState,
+  order: EarthOrder,
+  build: string[] = [],
+  demolish: string[] = [],
+): { next: ColonyReport; after: ColonyReport } {
+  const sim = structuredClone(s);
+  sim.p = { ...sim.p, eventChanceCap: 0 };
+  const wasSimulating = simulating;
+  simulating = true;
+  try {
+    const next = commitWindow(sim, order, build, demolish);
+    const after = commitWindow(sim, emptyOrder());
+    return { next, after };
+  } finally {
+    simulating = wasSimulating;
+  }
+}
+
+/** Pharma a window is expected to draw (roadmap-1 авто-фарма): the structures' own consumption
+ * (medbays etc.) plus the expected illness treatments at current population (D-083). The same
+ * break-even floor idea as авто-ЗИП — the player only thinks about pharma when they want a BUFFER. */
+export function pharmaNeed(s: ColonyState): number {
+  let structural = 0;
+  for (const id of Object.keys(s.built)) {
+    const spec = STRUCT_BY_ID[id];
+    if (spec) structural += (spec.consumes.pharma ?? 0) * (s.built[id] ?? 0);
+  }
+  const treatments = Math.ceil(s.pop * s.p.illnessProb) * s.p.pharmaPerTreatment;
+  return structural + treatments;
 }
 
 /** Windows survivable with zero new imports before the first SUPPLY death (D-062/D-083) — the live

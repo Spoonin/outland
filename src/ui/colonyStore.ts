@@ -30,6 +30,9 @@ import {
   collapseRunway,
   COLLAPSE_LOOKAHEAD,
   MILESTONES,
+  supplyDeaths,
+  projectOrder,
+  pharmaNeed,
   STRUCTURES,
   STRUCT_BY_ID,
   RESOURCES,
@@ -146,6 +149,14 @@ function defaultStorage(): KV {
 }
 
 const LIFE: ResourceKind[] = ['food', 'water', 'o2'];
+const LIFE_R: ResourceKind[] = ['food', 'water', 'o2', 'n2'];
+
+/** Russian labels for supply-death causes (roadmap-1 projection warnings) — a LOCAL copy of
+ * chronicle-panel.ts's CAUSE_LABEL, deliberately not imported: the store must stay lit-free (the
+ * CLI drives it with no browser, see scripts/play.ts) and CAUSE_LABEL lives in a Lit component. */
+const CAUSE_RU: Partial<Record<MortalityCause, string>> = {
+  food: 'голод', water: 'жажда', o2: 'нехватка O₂', n2: 'удушье (N₂)', energy: 'браунаут ЖО',
+};
 
 export class ColonyStore {
   private state: ColonyState;
@@ -165,10 +176,18 @@ export class ColonyStore {
   // with no strategic content — this toggle floors the spares order at current upkeep need so the
   // player only has to think about it when they want a bigger buffer than break-even.
   private autoSpares = false;
+  // auto-pharma (roadmap-1, mirrors auto-spares exactly): pharma is the same kind of rote reorder
+  // once a medbay is running — floors the order at pharmaNeed() (structural draw + expected D-083
+  // illness treatments at current pop), manual slider still adds MORE on top.
+  private autoPharma = false;
   // D-062: the honest buffer simulation only depends on the committed state, not the draft order
   // being edited — cache by window so it isn't re-run on every slider tick (would be a 12-window
   // engine simulation per keystroke otherwise).
   private bufferCache?: { window: number; value: number };
+  // roadmap-1: projectOrder() runs TWO commitWindow calls on a clone — cache by a signature of the
+  // draft so it isn't re-run on every slider tick either. Invalidated by any draft mutation because
+  // the key includes the whole order/build/demolish.
+  private projectionCache?: { key: string; value: { next: ColonyReport; after: ColonyReport } };
   // D-064: the player chose to stop (no win state — collapse or "finish" are the only endings).
   // Deliberately NOT persisted: a reload resumes play, same as any other in-progress session state.
   private finished = false;
@@ -224,11 +243,19 @@ export class ColonyStore {
     };
   }
   /** Effective quantity to order — floored at upkeep need for spares when auto-spares is on
-   * (the manual slider still adds MORE buffer on top, it just can't go below break-even). */
+   * (the manual slider still adds MORE buffer on top, it just can't go below break-even). Pharma
+   * gets the same treatment when auto-pharma is on (roadmap-1). */
   resQty(r: ResourceKind): number {
     const manual = this.draftRes[r] ?? 0;
     if (r === 'spares' && this.autoSpares) return Math.max(manual, spareUpkeep(this.state.built));
+    if (r === 'pharma' && this.autoPharma) return Math.max(manual, pharmaNeed(this.state));
     return manual;
+  }
+  /** The player's own manual entry, ignoring any auto-floor — used to tell "the manifest is only
+   * non-empty because auto-spares/auto-pharma topped it up" apart from a genuine order (roadmap-1
+   * zeroImportBlockedByAuto). */
+  private manualResQty(r: ResourceKind): number {
+    return this.draftRes[r] ?? 0;
   }
   setRes(r: ResourceKind, qty: number): void {
     this.draftRes[r] = Math.max(0, Math.round(qty || 0));
@@ -239,6 +266,13 @@ export class ColonyStore {
   }
   toggleAutoSpares(): void {
     this.autoSpares = !this.autoSpares;
+    this.emit();
+  }
+  get autoPharmaEnabled(): boolean {
+    return this.autoPharma;
+  }
+  toggleAutoPharma(): void {
+    this.autoPharma = !this.autoPharma;
     this.emit();
   }
   padQty(tech: LaunchTech): number {
@@ -358,6 +392,63 @@ export class ColonyStore {
     return previewOrder(this.state, this.order());
   }
 
+  /** Honest 2-window projection of the CURRENT draft (roadmap-1, плейтест-5: every mass death in
+   * that playthrough was computable before the commit). `next` is the window this draft would
+   * commit as; `after` is one further window with an empty order — "what happens if I send this,
+   * then order nothing". Same clone-and-simulate instrument as the D-062 buffer gauge (storyteller
+   * off, no telegraph — D-063). Cached by a signature of the whole draft so editing one slider
+   * doesn't re-run two commitWindow passes on every keystroke. */
+  projection(): { next: ColonyReport; after: ColonyReport } {
+    const key = JSON.stringify([this.state.window, this.order(), this.draftBuild, this.draftDemolish]);
+    if (this.projectionCache?.key !== key) {
+      this.projectionCache = {
+        key,
+        value: projectOrder(this.state, this.order(), [...this.draftBuild], [...this.draftDemolish]),
+      };
+    }
+    return this.projectionCache.value;
+  }
+
+  /** Human-readable projection warnings for both UIs (web footer + CLI) — at most 3 lines, derived
+   * from the SAME projection() the gauge uses, never a parallel analytic formula (D-062 already
+   * burned once on an analytic runway estimate that couldn't see cascades). Empty = nothing to warn
+   * about. Background demography (illness/old age, D-083) is deliberately excluded — supplyDeaths
+   * mirrors the buffer gauge's own definition of what's worth a warning. */
+  projectionWarnings(): string[] {
+    const { next, after } = this.projection();
+    const lines: string[] = [];
+    const causesOf = (r: ColonyReport): string =>
+      (Object.entries(r.mortalityBreakdown) as [MortalityCause, number][])
+        .filter(([c, n]) => (n ?? 0) > 0 && CAUSE_RU[c])
+        .map(([c, n]) => `${CAUSE_RU[c]} (${n})`)
+        .join(', ');
+    const nextDeaths = supplyDeaths(next);
+    if (nextDeaths > 0) {
+      lines.push(`⚠ прогноз на это окно: † ${nextDeaths} — ${causesOf(next)}`);
+    }
+    const afterDeaths = supplyDeaths(after);
+    if (afterDeaths > 0) {
+      lines.push(`⚠ после посадки этого конвоя, при пустом следующем заказе: † ${afterDeaths} — ${causesOf(after)}`);
+    }
+    if (lines.length === 0) {
+      // no deaths projected either window — check for a brewing deficit on the AFTER window
+      // (nothing dies yet, but a life-support resource is draining) and name only the worst one
+      let worstR: ResourceKind | undefined;
+      let worstV = 0;
+      for (const r of LIFE_R) {
+        const v = after.deficit[r] ?? 0;
+        if (v > worstV) {
+          worstV = v;
+          worstR = r;
+        }
+      }
+      if (worstR) {
+        lines.push(`⚠ прогноз: дефицит ${worstR} ~${Math.round(worstV)} кг/окно после посадки конвоя`);
+      }
+    }
+    return lines;
+  }
+
   // ---- import structures fully built (V8, D-057) ---------------------------
 
   importQty(id: string): number {
@@ -428,6 +519,25 @@ export class ColonyStore {
   /** Why a structure is locked, if it is (D-074) — distinguishes "build the prereq" from "grow first". */
   lockReason(id: string): LockReason | undefined {
     return lockReason(this.state, id);
+  }
+
+  /** Does the CURRENT draft's manifest look empty to the player, but auto-spares/auto-pharma will
+   * still ship something (roadmap-1, C3/C4)? `zero_import` (D-064 finale-boss) requires TWO
+   * consecutive windows with a truly empty manifest — an auto-floor silently defeats that unless
+   * the player notices they need to turn it off first. Both flags checked independently so the
+   * hint can name exactly which one is responsible. */
+  zeroImportBlockedByAuto(): { spares: boolean; pharma: boolean } | null {
+    const manifestOtherwiseEmpty =
+      RESOURCES.every((r) => r === 'spares' || r === 'pharma' || this.manualResQty(r) <= 0) &&
+      Object.values(this.draftImport).every((n) => (n ?? 0) <= 0) &&
+      this.draftPads.classic <= 0 &&
+      this.draftPads.refuel <= 0 &&
+      !this.draftUnlockRefuel &&
+      this.draftColonists <= 0;
+    if (!manifestOtherwiseEmpty) return null;
+    const spares = this.autoSpares && this.manualResQty('spares') <= 0 && spareUpkeep(this.state.built) > 0;
+    const pharma = this.autoPharma && this.manualResQty('pharma') <= 0 && pharmaNeed(this.state) > 0;
+    return spares || pharma ? { spares, pharma } : null;
   }
 
   /** Combined Earth+Mars plan for the shared commit footer. */
@@ -505,6 +615,7 @@ export class ColonyStore {
     this.draftDemolish = [];
     this.draftImport = {};
     this.bufferCache = undefined;
+    this.projectionCache = undefined;
     this.finished = false;
     this.persist();
     this.emit();

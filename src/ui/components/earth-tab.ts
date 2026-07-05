@@ -142,7 +142,7 @@ export class EarthTab extends LitElement {
     const deliveryPerKg = del.perKg * shipPerKg;
     const earthPerKgNow = store.pricePerKg(r); // inflation/price-spike-aware, matches what commit() bills
     const lineCost = qty * (earthPerKgNow + deliveryPerKg);
-    const auto = r === 'spares' && store.autoSparesEnabled;
+    const auto = (r === 'spares' && store.autoSparesEnabled) || (r === 'pharma' && store.autoPharmaEnabled);
     return html`<div class="card">
       <div class="h">
         <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)} кг${auto ? ' (авто)' : ''}</span>
@@ -165,6 +165,12 @@ export class EarthTab extends LitElement {
         ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">
             <input type="checkbox" .checked=${store.autoSparesEnabled} @change=${() => store.toggleAutoSpares()} />
             авто-ЗИП: держать заказ не ниже текущего расхода на обслуживание
+          </label>`
+        : nothing}
+      ${r === 'pharma'
+        ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">
+            <input type="checkbox" .checked=${store.autoPharmaEnabled} @change=${() => store.toggleAutoPharma()} />
+            авто-фарма: держать заказ не ниже ожидаемого расхода (медблоки + лечение болезни)
           </label>`
         : nothing}
       ${qty > 0 ? html`<div class="sub">≈ ${money(lineCost)} за позицию</div>` : nothing}

@@ -8,24 +8,32 @@
 //   npx tsx scripts/play.ts status [--save=path.json]
 //   npx tsx scripts/play.ts catalog
 //   npx tsx scripts/play.ts order '<json>' [--save=path.json]
+//   npx tsx scripts/play.ts plan '<json>' [--save=path.json]
 //   npx tsx scripts/play.ts finish [--save=path.json]
 //   npx tsx scripts/play.ts debrief [--save=path.json]
 //
-// order JSON shape (all fields optional):
+// order/plan JSON shape (all fields optional):
 //   { "resources": {"food": 50000, "water": 20000}, "colonists": 10,
 //     "build": ["farm", "farm"], "demolish": ["steel_plant"],
 //     "structures": {"habitat": 1}, "importStruct": {"habitat": 1},
 //     "pads": {"classic": 1, "refuel": 0}, "scrapPads": {"classic": 1, "refuel": 0},
-//     "unlockRefuel": true, "autoSpares": true }
+//     "unlockRefuel": true, "autoSpares": true, "autoPharma": true }
 // ("structures"/"importStruct" are aliases — both mean import-fully-built from Earth.)
 // "autoSpares": true keeps the spares order floored at current upkeep need every window from here
 // on (set once, it stays on) — you can still order MORE spares than the floor, never less.
+// "autoPharma": true — same floor, for pharma (roadmap-1: structural draw + expected D-083 illness
+// treatments at current pop). Both auto-floors ship SOMETHING every window even off an otherwise
+// empty manifest — which quietly defeats the 🌌 zero_import milestone (D-064) unless turned off for
+// the two windows that are meant to be truly empty; `order`/`plan` both warn when this applies.
 // "demolish": D-081 — tear down existing Mars structures, money-free, recycles a fraction of their
 // build materials back to stock, costs one-time colonist labor (shared with ongoing crew, D-075).
 // "scrapPads": D-080/082 — decommission existing launch pads for a net COST (~20% of current
 // capex, matching real decommissioning economics — never a source of profit) — still the escape
 // valve for an over-built fleet whose idle maintenance (D-038) would otherwise only grow with
 // inflation forever, just not free money.
+//
+// `plan` applies the SAME JSON to the draft and prints the same feasibility/cost/mass/projection
+// diagnostics as `order`, but never commits — a dry run to check a manifest before spending the window.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ColonyStore, type KV } from '../src/ui/colonyStore';
@@ -103,12 +111,11 @@ function printStatus(store: ColonyStore): void {
   const s = store.status();
   const rnd = store.refuelRnD();
   console.log(`\n=== окно ${s.window} · год ~${s.year} · pop ${s.pop} ${s.collapsed ? '[СХЛОПНУЛАСЬ]' : s.ended ? '[ЗАВЕРШЕНО]' : ''} ===`);
-  if (s.pop > 0) console.log(`демография: 💪 труд ${s.workforce} · 🧒 дети ${s.kids} · 🤒 больных ${s.sick} · 🛏 коек ${s.sickBeds}`);
   console.log(`бюджет: ${money(s.budget)}/окно  ·  🛡 без завоза: ${s.buffer}${s.bufferSaturated ? '+' : ''} ок`);
   console.log(`площадки: classic ${s.pads.classic}, refuel ${s.pads.refuel} (R&D ст. ${rnd.stage}/${rnd.total}${rnd.next ? `, следующая: ${rnd.next.name} за ${money(rnd.next.cost)}` : ', максимум'})`);
   console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);
   if (s.crewCoverage < 1) console.log(`⚠ экипаж: население покрывает только ${(s.crewCoverage * 100).toFixed(0)}% нужного штата — выпуск всех объектов просажен`);
-  console.log(`авто-ЗИП: ${store.autoSparesEnabled ? 'вкл' : 'выкл'}`);
+  console.log(`авто-ЗИП: ${store.autoSparesEnabled ? 'вкл' : 'выкл'} · авто-фарма: ${store.autoPharmaEnabled ? 'вкл' : 'выкл'}`);
   console.log(
     `текущие цены: колонист ${money(store.colonistPriceNow())} · classic-площадка ${money(store.padPriceNow('classic'))}` +
       (s.refuelStage > 0 ? ` · refuel-площадка ${money(store.padPriceNow('refuel'))}` : '') +
@@ -120,6 +127,9 @@ function printStatus(store: ColonyStore): void {
   for (const [k, v] of Object.entries(t.stocks)) if ((v ?? 0) > 0) tParts.push(`${k} ${kg(v!)}`);
   for (const [id, n] of Object.entries(t.structures)) if ((n ?? 0) > 0) tParts.push(`${id}×${n}`);
   console.log(`в пути (придёт след. окно): ${tParts.length ? tParts.join(', ') : 'пусто'}`);
+  // roadmap-1: projection of the CURRENT (empty at this point — fresh/just-committed) draft, i.e.
+  // "what happens if the next order is empty" — the same honest 2-window sim the footer warns from
+  for (const w of store.projectionWarnings()) console.log(`  ${w}`);
   console.log('ресурсы (сток, net/окно, запас в окнах, текущая цена/кг):');
   for (const r of s.resources) {
     console.log(`  ${r.kind.padEnd(9)} ${kg(r.stock).padStart(14)}  ${(r.net >= 0 ? '+' : '') + Math.round(r.net)}/ок${Number.isFinite(r.windows) ? `  (${r.windows.toFixed(1)} ок)` : ''}  @ ${money(store.pricePerKg(r.kind))}/кг`);
@@ -180,17 +190,93 @@ function printDebrief(store: ColonyStore): void {
   for (const m of d.milestones) console.log(`  ${m.window !== undefined ? '✓' : '·'} ${m.icon} ${m.name}${m.window !== undefined ? ` (окно ${m.window})` : ''}`);
 }
 
+interface OrderInput {
+  resources?: Partial<Record<ResourceKind, number>>;
+  colonists?: number;
+  build?: string[];
+  demolish?: string[];
+  structures?: Record<string, number>;
+  importStruct?: Record<string, number>;
+  pads?: { classic?: number; refuel?: number };
+  scrapPads?: { classic?: number; refuel?: number };
+  unlockRefuel?: boolean;
+  autoSpares?: boolean;
+  autoPharma?: boolean;
+}
+
+/** Applies one parsed order/plan JSON object to the store's draft — shared by `order` (which
+ * commits afterward) and `plan` (which only inspects). Toggles (auto-spares/auto-pharma) flip
+ * immediately since they're session state, not part of the draft that plan() reads. */
+function applyDraft(store: ColonyStore, o: OrderInput): void {
+  // housing (build/import) must be queued BEFORE setColonists — maxColonists() reads the draft
+  if (o.autoSpares !== undefined && o.autoSpares !== store.autoSparesEnabled) store.toggleAutoSpares();
+  if (o.autoPharma !== undefined && o.autoPharma !== store.autoPharmaEnabled) store.toggleAutoPharma();
+  for (const [r, qty] of Object.entries(o.resources ?? {})) store.setRes(r as ResourceKind, qty ?? 0);
+  for (const id of o.build ?? []) store.addBuild(id);
+  for (const id of o.demolish ?? []) store.addDemolish(id); // D-081
+  for (const [id, n] of Object.entries({ ...(o.structures ?? {}), ...(o.importStruct ?? {}) })) store.setImportQty(id, n);
+  if (o.pads?.classic) store.setPad('classic', o.pads.classic);
+  if (o.pads?.refuel) store.setPad('refuel', o.pads.refuel);
+  if (o.scrapPads?.classic) store.setPadScrap('classic', o.scrapPads.classic); // D-080
+  if (o.scrapPads?.refuel) store.setPadScrap('refuel', o.scrapPads.refuel);
+  if (o.unlockRefuel) store.toggleUnlockRefuel();
+  if (o.colonists !== undefined) store.setColonists(o.colonists);
+}
+
+/** Feasibility diagnostics shared by `order` (rejected) and `plan` (dry run) — roadmap-1 C1/C2
+ * add hints for the two "invisible rules" that bit the playtest: materials already in transit
+ * (they need one more window after landing before a build can use them) and a first shipment
+ * still in flight (every OTHER cargo order must itself carry colonists, D-078, until it lands). */
+function printFeasibility(store: ColonyStore, plan: ReturnType<ColonyStore['plan']>): void {
+  if (plan.overBudget) console.log(`  дороже бюджета: ${money(plan.totalCost)} / ${money(plan.budget)}`);
+  if (plan.earth.capped) console.log(`  масса больше пропускной: ${kg(plan.earth.mass)} / ${kg(plan.earth.throughput)}`);
+  if (plan.materialsShort.length) {
+    console.log(`  не хватает материалов: ${plan.materialsShort.join(', ')}`);
+    const t = store.inTransit().stocks;
+    const arriving = plan.materialsShort.filter((r) => (t[r] ?? 0) > 0);
+    if (arriving.length) {
+      console.log(
+        `  (${arriving.join(', ')} уже в пути — сядут к началу следующего окна; стройка станет доступна следующим ходом)`,
+      );
+    }
+  }
+  if (plan.prereqMissing.length) console.log(`  нет пререквизитов: ${plan.prereqMissing.join(', ')}`);
+  if (plan.rndBlocked) console.log('  R&D требует высадки: на Марсе ещё никого нет');
+  if (plan.bootstrapBlocked) {
+    console.log('  первая партия должна включать колонистов: груз не летит один');
+    if (store.inTransit().colonists > 0) {
+      console.log(
+        '  (первая партия уже в полёте — пока она не села, каждый заказ с грузом должен сам везти колонистов)',
+      );
+    }
+  }
+}
+
+/** roadmap-1 C3/C4: warn when auto-spares/auto-pharma will ship something despite an otherwise
+ * empty manifest — the window then does NOT count toward 🌌 zero_import (D-064), which needs two
+ * truly empty windows in a row. Takes the precomputed value (not the store) because `order` must
+ * read it BEFORE commit() clears the draft it depends on. */
+function printZeroImportAutoHint(blocked: { spares: boolean; pharma: boolean } | null): void {
+  if (!blocked) return;
+  const who = [blocked.spares ? 'авто-ЗИП' : null, blocked.pharma ? 'авто-фарма' : null].filter(Boolean).join(' и ');
+  console.log(
+    `  ℹ автоматика (${who}) всё равно дошлёт груз в этом окне — оно не засчитается как «🌌 окно без единого завоза» (нужны два подряд пустых окна; на них ${who} придётся выключить)`,
+  );
+}
+
 function main(): void {
-  // autoSpares is a UI-only preference (like a browser tab, not part of the save) — the real UI
-  // keeps it in memory for the whole session, but this CLI is one fresh process per command, so it
-  // needs its own tiny side-channel in the same file to survive across invocations.
+  // autoSpares/autoPharma are UI-only preferences (like a browser tab, not part of the save) — the
+  // real UI keeps them in memory for the whole session, but this CLI is one fresh process per
+  // command, so they need their own tiny side-channel in the same file to survive across invocations.
   const kv = fileKV(savePath);
   const store = new ColonyStore(cmd === 'new' ? defaultColonyParams({ seed: Number(flag('seed', '1')) }) : undefined, kv);
   if (kv.getItem('ui:autoSpares') === 'true' && !store.autoSparesEnabled) store.toggleAutoSpares();
+  if (kv.getItem('ui:autoPharma') === 'true' && !store.autoPharmaEnabled) store.toggleAutoPharma();
 
   if (cmd === 'new') {
     store.reset(defaultColonyParams({ seed: Number(flag('seed', '1')) }));
     kv.removeItem('ui:autoSpares');
+    kv.removeItem('ui:autoPharma');
     console.log(`новая партия (seed=${flag('seed', '1')}), сохранение: ${savePath}`);
     printStatus(store);
     return;
@@ -204,56 +290,49 @@ function main(): void {
   }
   if (cmd === 'debrief') return printDebrief(store);
 
+  if (cmd === 'plan') {
+    const json = args[1];
+    if (!json) throw new Error('plan requires a JSON argument, e.g. plan \'{"resources":{"food":1000}}\'');
+    applyDraft(store, JSON.parse(json) as OrderInput);
+    const plan = store.plan();
+    console.log(plan.feasible ? '✓ план фезибилен (окно НЕ потрачено — это только проверка):' : '⚠ план НЕ фезибилен:');
+    printFeasibility(store, plan);
+    console.log(`  стоимость: ${money(plan.totalCost)} / ${money(plan.budget)}`);
+    console.log(`  масса: ${kg(plan.earth.mass)} / ${kg(plan.earth.throughput)} (пропускная)`);
+    for (const w of store.projectionWarnings()) console.log(`  ${w}`);
+    if (plan.feasible) printZeroImportAutoHint(store.zeroImportBlockedByAuto());
+    return; // dry run — never commits, draft is simply discarded with the process
+  }
+
   if (cmd === 'order') {
     const json = args[1];
     if (!json) throw new Error('order requires a JSON argument, e.g. order \'{"resources":{"food":1000}}\'');
-    const o = JSON.parse(json) as {
-      resources?: Partial<Record<ResourceKind, number>>;
-      colonists?: number;
-      build?: string[];
-      demolish?: string[];
-      structures?: Record<string, number>;
-      importStruct?: Record<string, number>;
-      pads?: { classic?: number; refuel?: number };
-      scrapPads?: { classic?: number; refuel?: number };
-      unlockRefuel?: boolean;
-      autoSpares?: boolean;
-    };
-    // housing (build/import) must be queued BEFORE setColonists — maxColonists() reads the draft
-    if (o.autoSpares !== undefined && o.autoSpares !== store.autoSparesEnabled) store.toggleAutoSpares();
-    for (const [r, qty] of Object.entries(o.resources ?? {})) store.setRes(r as ResourceKind, qty ?? 0);
-    for (const id of o.build ?? []) store.addBuild(id);
-    for (const id of o.demolish ?? []) store.addDemolish(id); // D-081
-    for (const [id, n] of Object.entries({ ...(o.structures ?? {}), ...(o.importStruct ?? {}) })) store.setImportQty(id, n);
-    if (o.pads?.classic) store.setPad('classic', o.pads.classic);
-    if (o.pads?.refuel) store.setPad('refuel', o.pads.refuel);
-    if (o.scrapPads?.classic) store.setPadScrap('classic', o.scrapPads.classic); // D-080
-    if (o.scrapPads?.refuel) store.setPadScrap('refuel', o.scrapPads.refuel);
-    if (o.unlockRefuel) store.toggleUnlockRefuel();
-    if (o.colonists !== undefined) store.setColonists(o.colonists);
+    applyDraft(store, JSON.parse(json) as OrderInput);
 
     const plan = store.plan();
     if (!plan.feasible) {
       // mirror the web UI, where the commit button is simply disabled on an infeasible plan —
       // the CLI used to warn and commit anyway, burning the window (2.2 years) on nothing
       console.log('⚠ план НЕ прошёл фильтр фезибильности — заказ НЕ отправлен, окно НЕ потрачено:');
-      if (plan.overBudget) console.log(`  дороже бюджета: ${money(plan.totalCost)} / ${money(plan.budget)}`);
-      if (plan.earth.capped) console.log(`  масса больше пропускной: ${kg(plan.earth.mass)} / ${kg(plan.earth.throughput)}`);
-      if (plan.materialsShort.length) console.log(`  не хватает материалов: ${plan.materialsShort.join(', ')}`);
-      if (plan.prereqMissing.length) console.log(`  нет пререквизитов: ${plan.prereqMissing.join(', ')}`);
-      if (plan.rndBlocked) console.log('  R&D требует высадки: на Марсе ещё никого нет');
-      if (plan.bootstrapBlocked) console.log('  первая партия должна включать колонистов: груз не летит один');
+      printFeasibility(store, plan);
       console.log('  поправь заказ и повтори команду (пустой order {} — просто пропустить ход).');
       process.exitCode = 1;
       return;
     }
+    // projection of exactly the draft about to be committed — printed AFTER commit (below), next
+    // to the resulting status, but computed from THIS draft (commit() clears it)
+    const warnings = store.projectionWarnings();
+    const autoHintBlocked = store.zeroImportBlockedByAuto();
     store.commit();
     kv.setItem('ui:autoSpares', String(store.autoSparesEnabled));
+    kv.setItem('ui:autoPharma', String(store.autoPharmaEnabled));
     printStatus(store);
+    for (const w of warnings) console.log(`  ${w}`);
+    printZeroImportAutoHint(autoHintBlocked);
     return;
   }
 
-  console.log('команды: new | status | catalog | order <json> | finish | debrief   (--save=path.json, --seed=N)');
+  console.log('команды: new | status | catalog | order <json> | plan <json> | finish | debrief   (--save=path.json, --seed=N)');
 }
 
 main();
