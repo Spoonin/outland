@@ -191,7 +191,7 @@ export class ColonyApp extends LitElement {
         ? html`${this.store.projectionWarnings().map((w) => html`<div class="warn">${w}</div>`)}
             ${this.zeroImportAutoHint()}`
         : nothing}
-      <button class="commit" ?disabled=${!plan.feasible || st.ended} @click=${() => this.store.commit()}
+      <button class="commit" ?disabled=${!plan.feasible || st.ended} @click=${() => this.store.commit()}>
         Коммит ▸ ход (≈2.2 года)
       </button>
     </div>`;
