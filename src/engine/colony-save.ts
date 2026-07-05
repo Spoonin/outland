@@ -8,7 +8,7 @@ import { RESOURCES, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
 import { type ActiveEffect } from './events';
 
-export const SAVE_VERSION = 6; // D-083: per-colonist demographics — `colonists` array replaces scalar pop as the population's source of truth
+export const SAVE_VERSION = 7; // roadmap-2/V8 scaffold: added `techs` (bought tech ids) — [] on every save until content exists
 
 /** The persisted shape — dynamic state only (config is rebuilt from defaults on load). */
 export interface ColonySave {
@@ -29,6 +29,7 @@ export interface ColonySave {
   lastEvent: { id: string; window: number } | null;
   milestones: Partial<Record<MilestoneId, number>>;
   subsidyBonus: number;
+  techs: string[]; // roadmap-2/V8 scaffold — ids of bought techs (data/techs.csv), [] while empty
 }
 
 export function serializeColony(s: ColonyState): ColonySave {
@@ -50,6 +51,7 @@ export function serializeColony(s: ColonyState): ColonySave {
     lastEvent: s.lastEvent ? { ...s.lastEvent } : null,
     milestones: { ...s.milestones },
     subsidyBonus: s.subsidyBonus,
+    techs: [...s.techs],
   };
 }
 
@@ -78,6 +80,7 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
     lastEvent: save.lastEvent,
     milestones: { ...save.milestones },
     subsidyBonus: save.subsidyBonus,
+    techs: [...save.techs],
     p,
   };
 }
@@ -90,7 +93,8 @@ function valid(s: ColonyState): boolean {
     typeof s.rngState === 'number' &&
     typeof s.pop === 'number' &&
     Array.isArray(s.colonists) &&
-    s.colonists.every((c) => typeof c.age === 'number' && typeof c.deathAge === 'number')
+    s.colonists.every((c) => typeof c.age === 'number' && typeof c.deathAge === 'number') &&
+    Array.isArray(s.techs)
   );
 }
 

@@ -15,6 +15,7 @@ import {
 } from './colony';
 import { rollEvent } from './events';
 import { makeRng } from './rng';
+import { serializeColony, loadColony } from './colony-save';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
@@ -744,6 +745,26 @@ describe('wear repair (D-084)', () => {
     const gain = s.p.repairRate; // spend/upkeep == 1 → the full rate
     expect(s.condition.solar_plant).toBeCloseTo(0.4 + gain, 10);
     expect(s.condition.farm).toBeCloseTo(0.6 + gain, 10);
+  });
+});
+
+// Roadmap-2 Block C — V8 tech tree SCAFFOLD (data/techs.csv ships with zero rows; content awaits
+// a design session + new D-numbers). These pin the plumbing, not any actual tech.
+describe('V8 tech tree scaffold — save round-trip + feasibility gate (roadmap-2)', () => {
+  it('save v7 round-trips an empty techs array', () => {
+    const s = newColony(defaultColonyParams({ pop0: 50 }));
+    expect(s.techs).toEqual([]);
+    const loaded = loadColony(JSON.stringify(serializeColony(s)), s.p);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.techs).toEqual([]);
+  });
+
+  it('an order unlocking a tech id that does not exist is infeasible — the whole order, not silently ignored', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+    s.everHadPop = true;
+    const r = commitWindow(s, { ...emptyOrder(), unlockTech: 'nonexistent_tech' });
+    expect(s.techs).toEqual([]); // nothing bought
+    expect(r.spent).toBe(0); // and nothing charged — same all-or-nothing pattern as rndOk/bootstrapOk
   });
 });
 

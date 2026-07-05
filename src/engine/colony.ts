@@ -63,6 +63,7 @@ import {
   type ActiveEffect,
   type WindowEvent,
 } from './events';
+import { TECH_BY_ID, techMods, techBuyable } from './techs';
 
 /** Per-resource catalog: earth price ($/kg) + per-capita life-support consumption (kg/window). */
 export interface ResourceSpec {
@@ -130,6 +131,8 @@ export interface ColonyState {
   subsidyBonus: number; // D-076: cumulative $ added to p.M by qualifying milestones — lives in
   // STATE, not params, because save/load always rebuilds p from defaults (colony-save.ts) and this
   // must survive a reload like everything else earned in-game.
+  techs: string[]; // roadmap-2/V8 scaffold: ids of bought techs (data/techs.csv) — [] until content
+  // exists (the CSV ships with zero rows); techMods() folds this into neutral multipliers either way
   p: ColonyParams;
 }
 
@@ -142,6 +145,8 @@ export interface EarthOrder {
   unlockRefuel: boolean; // buy the NEXT refuel R&D stage this window (staged ladder, D-039/D-068)
   colonists: number;
   structures: Partial<Record<string, number>>; // pre-built structures to import (V8, D-057)
+  unlockTech?: string; // roadmap-2/V8 scaffold: buy this one tech (data/techs.csv) this window —
+  // at most one per window, an R&D-ladder-style "sacrifice window" (D-068); undefined = none
 }
 
 /** An empty order (no goods, no pads, no colonists, no structure imports). */
@@ -283,6 +288,7 @@ export function newColony(p: ColonyParams): ColonyState {
     lastEvent: null,
     milestones: {},
     subsidyBonus: 0,
+    techs: [],
     p,
   };
 }
@@ -352,6 +358,7 @@ export interface OrderPreview {
   padCapex: number; // capex to build pads this window
   padScrapCost: number; // D-082: net cost to decommission pads this window (not a refund)
   rndCost: number; // refuel R&D unlock this window
+  techCost: number; // roadmap-2/V8 scaffold: unlockTech purchase this window — 0 while techs.csv is empty
   launchTotal: number; // flight cost + pad maintenance (whole fleet)
   total: number;
   mass: number; // kg to ship (goods + colonists + imported structures)
@@ -467,6 +474,12 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   padScrapCostTotal *= mult;
   const nextStage = nextRefuelStage(s.fleet, p.launch);
   const rndCost = order.unlockRefuel && nextStage ? nextStage.stage.cost * mult : 0;
+  // roadmap-2/V8 scaffold: unlockTech is priced like the R&D ladder — inflation-adjusted, and only
+  // charged if the tech is actually buyable (feasibility re-checks this too, same as rndCost/nextStage)
+  const techCost =
+    order.unlockTech && techBuyable(order.unlockTech, s.techs, s.built, s.pop, s.everHadPop)
+      ? (TECH_BY_ID[order.unlockTech]?.cost ?? 0) * mult
+      : 0;
 
   const plan = shipPlan(futureFleet, p.launch, mass);
   const maintCost = padMaintTotal(futureFleet, p.launch) * mult; // idle-pad upkeep (D-038) — owed
@@ -474,7 +487,7 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const launchTotal = plan.flightCost * mult + maintCost;
   const throughput = throughputMass(futureFleet, p.launch);
 
-  const total = goodsCost + colonistCost + struct.cost + padCapex + padScrapCostTotal + rndCost + launchTotal;
+  const total = goodsCost + colonistCost + struct.cost + padCapex + padScrapCostTotal + rndCost + techCost + launchTotal;
   // subsidy_cut (D-063): an active event can shrink the window's effective budget;
   // subsidyBonus (D-076): milestones raise the baseline itself, permanently
   const budget = (p.M + s.subsidyBonus) * effectMultiplier(s.activeEffects, 'subsidy');
@@ -495,6 +508,7 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
     padCapex,
     padScrapCost: padScrapCostTotal,
     rndCost,
+    techCost,
     launchTotal,
     total,
     mass,
@@ -689,8 +703,12 @@ export function commitWindow(
     Math.max(0, Math.floor(order.padsToBuild.classic)) > 0 ||
     Math.max(0, Math.floor(order.padsToBuild.refuel)) > 0;
   const bootstrapOk = !shippingCargo || s.everHadPop || Math.floor(order.colonists) > 0;
+  // roadmap-2/V8 scaffold: same "everything blind rejects, nothing charges" pattern as rndOk —
+  // techBuyable also checks prereqTech/prereqStructure/minPop, so a stale or already-bought id
+  // (e.g. the draft wasn't cleared after a save/load with a shrunk tree) fails closed, not silently.
+  const techOk = !order.unlockTech || techBuyable(order.unlockTech, s.techs, s.built, s.pop, s.everHadPop);
 
-  const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk && rndOk && bootstrapOk;
+  const feasible = !pv.overBudget && !pv.capped && materialsOk && prereqsOk && rndOk && techOk && bootstrapOk;
   const spent = feasible ? pv.total : 0; // only the Earth order costs money
   const builtThis: string[] = [];
 
@@ -778,6 +796,8 @@ export function commitWindow(
   if (feasible) {
     // apply pad builds + refuel unlock (futureFleet already computed in the preview)
     s.fleet = { refuelStage: pv.futureFleet.refuelStage, pads: { ...pv.futureFleet.pads } };
+    // roadmap-2/V8 scaffold: at most one tech bought per window (order.unlockTech is a single id)
+    if (order.unlockTech) s.techs.push(order.unlockTech);
     // build structures: consume local materials, raise counts
     for (const r of Object.keys(matNeed) as ResourceKind[]) s.stocks[r] -= matNeed[r] ?? 0;
     for (const id of build) {
@@ -817,6 +837,14 @@ export function commitWindow(
   }
   s.rngState = rng.state();
 
+  // roadmap-2/V8 scaffold: neutral bundle while techs.csv is empty (opsCrewMult=1, bonuses=0,
+  // repairRateMult=1) — computed AFTER this window's own purchase (if any) applies same-window,
+  // same precedent as the refuel R&D ladder's stage (D-068).
+  const mods = techMods(s.techs);
+  const effP: ColonyParams = mods.lifeExpectancyBonus !== 0
+    ? { ...p, lifeExpectancy: p.lifeExpectancy + mods.lifeExpectancyBonus }
+    : p;
+
   // this window's shipment (empty if the order was infeasible — nothing goes out)
   const shipped = emptyStocks(0);
   const shippedStructures: Record<string, number> = {};
@@ -842,7 +870,7 @@ export function commitWindow(
 
   // colonists from the landed convoy arrive (post-crash survivors, D-072) — each an individual
   // now (D-083): healthy, age ~N(30, 2.5) clamped to [25, 35], natural-death age pre-rolled
-  for (let i = 0; i < landedEff.colonists; i++) s.colonists.push(newArrival(crng, p));
+  for (let i = 0; i < landedEff.colonists; i++) s.colonists.push(newArrival(crng, effP));
   s.pop = s.colonists.length;
 
   // imported structures from the landed convoy arrive ready-to-run (no local assembly step, D-057)
@@ -878,7 +906,7 @@ export function commitWindow(
   const worn = Object.keys(s.built).some((id) => (s.built[id] ?? 0) > 0 && (s.condition[id] ?? 1) < 1);
   const sparesSurplus = Math.max(0, (avail.spares ?? 0) - upkeep);
   const repairSpend = worn && upkeep > 0 ? Math.min(sparesSurplus, upkeep) : 0;
-  const repairGain = upkeep > 0 ? p.repairRate * (repairSpend / upkeep) : 0;
+  const repairGain = upkeep > 0 ? p.repairRate * mods.repairRateMult * (repairSpend / upkeep) : 0;
   if (repairGain > 0) {
     for (const id of Object.keys(s.built)) {
       if ((s.built[id] ?? 0) <= 0) continue;
@@ -910,7 +938,7 @@ export function commitWindow(
   const treatedCount = Math.min(newlySick.length, beds, pharmaBudget);
   let curedCount = 0;
   for (let i = 0; i < newlySick.length; i++) {
-    if (i < treatedCount && crng.random() < p.cureProb) curedCount += 1;
+    if (i < treatedCount && crng.random() < Math.min(1, p.cureProb + mods.cureProbBonus)) curedCount += 1;
     else newlySick[i]!.doomed = true;
   }
   const sickenedCount = newlySick.length;
@@ -925,7 +953,7 @@ export function commitWindow(
   // solar_plant sitting there before the first colonists ever land must not read as a total
   // blackout; the mechanic is meant to catch DEGRADATION from an established headcount, not the
   // absence of any headcount ever having existed (same absence≠penalty convention as condOf/energyPower).
-  const laborNeed = laborDemand(s.built) + demolitionLaborThisWindow; // D-081: teardown is a surge, not a persistent job
+  const laborNeed = laborDemand(s.built) * mods.opsCrewMult + demolitionLaborThisWindow; // D-081: teardown is a surge, not a persistent job; opsCrewMult — roadmap-2/V8 scaffold
   // D-083: the pool is able-bodied ADULTS — under-16s and the actively sick eat but staff nothing.
   // pop===0 keeps meaning "not colonized yet", not "workforce wiped out".
   const workforce = workforceCount(s.colonists, p.adultAge);
@@ -1059,7 +1087,7 @@ export function commitWindow(
     // D-083: newborns are individuals at age 0 — ≈7.4 windows of eating before they can work;
     // probRound keeps a sub-20-person outpost growing in expectation despite integer people
     births = probRound(s.pop * p.birthRate, crng);
-    for (let i = 0; i < births; i++) s.colonists.push(newborn(crng, p));
+    for (let i = 0; i < births; i++) s.colonists.push(newborn(crng, effP));
     s.pop = s.colonists.length;
   }
 

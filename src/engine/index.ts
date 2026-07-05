@@ -72,6 +72,10 @@ export {
 } from './structures';
 export { colonistRng, workforceCount, YEARS_PER_WINDOW, expectedOldAgeDeaths, phi } from './colonists';
 export type { Colonist, DemographicParams } from './colonists';
+// roadmap-2/V8 scaffold — TECHS aliased to ADVANCED_TECHS: `TECHS` already names logistics.ts's
+// pad-class list (classic/refuel) in this barrel; two different "TECHS" would collide.
+export { TECHS as ADVANCED_TECHS, TECH_BY_ID, techMods, techBuyable } from './techs';
+export type { TechSpec, TechEffect, TechMods } from './techs';
 export type { Structure, BuiltCounts, EnergyResolution, Condition, StructureDiag } from './structures';
 export { SAVE_VERSION, serializeColony, hydrateColony, loadColony } from './colony-save';
 export type { ColonySave } from './colony-save';
