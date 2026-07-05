@@ -36,9 +36,14 @@ const ALWAYS_FIRE = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap
  * food 80 000 ≥ 50 000 · water 240 000 ≥ (240 000+20 000)×0.7 · O₂ 60 000 ≥ 46 200 · energy 400 ≥ 335. */
 function selfSufficient100(overrides = {}): ReturnType<typeof newColony> {
   const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, ...overrides }));
-  s.built = { solar_plant: 4, farm: 1, water_recycler: 3, o2_generator: 4 };
+  // D-083: "self-sufficient" now includes DEMOGRAPHY — without a medbay + pharma the founders
+  // simply age out (~windows 10–18) with no births to replace them, and no amount of food/O₂
+  // keeps a colony of corpses alive. Capacity is sized for the population wave to ~230 heads
+  // (births compound while the founder cohort is still alive), medbay beds cover baseline illness.
+  s.built = { solar_plant: 7, farm: 2, water_recycler: 5, o2_generator: 7, medbay: 1 };
   s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
   s.stocks.spares = 1_000_000; // upkeep fully covered — no wear over any lookahead
+  s.stocks.pharma = 200_000; // births gate + illness treatment doses over the whole lookahead
   return s;
 }
 
@@ -355,7 +360,8 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
 
   it('an understaffed colony throttles EVERY structure proportionally, not just the short-handed one (D-075)', () => {
     // 1 solar_plant (opsCrew 1) + 1 nuclear_plant (opsCrew 10) = 11 needed; pop 11 → full staffing
-    const staffed = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5 }));
+    // (illnessProb 0: one unlucky sick colonist would silently thin the able-bodied pool, D-083)
+    const staffed = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5, illnessProb: 0 }));
     staffed.built = { solar_plant: 1, nuclear_plant: 1 };
     staffed.condition = { solar_plant: 1, nuclear_plant: 1 };
     staffed.stocks.spares = 1_000_000;
@@ -363,16 +369,17 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     const rFull = commitWindow(staffed, emptyOrder());
     expect(rFull.energyGen).toBeCloseTo(600, 0); // solar 100 + nuclear 500, fully staffed
 
-    // a mass-casualty event halves pop to ~5.5 mid-game — labor demand (11) now exceeds headcount,
+    // a mass-casualty event thins pop to 5 mid-game — labor demand (11) now exceeds headcount,
     // and BOTH structures lose the same fraction of output (a colony-wide pinch, not "who gets fired")
-    const thinned = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5 }));
+    const thinned = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5, illnessProb: 0 }));
     thinned.built = { solar_plant: 1, nuclear_plant: 1 };
     thinned.condition = { solar_plant: 1, nuclear_plant: 1 };
     thinned.stocks.spares = 1_000_000;
     thinned.stocks.fuel = 1_000_000;
-    thinned.pop = 5.5; // half of the 11 needed → laborRatio 0.5
+    thinned.colonists = thinned.colonists.slice(0, 5); // individuals now (D-083), not a scalar
+    thinned.pop = thinned.colonists.length; // 5 of the 11 needed → laborRatio 5/11
     const rThin = commitWindow(thinned, emptyOrder());
-    expect(rThin.energyGen).toBeCloseTo(300, 0); // 600 × 0.5 — BOTH plants' share cut equally
+    expect(rThin.energyGen).toBeCloseTo(600 * (5 / 11), 0); // BOTH plants' share cut equally
   });
 
   it('pop===0 with structures already built is "not colonized yet", not a labor collapse (D-075)', () => {
@@ -1006,26 +1013,38 @@ describe('storyteller events — engine integration (D-063)', () => {
     expect(r3.landed.stocks.food).toBe(50_000); // arrives one window late, undiminished
   });
 
-  it('epidemic kills the uncovered; medbay+pharma coverage cuts it to a minimal rate + pharma cost', () => {
+  it('epidemic spikes the illness probability; beds+pharma treat, the untreated are doomed (D-083)', () => {
     const seed = seedForEvent('epidemic');
 
+    // no beds, no pharma: everyone who falls sick under the spiked probability is doomed and dies
+    // at the START of next window, attributed as `illness` (the epidemic owns its window's sick)
     const uncovered = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
     uncovered.built = { solar_plant: 3 };
     uncovered.condition = { solar_plant: 1 };
     const rUncovered = commitWindow(uncovered, emptyOrder());
     expect(rUncovered.event?.id).toBe('epidemic');
     expect(rUncovered.event?.covered).toBe(false);
-    expect(rUncovered.mortalityBreakdown.epidemic).toBeGreaterThan(0);
+    expect(rUncovered.event?.sickened).toBeGreaterThan(0);
+    expect(rUncovered.event?.treated).toBe(0);
+    expect(rUncovered.event?.deaths).toBe(rUncovered.event?.sickened); // all doomed
+    expect(rUncovered.sick).toBe(rUncovered.event?.sickened); // still alive at window's end
+    uncovered.p.eventChanceCap = 0; // isolate: no second event while the doomed die
+    const rNext = commitWindow(uncovered, emptyOrder());
+    expect(rNext.mortalityBreakdown.illness).toBe(rUncovered.event?.deaths);
 
+    // enough beds (40 medbays × 5) + pharma: everyone sick is treated, the cure roll saves ~half —
+    // same seed → the same people fall sick, so the two runs differ only in the medicine
     const covered = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
-    covered.built = { solar_plant: 3, medbay: 1 };
+    covered.built = { solar_plant: 3, medbay: 40 };
     covered.condition = { solar_plant: 1, medbay: 1 };
-    covered.stocks.pharma = 10_000;
+    covered.stocks.pharma = 100_000;
     const rCovered = commitWindow(covered, emptyOrder());
     expect(rCovered.event?.id).toBe('epidemic');
+    expect(rCovered.event?.sickened).toBe(rUncovered.event?.sickened);
+    expect(rCovered.event?.treated).toBe(rCovered.event?.sickened);
     expect(rCovered.event?.covered).toBe(true);
-    expect(rCovered.mortalityBreakdown.epidemic!).toBeLessThan(rUncovered.mortalityBreakdown.epidemic!);
-    expect(covered.stocks.pharma).toBeLessThan(10_000); // one-time pharma draw
+    expect(rCovered.event?.deaths!).toBeLessThan(rUncovered.event?.deaths!); // cureProb bites
+    expect(covered.stocks.pharma).toBeLessThan(100_000); // a dose per treated case
   });
 
   it('the same event cannot fire two windows in a row', () => {

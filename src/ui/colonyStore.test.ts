@@ -156,7 +156,9 @@ describe('ColonyStore (v2 Earth ordering)', () => {
   });
 
   it('colonist order is hard-capped by free housing (V8)', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    // illnessProb 0 (D-083): this tests housing plumbing — one background illness death between
+    // commits would free a slot and shift every expected count by one
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5, illnessProb: 0 }), memKV());
     expect(store.maxColonists()).toBe(0); // no habitat built yet — can't order anyone
     store.setColonists(50);
     expect(store.colonists).toBe(0);
@@ -226,7 +228,8 @@ describe('ColonyStore (v2 Earth ordering)', () => {
   });
 
   it('housing already in transit from an earlier order counts toward maxColonists (V8)', () => {
-    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    // illnessProb 0 (D-083) — housing plumbing test, background deaths would shift the counts
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5, illnessProb: 0 }), memKV());
     // establish Mars presence first (D-078) — the FIRST shipment must carry colonists;
     // BOOTSTRAP GUARANTEE recipe (food + spares from day one) for zero mortality on arrival
     store.setImportQty('base_block', 1);

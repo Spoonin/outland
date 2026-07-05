@@ -4,7 +4,7 @@ subsidy_cut,Урезание субсидии,📉,subsidy,0.2,0.4,1,2,,,
 skip_window,Пропуск окна,🚫,delay,0,0,1,1,,,
 price_spike,Скачок цен,💹,price,1.5,2,1,1,,,
 blight,Патоген,🦠,farm,0.5,0.7,1,2,,,
-epidemic,Эпидемия,🤒,epidemic,0.04,0.06,1,1,0.005,0.5,
+epidemic,Эпидемия,🤒,epidemic,0.08,0.16,1,1,,,
 hull_breach,Разгерметизация,🕳,breach,0.15,0.35,1,1,0.004,,0.04
 solar_flare,Солнечная вспышка,☢,radiation,0.5,0.7,1,1,0.003,0.3,0.04
 struct_outage,Отказ узла,⚙,outage,1,1,1,2,,,

@@ -96,6 +96,11 @@ export class ColonyStatusPanel extends LitElement {
     return html`
       <div class="top">
         <div class="pop">👥 ${s.pop.toLocaleString('ru-RU')}</div>
+        ${s.pop > 0 ? html`<div class="dim">
+          💪 труд ${s.workforce.toLocaleString('ru-RU')}${s.kids > 0 ? ` · 🧒 ${s.kids}` : ''}${s.sick > 0
+            ? html` · 🤒 <b style="color:${s.sick <= s.sickBeds ? '#d1b65a' : '#d96a6a'}">${s.sick}</b>` : ''}
+          · 🛏 койки ${s.sickBeds}
+        </div>` : ''}
         <div class="dim">окно <b>${s.window}</b> · год ~${s.year}</div>
         <div class="dim">
           🛫 classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (ст. ${s.refuelStage})` : ''}

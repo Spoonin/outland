@@ -64,8 +64,11 @@ export {
   spareUpkeep,
   laborDemand,
   housingCapacity,
+  sickBedCapacity,
   structuralN2Leak,
 } from './structures';
+export { colonistRng, workforceCount, YEARS_PER_WINDOW } from './colonists';
+export type { Colonist, DemographicParams } from './colonists';
 export type { Structure, BuiltCounts, EnergyResolution, Condition, StructureDiag } from './structures';
 export { SAVE_VERSION, serializeColony, hydrateColony, loadColony } from './colony-save';
 export type { ColonySave } from './colony-save';

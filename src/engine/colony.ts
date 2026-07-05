@@ -26,6 +26,18 @@ import {
   type LaunchTech,
 } from './logistics';
 import { makeRng } from './rng';
+import {
+  colonistRng,
+  newArrival,
+  newborn,
+  probRound,
+  removeRandom,
+  shuffle,
+  workforceCount,
+  YEARS_PER_WINDOW,
+  type Colonist,
+  type DemographicParams,
+} from './colonists';
 import { parseCsv, num } from '../data/csv';
 import resourcesCsv from '../data/resources.csv?raw';
 import storytellerCsv from '../data/storyteller.csv?raw';
@@ -37,6 +49,7 @@ import {
   spareUpkeep,
   laborDemand,
   housingCapacity,
+  sickBedCapacity,
   structuralN2Leak,
   type BuiltCounts,
   type Condition,
@@ -61,7 +74,7 @@ export interface ResourceSpec {
 
 export type ResourceCatalog = Record<ResourceKind, ResourceSpec>;
 
-export interface ColonyParams {
+export interface ColonyParams extends DemographicParams {
   M: number; // per-window subsidy (D-021), grows with milestones (D-076) — see ColonyState.subsidyBonus
   inflationMin: number; // D-076: rolled fresh each window, replacing the flat D-031 rate — every
   inflationMax: number; // window is its own economic surprise, not a smooth predictable curve
@@ -96,7 +109,8 @@ export interface Transit {
 
 export interface ColonyState {
   window: number;
-  pop: number;
+  pop: number; // derived: always colonists.length (kept for every existing read site)
+  colonists: Colonist[]; // D-083: the population, one entry per person — age/deathAge/illness
   stocks: Stocks;
   inTransit: Transit;
   fleet: Fleet;
@@ -172,6 +186,22 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     energyMortFactor: 0.3, // softer than mortFactor (D-060) — a slower death spiral, not instant wipeout
     wearRate: 0.12,
     birthRate: 0.05,
+    // D-083 demographics (individual colonists). illnessProb is 0.03, not the spec's 0.05: with
+    // cureProb 0.5 even a fully-bedded colony loses P/2 per window to illness, and at 0.05 the
+    // REALIZED life expectancy (illness + old age together) sagged to ≈55 against the agreed 60.
+    // At 0.03: ~1.5%/window illness + ~3.6%/window old-age at steady state ≈ 5.1% vs birthRate 5% —
+    // births alone barely hold the line, a trickle of imports stays necessary (D-076 thesis).
+    illnessProb: 0.03,
+    cureProb: 0.5,
+    pharmaPerTreatment: 20, // kg per treated case — noise next to a medbay's 2000/window bulk draw,
+    // but a colony at literal zero pharma treats nobody (D-083: the bed alone doesn't cure)
+    arrivalAgeMean: 30,
+    arrivalAgeSd: 2.5,
+    arrivalAgeMin: 25,
+    arrivalAgeMax: 35,
+    lifeExpectancy: 60,
+    lifeExpectancySd: 5,
+    adultAge: 16, // ≈7.4 windows from birth to the labor pool — births finally cost something
     popEnergyPerCapita: 0.05,
     catalog: defaultCatalog(),
     launch: defaultLaunchParams(),
@@ -226,9 +256,15 @@ export function newColony(p: ColonyParams): ColonyState {
     const per = p.catalog[r].perCapita;
     if (per > 0) stocks[r] = per * p.pop0 * p.startStockWindows;
   }
+  // pop0 arrives as individuals (D-083) — rolled off window 0's colonist stream, so a fresh
+  // colony with the same seed always starts with the same people
+  const crng = colonistRng(p.seed, 0);
+  const colonists: Colonist[] = [];
+  for (let i = 0; i < Math.floor(p.pop0); i++) colonists.push(newArrival(crng, p));
   return {
     window: 0,
-    pop: p.pop0,
+    pop: colonists.length,
+    colonists,
     stocks,
     inTransit: { stocks: emptyStocks(0), colonists: 0, structures: {} },
     fleet: newFleet(p.launch, p.startPads),
@@ -470,8 +506,16 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
 // ---- the window ---------------------------------------------------------
 
 /** Named mortality cause for the chronicle (D-061): the binding life-support resource (Liebig),
- * energy brownout, or an epidemic event (D-063). */
-export type MortalityCause = ResourceKind | 'energy' | 'epidemic' | 'breach' | 'radiation' | 'crash';
+ * energy brownout, illness / old age (D-083), or a violent event (D-072). An epidemic no longer
+ * has its own cause — it spikes the illness probability, so its toll IS `illness`. */
+export type MortalityCause =
+  | ResourceKind
+  | 'energy'
+  | 'illness'
+  | 'old_age'
+  | 'breach'
+  | 'radiation'
+  | 'crash';
 
 export interface ColonyReport {
   window: number;
@@ -483,6 +527,9 @@ export interface ColonyReport {
   mortality: number;
   mortalityBreakdown: Partial<Record<MortalityCause, number>>; // named causes (D-061), sums to ~mortality
   births: number; // colonists born this window (medbay growth, D-030) — 0 if none
+  workforce: number; // D-083: able-bodied adults at window's end — the D-075 labor pool
+  kids: number; // D-083: colonists under adultAge at window's end (eat, don't work)
+  sick: number; // D-083: in the active illness stage at window's end (recover or die next window)
   spent: number;
   capped: boolean;
   built: string[]; // structures completed this window
@@ -587,6 +634,33 @@ export function commitWindow(
   // +1 inflation step and let near-budget orders pass the plan() check yet die inside commit
   const pv = previewOrder(s, order);
   s.window += 1;
+
+  // ---- demographics, phase A (D-083): resolve LAST window's sick, then age everyone ----------
+  // All colonist rolls this window draw from a dedicated (seed, window) stream — never from the
+  // event RNG (`s.rngState`), same isolation as windowInflationRate (D-076).
+  // The doomed (no bed, no pharma, or the cure roll failed) die now — the spec's "умирает в
+  // следующее окно"; the rest of the sick recover and rejoin the labor pool. Then everyone lives
+  // through 26 months; whoever crosses their pre-rolled natural-death age dies of old age.
+  const crng = colonistRng(p.seed, s.window);
+  let illnessDeaths = 0;
+  let oldAgeDeaths = 0;
+  s.colonists = s.colonists.filter((c) => {
+    if (c.doomed) {
+      illnessDeaths += 1;
+      return false;
+    }
+    c.sick = false;
+    return true;
+  });
+  for (const c of s.colonists) c.age += YEARS_PER_WINDOW;
+  s.colonists = s.colonists.filter((c) => {
+    if (c.age >= c.deathAge) {
+      oldAgeDeaths += 1;
+      return false;
+    }
+    return true;
+  });
+  s.pop = s.colonists.length;
 
   // Mars build plan: materials + prerequisites only — command economy, no money capex (D-054).
   // The dollar (subsidy) is Earth-side procurement; building on Mars costs local materials + labour.
@@ -756,8 +830,10 @@ export function commitWindow(
     s.holdTransit = null;
   }
 
-  // colonists from the landed convoy arrive (post-crash survivors, D-072)
-  s.pop += landedEff.colonists;
+  // colonists from the landed convoy arrive (post-crash survivors, D-072) — each an individual
+  // now (D-083): healthy, age ~N(30, 2.5) clamped to [25, 35], natural-death age pre-rolled
+  for (let i = 0; i < landedEff.colonists; i++) s.colonists.push(newArrival(crng, p));
+  s.pop = s.colonists.length;
 
   // imported structures from the landed convoy arrive ready-to-run (no local assembly step, D-057)
   for (const id of Object.keys(landedEff.structures)) {
@@ -781,6 +857,36 @@ export function commitWindow(
     s.condition[s2] = Math.max(0, Math.min(1, c - p.wearRate * (1 - sparesCoverage)));
   }
 
+  // ---- demographics, phase C (D-083): illness roll + bed triage --------------------------------
+  // An epidemic event is no longer its own mortality fraction — its magnitude IS this window's
+  // spiked illness probability (one disease system, not two); bed capacity does the drama: slots
+  // are sickBeds × built units, and each treatment consumes pharma (a bed with no pharma is
+  // furniture). Triage is even odds — no priority classes. Treated: cureProb to recover; everyone
+  // else is doomed and dies at the start of NEXT window (phase A above). The newly sick are out
+  // of the labor pool already THIS window.
+  const pIll = Math.max(p.illnessProb, roll?.spec.effect === 'epidemic' ? roll.mag : 0);
+  const newlySick: Colonist[] = [];
+  for (const c of s.colonists) {
+    if (!c.sick && crng.random() < pIll) {
+      c.sick = true;
+      newlySick.push(c);
+    }
+  }
+  shuffle(newlySick, crng);
+  const beds = sickBedCapacity(s.built);
+  const pharmaBudget =
+    p.pharmaPerTreatment > 0
+      ? Math.floor((avail.pharma ?? 0) / p.pharmaPerTreatment)
+      : newlySick.length;
+  const treatedCount = Math.min(newlySick.length, beds, pharmaBudget);
+  let curedCount = 0;
+  for (let i = 0; i < newlySick.length; i++) {
+    if (i < treatedCount && crng.random() < p.cureProb) curedCount += 1;
+    else newlySick[i]!.doomed = true;
+  }
+  const sickenedCount = newlySick.length;
+  const doomedNow = sickenedCount - curedCount; // dead men walking — they die next window
+
   // labor (D-075): total colonist-hours the colony's built structures need to stay staffed, vs what's
   // actually on hand — recomputed fresh every window from CURRENT pop, not a persistent per-structure
   // assignment: a mass-casualty event thins every structure's output proportionally the same window,
@@ -791,7 +897,10 @@ export function commitWindow(
   // blackout; the mechanic is meant to catch DEGRADATION from an established headcount, not the
   // absence of any headcount ever having existed (same absence≠penalty convention as condOf/energyPower).
   const laborNeed = laborDemand(s.built) + demolitionLaborThisWindow; // D-081: teardown is a surge, not a persistent job
-  const laborRatio = s.pop > 0 && laborNeed > 0 ? Math.min(1, s.pop / laborNeed) : 1;
+  // D-083: the pool is able-bodied ADULTS — under-16s and the actively sick eat but staff nothing.
+  // pop===0 keeps meaning "not colonized yet", not "workforce wiped out".
+  const workforce = workforceCount(s.colonists, p.adultAge);
+  const laborRatio = s.pop > 0 && laborNeed > 0 ? Math.min(1, workforce / laborNeed) : 1;
   genMult *= laborRatio;
   allMult *= laborRatio;
 
@@ -852,14 +961,6 @@ export function commitWindow(
   const consumableFrac = Math.min(0.9, p.mortFactor * worstRatio);
   const energyFrac = Math.min(0.9, p.energyMortFactor * energyRatio);
 
-  // epidemic (D-063): a third independent risk, folded into the same soft-OR — medbay + pharma on
-  // hand cuts it down to a minimal covered rate plus a one-time pharma draw, uncovered it bites hard.
-  let epidemicFrac = 0;
-  let epidemicCovered = false;
-  if (roll?.spec.effect === 'epidemic') {
-    epidemicCovered = (s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0;
-    epidemicFrac = epidemicCovered ? roll.spec.coveredMag : roll.mag;
-  }
   // hull_breach casualties (D-072): decompression deaths, patch crews cut them down with the parts
   // they actually have on hand — the same ЗИП that maintains condition doubles as damage control.
   // Graduated by sparesCoverage rather than a covered/uncovered binary (playtest-3): autoSpares
@@ -879,52 +980,63 @@ export function commitWindow(
     radFrac = radCovered ? roll.spec.coveredMag : roll.spec.deathMag;
   }
 
-  const mortality =
-    s.pop *
-    (1 - (1 - consumableFrac) * (1 - energyFrac) * (1 - epidemicFrac) * (1 - breachFrac) * (1 - radFrac));
-  s.pop -= mortality;
-  if ((epidemicCovered || radCovered) && roll) {
+  // D-083: the soft-OR fraction now selects REAL victims — an integer count (probabilistically
+  // rounded so small colonies still feel small risks in expectation), removed uniformly at random.
+  const mortFrac =
+    1 - (1 - consumableFrac) * (1 - energyFrac) * (1 - breachFrac) * (1 - radFrac);
+  const shortfallDeaths = probRound(s.pop * mortFrac, crng);
+  removeRandom(s.colonists, shortfallDeaths, crng);
+  s.pop = s.colonists.length;
+  if (radCovered && roll) {
     s.stocks.pharma = Math.max(0, s.stocks.pharma - roll.spec.pharmaCost * s.pop);
   }
+  // treatment pharma (D-083): each treated case consumes its dose — drawn like the radiation
+  // cover above, after flows, clamped (the treatment already happened; the ledger just settles)
+  if (treatedCount > 0) {
+    s.stocks.pharma = Math.max(0, s.stocks.pharma - treatedCount * p.pharmaPerTreatment);
+  }
 
-  // named attribution (D-061): split `mortality` between its independent risks proportionally to
-  // their (pre-combination) fractions — consumableFrac has exactly one binding resource (Liebig).
+  // named attribution (D-061): split the shortfall deaths between their independent risks
+  // proportionally to their (pre-combination) fractions — consumableFrac has exactly one binding
+  // resource (Liebig). Illness/old-age deaths (D-083) arrive pre-attributed from phase A.
   // Crash deaths (D-072) sit OUTSIDE the soft-OR: those colonists died on entry, never joined s.pop.
   const mortalityBreakdown: Partial<Record<MortalityCause, number>> = {};
-  const causeWeight = consumableFrac + energyFrac + epidemicFrac + breachFrac + radFrac;
-  if (causeWeight > 0) {
+  const causeWeight = consumableFrac + energyFrac + breachFrac + radFrac;
+  if (causeWeight > 0 && shortfallDeaths > 0) {
     if (consumableFrac > 0 && worstResource) {
-      mortalityBreakdown[worstResource] = Math.round(mortality * (consumableFrac / causeWeight));
+      mortalityBreakdown[worstResource] = Math.round(shortfallDeaths * (consumableFrac / causeWeight));
     }
     if (energyFrac > 0) {
-      mortalityBreakdown.energy = Math.round(mortality * (energyFrac / causeWeight));
-    }
-    if (epidemicFrac > 0) {
-      mortalityBreakdown.epidemic = Math.round(mortality * (epidemicFrac / causeWeight));
+      mortalityBreakdown.energy = Math.round(shortfallDeaths * (energyFrac / causeWeight));
     }
     if (breachFrac > 0) {
-      mortalityBreakdown.breach = Math.round(mortality * (breachFrac / causeWeight));
+      mortalityBreakdown.breach = Math.round(shortfallDeaths * (breachFrac / causeWeight));
     }
     if (radFrac > 0) {
-      mortalityBreakdown.radiation = Math.round(mortality * (radFrac / causeWeight));
+      mortalityBreakdown.radiation = Math.round(shortfallDeaths * (radFrac / causeWeight));
     }
   }
+  if (illnessDeaths > 0) mortalityBreakdown.illness = illnessDeaths;
+  if (oldAgeDeaths > 0) mortalityBreakdown.old_age = oldAgeDeaths;
   if (crashDeaths > 0) mortalityBreakdown.crash = crashDeaths;
+  const mortality = shortfallDeaths + illnessDeaths + oldAgeDeaths;
 
   // births: medbay + pharma enable growth (D-030); gated by housing (V7) and a fully-fed, fully-powered
   // colony (no growth mid-famine or mid-brownout)
   const housing = housingCapacity(s.built);
   const housingOk = housing === 0 || s.pop < housing * 0.9;
-  const popBeforeBirths = s.pop;
+  let births = 0;
   if ((s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0 && housingOk && worstRatio === 0 && energyRatio === 0) {
-    s.pop *= 1 + p.birthRate;
+    // D-083: newborns are individuals at age 0 — ≈7.4 windows of eating before they can work;
+    // probRound keeps a sub-20-person outpost growing in expectation despite integer people
+    births = probRound(s.pop * p.birthRate, crng);
+    for (let i = 0; i < births; i++) s.colonists.push(newborn(crng, p));
+    s.pop = s.colonists.length;
   }
-  const births = Math.round(s.pop - popBeforeBirths);
 
-  // extinction: mortality decays multiplicatively and never reaches exactly 0 on its own —
-  // snap a dying-out colony (<1 person) to literal 0 and collapse, once colonists ever existed
+  // extinction: population is literal people now (D-083) — zero means zero, collapse once anyone
+  // has ever lived here
   if (s.pop > 0) s.everHadPop = true;
-  if (s.pop < 1) s.pop = 0;
   if (s.everHadPop && s.pop <= 0) s.collapsed = true;
 
   // autonomy by mass this window (D-061/glossary): local production vs. landed imports, by kg moved.
@@ -961,8 +1073,12 @@ export function commitWindow(
       category: roll.category,
     };
     if (roll.spec.effect === 'epidemic') {
-      windowEvent.covered = epidemicCovered;
-      windowEvent.deaths = mortalityBreakdown.epidemic ?? 0;
+      // D-083: the epidemic's toll is known NOW (the doomed die at the start of next window as
+      // `illness`) — report it here so the event line names the damage the window it happened
+      windowEvent.sickened = sickenedCount;
+      windowEvent.treated = treatedCount;
+      windowEvent.covered = treatedCount >= sickenedCount;
+      windowEvent.deaths = doomedNow;
     }
     if (roll.spec.effect === 'breach') {
       windowEvent.coverage = sparesCoverage;
@@ -1020,7 +1136,12 @@ export function commitWindow(
     roll?.spec.effect === 'breach' ||
     (roll?.spec.effect === 'crash' && (landed.colonists > 0 || crashLostKg > 0)) ||
     skipGapWindow;
-  if (deadlyApplied && mortality === 0 && crashDeaths === 0 && s.pop > 0) mark('event_survived');
+  // D-083: judge only deaths ATTRIBUTABLE to the event — background illness/old-age deaths happen
+  // most windows now and would make "no losses" unreachable for any grown colony. An epidemic
+  // window owns its doomed (they die next window, but the sentence was passed here).
+  const eventDeaths =
+    shortfallDeaths + crashDeaths + (roll?.spec.effect === 'epidemic' ? doomedNow : 0);
+  if (deadlyApplied && eventDeaths === 0 && s.pop > 0) mark('event_survived');
   if (s.fleet.refuelStage > 0) mark('refuel_unlocked'); // first rung — the demo campaigns (D-068)
   // finale-boss: a LIVING, built colony passing a window where nothing landed AND nothing was
   // ordered — an empty manifest by choice. A rejected (infeasible) order and the gap window after
@@ -1040,9 +1161,12 @@ export function commitWindow(
     stocks: { ...s.stocks },
     landed: landedEff, // what actually arrived (post-crash, D-072) — the event line reports the loss
     deficit,
-    mortality: Math.round(mortality) + crashDeaths,
+    mortality: mortality + crashDeaths,
     mortalityBreakdown,
     births,
+    workforce: workforceCount(s.colonists, p.adultAge),
+    kids: s.colonists.reduce((n, c) => n + (c.age < p.adultAge ? 1 : 0), 0),
+    sick: s.colonists.reduce((n, c) => n + (c.sick ? 1 : 0), 0),
     spent,
     capped: pv.capped,
     built: builtThis,
@@ -1112,10 +1236,20 @@ function simulateNoImport(s: ColonyState, maxWindows: number, stop: (r: ColonyRe
  * a player plans against; clearing it means "self-sufficient in every practical sense". */
 export const BUFFER_LOOKAHEAD = 12;
 
-/** Windows survivable with zero new imports before the FIRST death (D-062) — the live buffer gauge
- * («запас без завоза»). Saturates at BUFFER_LOOKAHEAD. */
+/** Deaths caused by SUPPLY this window — the binding life-support resource or an energy brownout.
+ * The D-062 gauge measures buffers, so background demography (illness/old age, D-083) must not
+ * trip it: a grown colony loses someone most windows regardless of how stocked it is, and stopping
+ * on ANY death would pin the gauge to 0–1 forever. */
+function supplyDeaths(r: ColonyReport): number {
+  let n = r.mortalityBreakdown.energy ?? 0;
+  for (const res of LIFE_R) n += r.mortalityBreakdown[res] ?? 0;
+  return n;
+}
+
+/** Windows survivable with zero new imports before the first SUPPLY death (D-062/D-083) — the live
+ * buffer gauge («запас без завоза»). Saturates at BUFFER_LOOKAHEAD. */
 export function bufferRunway(s: ColonyState): number {
-  return simulateNoImport(s, BUFFER_LOOKAHEAD, (r) => r.mortality > 0);
+  return simulateNoImport(s, BUFFER_LOOKAHEAD, (r) => supplyDeaths(r) > 0);
 }
 
 /** Lookahead cap for the debrief's full collapse runway (D-064/glossary "collapse runway") — 60

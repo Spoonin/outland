@@ -24,8 +24,9 @@ export interface EventSpec {
   maxMag: number;
   minDur: number;
   maxDur: number;
-  coveredMag: number; // epidemic/breach/radiation — mortality fraction when the cover holds
-  pharmaCost: number; // epidemic/radiation — one-time pharma kg/colonist consumed when covered
+  coveredMag: number; // breach/radiation — mortality fraction when the cover holds (the epidemic
+  // stopped using this in D-083: its mag is now a spiked illness probability, beds do the rest)
+  pharmaCost: number; // radiation — one-time pharma kg/colonist consumed when covered
   deathMag: number; // breach/radiation — uncovered mortality fraction (mag is the physical hit, not deaths)
 }
 
@@ -76,8 +77,10 @@ export interface WindowEvent {
   mag: number;
   windows: number;
   category?: ResourceKind[];
-  covered?: boolean; // epidemic/radiation — did the cover (medbay+pharma) hold
-  deaths?: number; // epidemic/breach/radiation/crash
+  covered?: boolean; // epidemic (every sick colonist got a bed+pharma, D-083) / radiation (medbay+pharma)
+  deaths?: number; // epidemic (the doomed — they die at the START of next window, D-083) / breach/radiation/crash
+  sickened?: number; // epidemic only (D-083) — colonists who fell ill under the spiked probability
+  treated?: number; // epidemic only (D-083) — how many of them got a bed + pharma dose
   target?: string; // outage — the structure type that failed (undefined = nothing to fail)
   lostKg?: number; // crash — cargo mass burned on entry
   coverage?: number; // breach only — ЗИП coverage 0..1 at the moment it hit (graduated, not binary)

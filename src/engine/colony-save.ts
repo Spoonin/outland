@@ -3,17 +3,19 @@
 // reconstructed from defaults on load.
 
 import { newColony, type ColonyState, type ColonyParams, type ColonyReport, type Transit, type MilestoneId } from './colony';
+import type { Colonist } from './colonists';
 import { RESOURCES, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
 import { type ActiveEffect } from './events';
 
-export const SAVE_VERSION = 5; // D-076: added subsidyBonus (no migration, D-069 — old saves discard)
+export const SAVE_VERSION = 6; // D-083: per-colonist demographics — `colonists` array replaces scalar pop as the population's source of truth
 
 /** The persisted shape — dynamic state only (config is rebuilt from defaults on load). */
 export interface ColonySave {
   v: number;
   window: number;
-  pop: number;
+  pop: number; // derived (colonists.length) — kept for cheap validity checks
+  colonists: Colonist[]; // D-083: the population itself
   everHadPop: boolean;
   stocks: Stocks;
   inTransit: { stocks: Stocks; colonists: number; structures: Record<string, number> };
@@ -34,6 +36,7 @@ export function serializeColony(s: ColonyState): ColonySave {
     v: SAVE_VERSION,
     window: s.window,
     pop: s.pop,
+    colonists: s.colonists.map((c) => ({ ...c })),
     everHadPop: s.everHadPop,
     stocks: { ...s.stocks },
     inTransit: { stocks: { ...s.inTransit.stocks }, colonists: s.inTransit.colonists, structures: { ...s.inTransit.structures } },
@@ -56,7 +59,8 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
   return {
     ...base,
     window: save.window,
-    pop: save.pop,
+    pop: save.colonists.length,
+    colonists: save.colonists.map((c) => ({ ...c })),
     everHadPop: save.everHadPop,
     stocks: { ...save.stocks },
     inTransit: {
@@ -84,7 +88,9 @@ function valid(s: ColonyState): boolean {
     RESOURCES.every((r) => typeof s.stocks[r] === 'number') &&
     typeof s.fleet.pads.classic === 'number' &&
     typeof s.rngState === 'number' &&
-    typeof s.pop === 'number'
+    typeof s.pop === 'number' &&
+    Array.isArray(s.colonists) &&
+    s.colonists.every((c) => typeof c.age === 'number' && typeof c.deathAge === 'number')
   );
 }
 

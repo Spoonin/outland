@@ -86,7 +86,8 @@ function eventLine(ev: WindowEvent): string {
     case 'farm':
       return `${ev.icon} ${ev.name}: выпуск ферм −${pct(ev.mag)} на ${ev.windows} ок`;
     case 'epidemic':
-      return `${ev.icon} ${ev.name}${ev.covered ? ' — сдержана медблоком' : ''}${ev.deaths ? `: † ${ev.deaths}` : ''}`;
+      // D-083: bed capacity decides the toll; the doomed die at the start of NEXT window
+      return `${ev.icon} ${ev.name}: заболело ${ev.sickened ?? 0}, коек хватило на ${ev.treated ?? 0}${ev.deaths ? ` · обречено ${ev.deaths}` : ' · все выздоравливают'}`;
     case 'breach':
       return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса N₂ · покрытие ЗИП ${pct(ev.coverage ?? 0)}${ev.deaths ? ` · † ${ev.deaths}` : ' · без потерь'}`;
     case 'radiation':
@@ -102,6 +103,7 @@ function printStatus(store: ColonyStore): void {
   const s = store.status();
   const rnd = store.refuelRnD();
   console.log(`\n=== окно ${s.window} · год ~${s.year} · pop ${s.pop} ${s.collapsed ? '[СХЛОПНУЛАСЬ]' : s.ended ? '[ЗАВЕРШЕНО]' : ''} ===`);
+  if (s.pop > 0) console.log(`демография: 💪 труд ${s.workforce} · 🧒 дети ${s.kids} · 🤒 больных ${s.sick} · 🛏 коек ${s.sickBeds}`);
   console.log(`бюджет: ${money(s.budget)}/окно  ·  🛡 без завоза: ${s.buffer}${s.bufferSaturated ? '+' : ''} ок`);
   console.log(`площадки: classic ${s.pads.classic}, refuel ${s.pads.refuel} (R&D ст. ${rnd.stage}/${rnd.total}${rnd.next ? `, следующая: ${rnd.next.name} за ${money(rnd.next.cost)}` : ', максимум'})`);
   console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);

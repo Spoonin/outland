@@ -31,6 +31,9 @@ export interface Structure {
   recycleFrac?: number; // D-081: fraction of buildMaterials recovered to local stock on demolition —
   // most structures reclaim well; nuclear_plant's 10% reflects how little of a reactor complex is
   // safely salvageable versus how much is irradiated waste
+  sickBeds?: number; // D-083: seriously-ill colonists one unit can treat per window (medbay 5;
+  // base_block 2 — its 20 residents' clinic corner, without which bootstrap bleeds background
+  // illness deaths with no counter); absent → 0
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -66,6 +69,7 @@ function loadStructures(): Structure[] {
     if (row.opsCrew) s.opsCrew = num(row.opsCrew);
     if (row.demolishCrew) s.demolishCrew = num(row.demolishCrew);
     if (row.recycleFrac) s.recycleFrac = num(row.recycleFrac);
+    if (row.sickBeds) s.sickBeds = num(row.sickBeds);
     return s;
   });
 }
@@ -234,6 +238,13 @@ export function laborDemand(built: BuiltCounts): number {
 export function housingCapacity(built: BuiltCounts): number {
   let total = 0;
   for (const s of STRUCTURES) total += (s.housing ?? 0) * (built[s.id] ?? 0);
+  return total;
+}
+
+/** Total treatment slots for seriously-ill colonists this window (D-083). */
+export function sickBedCapacity(built: BuiltCounts): number {
+  let total = 0;
+  for (const s of STRUCTURES) total += (s.sickBeds ?? 0) * (built[s.id] ?? 0);
   return total;
 }
 

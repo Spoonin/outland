@@ -18,6 +18,8 @@ import {
   spareUpkeep,
   laborDemand,
   housingCapacity,
+  sickBedCapacity,
+  workforceCount,
   structuralN2Leak,
   serializeColony,
   loadColony,
@@ -59,6 +61,10 @@ export interface ColonyStatus {
   window: number;
   year: number;
   pop: number;
+  workforce: number; // D-083: able-bodied adults — the D-075 labor pool
+  kids: number; // D-083: under adultAge (eat, don't work)
+  sick: number; // D-083: in the active illness stage — recover or die next window
+  sickBeds: number; // D-083: treatment slots (sickBeds × built units)
   pads: Record<LaunchTech, number>;
   refuelStage: number; // 0 = locked; rungs of the staged R&D ladder (D-068)
   budget: number;
@@ -554,7 +560,11 @@ export class ColonyStore {
     return {
       window: s.window,
       year: Math.round(s.window * 2.17 * 10) / 10,
-      pop: Math.round(s.pop),
+      pop: s.pop,
+      workforce: workforceCount(s.colonists, s.p.adultAge),
+      kids: s.colonists.reduce((n, c) => n + (c.age < s.p.adultAge ? 1 : 0), 0),
+      sick: s.colonists.reduce((n, c) => n + (c.sick ? 1 : 0), 0),
+      sickBeds: sickBedCapacity(s.built),
       pads: { ...s.fleet.pads },
       refuelStage: s.fleet.refuelStage,
       budget: s.p.M + s.subsidyBonus, // D-076: milestones raise the baseline permanently
@@ -566,7 +576,9 @@ export class ColonyStore {
       energyDeficit: energy.deficit,
       avgCondition,
       sparesCoverage: upkeep > 0 ? Math.min(1, s.stocks.spares / upkeep) : 1,
-      crewCoverage: s.pop > 0 && laborNeed > 0 ? Math.min(1, s.pop / laborNeed) : 1,
+      // D-083: coverage is judged by the ABLE-BODIED pool, mirroring the engine's laborRatio
+      crewCoverage:
+        s.pop > 0 && laborNeed > 0 ? Math.min(1, workforceCount(s.colonists, s.p.adultAge) / laborNeed) : 1,
       housingCapacity: housingCapacity(s.built),
       n2LeakKgPerWindow,
       ended: this.ended,
