@@ -153,6 +153,7 @@ export class ChroniclePanel extends LitElement {
     if (r.explosions.refuel) ev.push(`💥 взрыв на площадке: −${r.explosions.refuel} refuel`);
     if (r.capped) ev.push('⚠ часть завоза не влезла в пропускную способность');
     if (r.built.length) ev.push(`🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
+    if (r.demolished.length) ev.push(`🔧 демонтировано: ${r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
     if (r.births > 0) ev.push(`🐣 рождения: +${r.births}`);
     for (const id of r.milestones) ev.push(`★ майлстоун: ${milestoneLabel(id)}`);
     return ev;
@@ -165,6 +166,7 @@ export class ChroniclePanel extends LitElement {
       !r.explosions.classic &&
       !r.explosions.refuel &&
       r.built.length === 0 &&
+      r.demolished.length === 0 &&
       r.births === 0 &&
       !r.event &&
       !r.milestones.length
@@ -193,11 +195,12 @@ export class ChroniclePanel extends LitElement {
           </div>`
         : nothing}
       ${this.eventTags(r)
-        .filter((t) => !t.startsWith('🏗') && !t.startsWith('🐣') && !t.startsWith('★'))
+        .filter((t) => !t.startsWith('🏗') && !t.startsWith('🔧') && !t.startsWith('🐣') && !t.startsWith('★'))
         .map((t) => html`<div class="section warn">${t}</div>`)}
-      ${r.built.length || r.births > 0 || r.milestones.length
+      ${r.built.length || r.demolished.length || r.births > 0 || r.milestones.length
         ? html`<div class="section ok">
             ${r.built.length ? `🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}` : ''}
+            ${r.demolished.length ? ` 🔧 демонтировано: ${r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}` : ''}
             ${r.births > 0 ? ` 🐣 рождения: +${r.births}` : ''}
             ${r.milestones.map((id) => ` ★ ${milestoneLabel(id)}`).join(' ·')}
           </div>`

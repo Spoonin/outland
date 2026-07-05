@@ -100,6 +100,10 @@ export class MarsTab extends LitElement {
       min-width: 2rem;
       text-align: center;
     }
+    .ctrl.demolish {
+      border-top: 1px dashed #3a3a44;
+      padding-top: 0.4rem;
+    }
   `;
 
   /** D-074: locked can mean "build the prereq" or "grow the colony first" — say which. */
@@ -145,6 +149,7 @@ export class MarsTab extends LitElement {
         ${s.opsCrew ? html`· экипаж ${s.opsCrew}/шт` : nothing}
         ${s.housing ? html`· жильё +${kg(s.housing)}` : nothing}
         ${s.n2Leak ? html`<span class="short">· N₂ утечка −${kg(s.n2Leak)}/окно</span>` : nothing}
+        ${s.demolishCrew ? html`· демонтаж: ${s.demolishCrew} чел., рециклинг ${((s.recycleFrac ?? 0) * 100).toFixed(0)}%` : nothing}
       </div>
       ${locked ? this.lockLine(s) : nothing}
       <div class="ctrl">
@@ -152,6 +157,20 @@ export class MarsTab extends LitElement {
         <span class="q">${queued}</span>
         <button ?disabled=${locked} @click=${() => store.addBuild(s.id)}>+</button>
       </div>
+      ${built > 0 ? this.demolishRow(s) : nothing}
+    </div>`;
+  }
+
+  /** D-081: tear down existing units — recycles a fraction of their materials, costs one-time
+   * colonist labor (shared with ongoing crew, D-075) rather than blocking on a hard gate. */
+  private demolishRow(s: Structure): TemplateResult {
+    const store = this.store;
+    const queued = store.queuedDemolishCount(s.id);
+    return html`<div class="ctrl demolish">
+      <button ?disabled=${queued === 0} @click=${() => store.removeDemolish(s.id)}>−</button>
+      <span class="q">🔧 ${queued}</span>
+      <button ?disabled=${store.demolishable(s.id) <= 0} @click=${() => store.addDemolish(s.id)}>+</button>
+      <span class="hint">демонтировать</span>
     </div>`;
   }
 

@@ -25,6 +25,12 @@ export interface Structure {
   // trained crew to run a reactor; absent/0 → no gate (bootstrap structures stay buildable at pop 0)
   opsCrew?: number; // D-075: colonists/unit needed to keep it STAFFED ongoing (recomputed every
   // window from total pop, not a persistent assignment — see laborDemand/laborRatio in colony.ts)
+  demolishCrew?: number; // D-081: one-time colonist-labor to safely tear one unit down THIS window
+  // (added to that window's total labor demand alongside ongoing opsCrew, D-075 — a surge, not a
+  // new persistent job); absent/0 → free to demolish (the passive bootstrap shells, no crew to pull off anything)
+  recycleFrac?: number; // D-081: fraction of buildMaterials recovered to local stock on demolition —
+  // most structures reclaim well; nuclear_plant's 10% reflects how little of a reactor complex is
+  // safely salvageable versus how much is irradiated waste
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -58,6 +64,8 @@ function loadStructures(): Structure[] {
     if (row.prereq) s.prereq = row.prereq;
     if (row.minPop) s.minPop = num(row.minPop);
     if (row.opsCrew) s.opsCrew = num(row.opsCrew);
+    if (row.demolishCrew) s.demolishCrew = num(row.demolishCrew);
+    if (row.recycleFrac) s.recycleFrac = num(row.recycleFrac);
     return s;
   });
 }

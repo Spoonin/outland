@@ -113,6 +113,41 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.buildQueue().length).toBe(0); // queue cleared after commit
   });
 
+  it('pad scrap draft: clamped to what exists, refund shows in the plan, fleet shrinks on commit (D-080)', () => {
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000 }), memKV());
+    expect(store.fleet().pads.classic).toBe(5); // startPads default
+    store.setPadScrap('classic', 99); // way more than owned
+    expect(store.padScrapQty('classic')).toBe(5); // clamped to what's actually there
+    expect(store.padScrapRefundNow()).toBeGreaterThan(0);
+    expect(store.plan().feasible).toBe(true); // scrapping alone is always affordable
+    store.commit();
+    expect(store.fleet().pads.classic).toBe(0);
+  });
+
+  it('demolish queue: clamped to built count, materials recycle on commit (D-081)', () => {
+    const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }), memKV());
+    store.setRes('steel', 30_000);
+    store.setRes('glass', 30_000);
+    store.commit();
+    store.commit();
+    store.addBuild('solar_plant');
+    store.commit();
+    expect(store.builtCount('solar_plant')).toBe(1);
+
+    expect(store.demolishable('solar_plant')).toBe(1);
+    store.addDemolish('solar_plant');
+    expect(store.demolishQueue()).toContain('solar_plant');
+    store.addDemolish('solar_plant'); // only 1 exists — queuing a 2nd must not be allowed
+    expect(store.queuedDemolishCount('solar_plant')).toBe(1);
+    expect(store.demolishable('solar_plant')).toBe(0);
+
+    const steelBefore = store.stocks().steel;
+    store.commit();
+    expect(store.builtCount('solar_plant')).toBe(0);
+    expect(store.stocks().steel).toBeGreaterThan(steelBefore); // recycled material landed
+    expect(store.demolishQueue().length).toBe(0); // queue cleared after commit
+  });
+
   it('plan flags missing prerequisite (nuclear needs waste pad)', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
     store.addBuild('nuclear_plant');

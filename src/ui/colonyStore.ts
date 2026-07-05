@@ -149,9 +149,11 @@ export class ColonyStore {
   // draft order
   private draftRes: Partial<Record<ResourceKind, number>> = {};
   private draftPads: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
+  private draftPadsScrap: Record<LaunchTech, number> = { classic: 0, refuel: 0 }; // D-080
   private draftUnlockRefuel = false;
   private draftColonists = 0;
   private draftBuild: string[] = [];
+  private draftDemolish: string[] = []; // D-081: Mars structures queued to tear down this window
   private draftImport: Record<string, number> = {}; // structures to import fully built (V8, D-057)
   // auto-spares (playtest finding): topping up ЗИП every single window was pure arithmetic upkeep
   // with no strategic content — this toggle floors the spares order at current upkeep need so the
@@ -209,6 +211,7 @@ export class ColonyStore {
       ...emptyOrder(),
       resources: Object.fromEntries(RESOURCES.map((r) => [r, this.resQty(r)])),
       padsToBuild: { ...this.draftPads },
+      padsToScrap: { ...this.draftPadsScrap },
       unlockRefuel: this.draftUnlockRefuel,
       colonists: this.draftColonists,
       structures: { ...this.draftImport },
@@ -238,6 +241,20 @@ export class ColonyStore {
   setPad(tech: LaunchTech, n: number): void {
     this.draftPads[tech] = Math.max(0, Math.floor(n || 0));
     this.emit();
+  }
+  /** D-080: how many pads of this class the current draft would decommission. */
+  padScrapQty(tech: LaunchTech): number {
+    return this.draftPadsScrap[tech];
+  }
+  /** Clamped to what's actually owned right now — never lets the draft ask to scrap more than exists. */
+  setPadScrap(tech: LaunchTech, n: number): void {
+    this.draftPadsScrap[tech] = Math.max(0, Math.min(this.state.fleet.pads[tech], Math.floor(n || 0)));
+    this.emit();
+  }
+  /** Cash refund the current draft's scrap order would bring in (D-080) — same previewOrder path
+   * as every other price on screen, so it's always exactly what commit() will actually credit. */
+  padScrapRefundNow(): number {
+    return this.preview().padScrapRefund;
   }
   get unlockRefuelDraft(): boolean {
     return this.draftUnlockRefuel;
@@ -374,6 +391,29 @@ export class ColonyStore {
   prereqMet(id: string): boolean {
     return prereqMet(this.state, id);
   }
+
+  // ---- demolish Mars structures (D-081) ------------------------------------
+
+  demolishQueue(): readonly string[] {
+    return this.draftDemolish;
+  }
+  queuedDemolishCount(id: string): number {
+    return this.draftDemolish.filter((x) => x === id).length;
+  }
+  /** Free (built but not already queued to demolish) units of this type — the ceiling for queuing more. */
+  demolishable(id: string): number {
+    return Math.max(0, this.builtCount(id) - this.queuedDemolishCount(id));
+  }
+  addDemolish(id: string): void {
+    if (this.demolishable(id) <= 0) return;
+    this.draftDemolish.push(id);
+    this.emit();
+  }
+  removeDemolish(id: string): void {
+    const i = this.draftDemolish.lastIndexOf(id);
+    if (i >= 0) this.draftDemolish.splice(i, 1);
+    this.emit();
+  }
   /** Import prereq (D-075) — skips the minPop labor gate, a turnkey unit ships pre-built. */
   importPrereqMet(id: string): boolean {
     return importPrereqMet(this.state, id);
@@ -433,12 +473,14 @@ export class ColonyStore {
 
   commit(): void {
     if (this.ended) return;
-    this.last = commitWindow(this.state, this.order(), [...this.draftBuild]);
+    this.last = commitWindow(this.state, this.order(), [...this.draftBuild], [...this.draftDemolish]);
     this.draftRes = {};
     this.draftPads = { classic: 0, refuel: 0 };
+    this.draftPadsScrap = { classic: 0, refuel: 0 };
     this.draftUnlockRefuel = false;
     this.draftColonists = 0;
     this.draftBuild = [];
+    this.draftDemolish = [];
     this.draftImport = {};
     this.persist();
     this.emit();
@@ -449,9 +491,11 @@ export class ColonyStore {
     this.last = undefined;
     this.draftRes = {};
     this.draftPads = { classic: 0, refuel: 0 };
+    this.draftPadsScrap = { classic: 0, refuel: 0 };
     this.draftUnlockRefuel = false;
     this.draftColonists = 0;
     this.draftBuild = [];
+    this.draftDemolish = [];
     this.draftImport = {};
     this.bufferCache = undefined;
     this.finished = false;

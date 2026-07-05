@@ -33,6 +33,7 @@ export interface LaunchParams {
   classic: PadClass;
   refuelPad: { padCapex: number; padMaintFrac: number }; // the launch complex — stage-independent
   refuelStages: readonly RefuelStage[]; // sequential R&D ladder (D-068); stage N needs stages 1..N−1
+  padScrapRefundFrac: number; // D-080: fraction of current capex refunded per pad decommissioned
 }
 
 export interface Fleet {
@@ -60,6 +61,7 @@ export function defaultLaunchParams(overrides: Partial<LaunchParams> = {}): Laun
       // serial tankers + cryo depot + 100-t Mars EDL proven → the D-067 commercial point
       { name: 'Серийный флот, депо и марсианский EDL', cost: 1.2e10, payload: 100_000, launchCost: 1.0e8, explodeProb: 0.0005 },
     ],
+    padScrapRefundFrac: 0.4, // D-080: scrap value, not full resale — discourages build-then-sell arbitrage
     ...overrides,
   };
 }
@@ -111,6 +113,12 @@ export function padMaintTotal(fleet: Fleet, p: LaunchParams): number {
 export function padBuildCost(p: LaunchParams, tech: LaunchTech, n: number): number {
   const capex = tech === 'refuel' ? p.refuelPad.padCapex : p.classic.padCapex;
   return Math.max(0, n) * capex;
+}
+
+/** D-080: cash refund for decommissioning `n` pads of a class — scrap value (a fraction of
+ * current capex), not a full resale, so over-building and immediately reselling isn't free money. */
+export function padScrapRefund(p: LaunchParams, tech: LaunchTech, n: number): number {
+  return padBuildCost(p, tech, n) * p.padScrapRefundFrac;
 }
 
 export interface ShipPlan {

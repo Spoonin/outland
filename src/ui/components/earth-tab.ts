@@ -246,13 +246,21 @@ export class EarthTab extends LitElement {
     const built = store.fleet().pads[tech];
     const priceNow = store.padPriceNow(tech); // inflation-adjusted — spec.padCapex alone is the window-0 price
     return html`<div class="card">
-      <div class="h"><span>${title}</span><span class="v">есть ${built} · +${store.padQty(tech)}</span></div>
+      <div class="h"><span>${title}</span><span class="v">есть ${built} · +${store.padQty(tech)}${store.padScrapQty(tech) ? ` · −${store.padScrapQty(tech)}` : ''}</span></div>
       <input type="range" min="0" max="10" step="1" .value=${String(store.padQty(tech))}
         @input=${(e: Event) => store.setPad(tech, Number((e.target as HTMLInputElement).value))} />
       <div class="sub">
         ${money(priceNow)}/площадка · содержание ${(spec.padMaintFrac * 100).toFixed(0)}%/окно ·
         payload ${kg(spec.payload)} кг · риск взрыва ${(spec.explodeProb * 100).toFixed(2)}%/пуск. ${sub}
       </div>
+      ${built > 0
+        ? html`<label class="sub" style="display:block;margin-top:.3rem;cursor:pointer">
+            🔧 утилизировать (возврат ${(store.launch().padScrapRefundFrac * 100).toFixed(0)}% капекса):
+            <input type="range" min="0" max=${built} step="1" .value=${String(store.padScrapQty(tech))}
+              @input=${(e: Event) => store.setPadScrap(tech, Number((e.target as HTMLInputElement).value))} />
+            ${store.padScrapQty(tech)} шт
+          </label>`
+        : nothing}
     </div>`;
   }
 

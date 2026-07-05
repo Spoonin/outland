@@ -240,6 +240,79 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     expect(s.built['nuclear_plant']).toBeUndefined();
   });
 
+  describe('structure demolition (D-081)', () => {
+    it('tears down one unit, recycles a fraction of its build materials, reports it', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+      s.built = { solar_plant: 1 };
+      s.condition = { solar_plant: 1 };
+      const r = commitWindow(s, emptyOrder(), [], ['solar_plant']);
+      expect(s.built.solar_plant).toBe(0);
+      expect(r.demolished).toEqual(['solar_plant']);
+      // solar_plant buildMaterials: steel 5000, glass 2000 (structures.csv); recycleFrac 0.6
+      expect(s.stocks.steel).toBeCloseTo(5000 * 0.6, 0);
+      expect(s.stocks.glass).toBeCloseTo(2000 * 0.6, 0);
+    });
+
+    it("nuclear_plant recycles far less (10%) — a reactor complex isn't as salvageable", () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+      s.built = { waste_pad: 1, nuclear_plant: 1 };
+      s.condition = { waste_pad: 1, nuclear_plant: 1 };
+      commitWindow(s, emptyOrder(), [], ['nuclear_plant']);
+      expect(s.built.nuclear_plant).toBe(0);
+      // nuclear_plant buildMaterials: steel 20000, metals 5000; recycleFrac 0.1
+      expect(s.stocks.steel).toBeCloseTo(20_000 * 0.1, 0);
+      expect(s.stocks.metals).toBeCloseTo(5_000 * 0.1, 0);
+    });
+
+    it('cannot demolish more units than exist — extra requests are a silent no-op, not an error', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5 }));
+      s.built = { farm: 1 };
+      s.condition = { farm: 1 };
+      const r = commitWindow(s, emptyOrder(), [], ['farm', 'farm', 'farm']); // only 1 owned
+      expect(s.built.farm).toBe(0); // the one that existed is gone
+      expect(r.demolished).toEqual(['farm']); // only ONE actually happened
+    });
+
+    it('demolition draws on the SAME shared labor pool as ongoing crew — throttles other output if short (D-075)', () => {
+      // nuclear_plant demolishCrew=50; with only 10 colonists around, demolishing it this window
+      // strains the labor pool hard enough to throttle a completely unrelated structure's output too
+      const withDemolition = newColony(defaultColonyParams({ pop0: 10, startStockWindows: 5 }));
+      withDemolition.built = { waste_pad: 1, nuclear_plant: 1, solar_plant: 1 };
+      withDemolition.condition = { waste_pad: 1, nuclear_plant: 1, solar_plant: 1 };
+      withDemolition.stocks.spares = 1_000_000;
+      const rDemolished = commitWindow(withDemolition, emptyOrder(), [], ['nuclear_plant']);
+      // laborNeed = ongoing (waste_pad 1 + solar_plant 1 = 2) + one-time demolishCrew 50 = 52; pop 10
+      expect(rDemolished.energyGen).toBeCloseTo(100 * (10 / 52), 0); // solar's rated 100 × laborRatio
+
+      const noDemolition = newColony(defaultColonyParams({ pop0: 10, startStockWindows: 5 }));
+      noDemolition.built = { waste_pad: 1, solar_plant: 1 }; // same ongoing crew, no reactor to tear down
+      noDemolition.condition = { waste_pad: 1, solar_plant: 1 };
+      noDemolition.stocks.spares = 1_000_000;
+      const rControl = commitWindow(noDemolition, emptyOrder());
+      expect(rControl.energyGen).toBeCloseTo(100, 0); // ongoing demand (2) ≪ pop 10 → no throttle at all
+      expect(rDemolished.energyGen).toBeLessThan(rControl.energyGen); // the demolition surge is the difference
+    });
+
+    it('demolishing base_block/habitat costs no labor at all — passive shells, nothing to pull off', () => {
+      const s = newColony(defaultColonyParams({ pop0: 0, startStockWindows: 5 }));
+      s.built = { base_block: 1 };
+      s.condition = { base_block: 1 };
+      const r = commitWindow(s, emptyOrder(), [], ['base_block']);
+      expect(s.built.base_block).toBe(0);
+      expect(r.demolished).toEqual(['base_block']);
+    });
+
+    it('demolition is money-free — never blocked by budget, unlike Earth cargo (D-054/081)', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, M: 1 })); // absurdly tiny budget
+      s.built = { solar_plant: 1 };
+      s.condition = { solar_plant: 1 };
+      const pv = previewOrder(s, emptyOrder());
+      expect(pv.overBudget).toBe(false); // demolish isn't even part of the Earth order/budget at all
+      const r = commitWindow(s, emptyOrder(), [], ['solar_plant']);
+      expect(r.demolished).toEqual(['solar_plant']);
+    });
+  });
+
   it('an established colony (pop ≥ minPop) with the prereq standing can build the reactor (D-074)', () => {
     const s = newColony(defaultColonyParams({ pop0: 200, startStockWindows: 5 }));
     s.built = { waste_pad: 1 };
@@ -351,6 +424,49 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     const s = newColony(defaultColonyParams({ pop0: 1000 }));
     commitWindow(s, ord({ padsToBuild: { classic: 0, refuel: 3 } })); // not unlocked
     expect(s.fleet.pads.refuel).toBe(0);
+  });
+
+  describe('pad decommissioning (D-080)', () => {
+    it('scrapping reduces the fleet and refunds a fraction of capex', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000 }));
+      expect(s.fleet.pads.classic).toBe(5); // startPads default
+      const pv = previewOrder(s, ord({ padsToScrap: { classic: 2, refuel: 0 } }));
+      expect(pv.padScrapRefund).toBeCloseTo(2 * 1.5e8 * 0.4, 0); // 2 pads × window-0 capex × 40%
+      commitWindow(s, ord({ padsToScrap: { classic: 2, refuel: 0 } }));
+      expect(s.fleet.pads.classic).toBe(3);
+    });
+
+    it('cannot scrap more pads than are actually owned — clamped, no negative fleet', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000 }));
+      commitWindow(s, ord({ padsToScrap: { classic: 99, refuel: 0 } }));
+      expect(s.fleet.pads.classic).toBe(0); // clamped at what existed, never negative
+    });
+
+    it('building and scrapping in the SAME order price independently, not netted against each other', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000 }));
+      // build 1 (capex charged) + scrap 3 (refunded) — net fleet change is -2, but both money
+      // flows must be real: capex for the 1 built, refund for the 3 scrapped, not "net -2, nothing changes hands"
+      const pv = previewOrder(s, ord({ padsToBuild: { classic: 1, refuel: 0 }, padsToScrap: { classic: 3, refuel: 0 } }));
+      expect(pv.padCapex).toBeCloseTo(1.5e8, 0); // capex for the 1 net-new pad... wait see below
+      expect(pv.padScrapRefund).toBeCloseTo(3 * 1.5e8 * 0.4, 0); // refund for all 3 scrapped, not net
+      commitWindow(s, ord({ padsToBuild: { classic: 1, refuel: 0 }, padsToScrap: { classic: 3, refuel: 0 } }));
+      expect(s.fleet.pads.classic).toBe(3); // 5 + 1 − 3
+    });
+
+    it('a pure scrap order (no other spend) never blocks on budget — always an available escape valve', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, M: 1 })); // an absurdly tiny budget
+      const pv = previewOrder(s, ord({ padsToScrap: { classic: 5, refuel: 0 } }));
+      expect(pv.overBudget).toBe(false); // pure scrap generates a credit, never something to "afford"
+      commitWindow(s, ord({ padsToScrap: { classic: 5, refuel: 0 } }));
+      expect(s.fleet.pads.classic).toBe(0);
+    });
+
+    it('scrapped pads stop costing maintenance the SAME window they are scrapped', () => {
+      const s = newColony(defaultColonyParams({ pop0: 1000 }));
+      const before = previewOrder(s, emptyOrder()).launchTotal;
+      const afterScrap = previewOrder(s, ord({ padsToScrap: { classic: 5, refuel: 0 } })).launchTotal;
+      expect(afterScrap).toBeLessThan(before); // maintenance on the future (post-scrap) fleet, not today's
+    });
   });
 
   it('cannot unlock R&D before any colonist has ever landed on Mars — the whole order is rejected (D-077)', () => {

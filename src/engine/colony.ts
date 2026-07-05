@@ -18,6 +18,7 @@ import {
   throughputMass,
   padMaintTotal,
   padBuildCost,
+  padScrapRefund,
   nextRefuelStage,
   TECHS,
   type Fleet,
@@ -119,6 +120,8 @@ export interface ColonyState {
 export interface EarthOrder {
   resources: Partial<Stocks>; // kg to order per resource
   padsToBuild: Record<LaunchTech, number>; // pads to build this window, per class
+  padsToScrap: Record<LaunchTech, number>; // D-080: pads to decommission this window, per class —
+  // refunds a fraction of capex, relieves the idle-maintenance floor (D-038) that over-building traps you in
   unlockRefuel: boolean; // buy the NEXT refuel R&D stage this window (staged ladder, D-039/D-068)
   colonists: number;
   structures: Partial<Record<string, number>>; // pre-built structures to import (V8, D-057)
@@ -126,7 +129,14 @@ export interface EarthOrder {
 
 /** An empty order (no goods, no pads, no colonists, no structure imports). */
 export function emptyOrder(): EarthOrder {
-  return { resources: {}, padsToBuild: { classic: 0, refuel: 0 }, unlockRefuel: false, colonists: 0, structures: {} };
+  return {
+    resources: {},
+    padsToBuild: { classic: 0, refuel: 0 },
+    padsToScrap: { classic: 0, refuel: 0 },
+    unlockRefuel: false,
+    colonists: 0,
+    structures: {},
+  };
 }
 
 // ---- params -------------------------------------------------------------
@@ -300,6 +310,7 @@ export interface OrderPreview {
   colonistCost: number;
   structCost: number; // pre-built structures imported this window (V8, D-057)
   padCapex: number; // capex to build pads this window
+  padScrapRefund: number; // D-080: cash refunded for pads decommissioned this window
   rndCost: number; // refuel R&D unlock this window
   launchTotal: number; // flight cost + pad maintenance (whole fleet)
   total: number;
@@ -356,16 +367,33 @@ export function priceMult(s: ColonyState): number {
   return mult;
 }
 
-/** Apply an order's pad builds + next-R&D-stage purchase to a fleet copy (no mutation, D-068). */
+/** How many pads of a class an order actually decommissions — clamped so you can never scrap
+ * more than you own (D-080). */
+function padsScrapped(s: ColonyState, order: EarthOrder, t: LaunchTech): number {
+  return Math.min(s.fleet.pads[t], Math.max(0, Math.floor(order.padsToScrap[t])));
+}
+
+/** How many pads of a class an order actually builds — refuel only counts once at least the
+ * first R&D stage is (being) bought. Shared by fleetAfter and the capex charge (D-080) so build
+ * and scrap are ALWAYS priced independently off real counts, never a net delta — otherwise
+ * scrapping ≥ what you build in the same order would make the build itself silently free. */
+function padsBuilt(s: ColonyState, order: EarthOrder, t: LaunchTech): number {
+  const requested = Math.max(0, Math.floor(order.padsToBuild[t]));
+  if (t !== 'refuel') return requested;
+  const next = nextRefuelStage(s.fleet, s.p.launch);
+  const stage = s.fleet.refuelStage + (order.unlockRefuel && next ? 1 : 0);
+  return stage > 0 ? requested : 0;
+}
+
+/** Apply an order's pad builds/scraps + next-R&D-stage purchase to a fleet copy (no mutation, D-068/080). */
 function fleetAfter(s: ColonyState, order: EarthOrder): Fleet {
   const next = nextRefuelStage(s.fleet, s.p.launch);
   const stage = s.fleet.refuelStage + (order.unlockRefuel && next ? 1 : 0);
   return {
     refuelStage: stage,
     pads: {
-      classic: s.fleet.pads.classic + Math.max(0, Math.floor(order.padsToBuild.classic)),
-      // refuel pads only count once at least the first R&D stage is (being) bought
-      refuel: s.fleet.pads.refuel + (stage > 0 ? Math.max(0, Math.floor(order.padsToBuild.refuel)) : 0),
+      classic: s.fleet.pads.classic + padsBuilt(s, order, 'classic') - padsScrapped(s, order, 'classic'),
+      refuel: s.fleet.pads.refuel + padsBuilt(s, order, 'refuel') - padsScrapped(s, order, 'refuel'),
     },
   };
 }
@@ -387,12 +415,15 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const mass = goodsMass + colonists * p.colonistMass + struct.mass;
 
   const futureFleet = fleetAfter(s, order);
+  // D-080: build and scrap are priced off their own ACTUAL counts, never a net delta — building 3
+  // and scrapping 5 in the same order charges capex for the 3 AND refunds the 5, rather than
+  // netting to "shrank by 2, nothing changes hands" (which would make the 3 built pads free).
   let padCapex = 0;
-  for (const t of TECHS) {
-    const n = futureFleet.pads[t] - s.fleet.pads[t];
-    if (n > 0) padCapex += padBuildCost(p.launch, t, n);
-  }
+  for (const t of TECHS) padCapex += padBuildCost(p.launch, t, padsBuilt(s, order, t));
   padCapex *= mult;
+  let padScrapRefundTotal = 0;
+  for (const t of TECHS) padScrapRefundTotal += padScrapRefund(p.launch, t, padsScrapped(s, order, t));
+  padScrapRefundTotal *= mult;
   const nextStage = nextRefuelStage(s.fleet, p.launch);
   const rndCost = order.unlockRefuel && nextStage ? nextStage.stage.cost * mult : 0;
 
@@ -402,7 +433,10 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   const launchTotal = plan.flightCost * mult + maintCost;
   const throughput = throughputMass(futureFleet, p.launch);
 
-  const total = goodsCost + colonistCost + struct.cost + padCapex + rndCost + launchTotal;
+  const total = Math.max(
+    0,
+    goodsCost + colonistCost + struct.cost + padCapex + rndCost + launchTotal - padScrapRefundTotal,
+  );
   // subsidy_cut (D-063): an active event can shrink the window's effective budget;
   // subsidyBonus (D-076): milestones raise the baseline itself, permanently
   const budget = (p.M + s.subsidyBonus) * effectMultiplier(s.activeEffects, 'subsidy');
@@ -417,6 +451,7 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
     colonistCost,
     structCost: struct.cost,
     padCapex,
+    padScrapRefund: padScrapRefundTotal,
     rndCost,
     launchTotal,
     total,
@@ -449,6 +484,7 @@ export interface ColonyReport {
   spent: number;
   capped: boolean;
   built: string[]; // structures completed this window
+  demolished: string[]; // D-081: structures torn down this window
   explosions: Record<LaunchTech, number>; // pads lost to on-pad explosions this window
   energyGen: number;
   energyDemand: number;
@@ -535,7 +571,14 @@ function mergeTransit(a: Transit, b: Transit | null): Transit {
  * & budget), land the PREVIOUS convoy, resolve energy (priority brownout), run structure
  * production/consumption + life-support, resolve stocks, apply mortality, advance pop.
  */
-export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] = []): ColonyReport {
+export function commitWindow(
+  s: ColonyState,
+  order: EarthOrder,
+  build: string[] = [],
+  demolish: string[] = [], // D-081: Mars structures to tear down this window, one entry per unit —
+  // money-free (command economy, D-054), same shape as `build`; costs one-time colonist labor,
+  // recycles a fraction of buildMaterials back to local stock
+): ColonyReport {
   const p = s.p;
   // price the order at the window the player planned it in — BEFORE advancing — so the preview
   // shown in the UI/CLI is exactly the charge; incrementing first silently repriced everything
@@ -648,6 +691,9 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     landedEff = { stocks: kept, colonists: landed.colonists - crashDeaths, structures: keptStructures };
   }
 
+  const demolishedThis: string[] = [];
+  let demolitionLaborThisWindow = 0; // D-081: one-time surge added to this window's labor demand below
+
   if (feasible) {
     // apply pad builds + refuel unlock (futureFleet already computed in the preview)
     s.fleet = { refuelStage: pv.futureFleet.refuelStage, pads: { ...pv.futureFleet.pads } };
@@ -659,6 +705,20 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
         if (s.condition[id] === undefined) s.condition[id] = 1; // fresh type starts at full condition
         builtThis.push(id);
       }
+    }
+
+    // demolish structures (D-081): recycle a fraction of their build materials back to stock, and
+    // charge the one-time teardown labor against this window's shared labor pool (laborRatio below)
+    for (const id of demolish) {
+      const spec = STRUCT_BY_ID[id];
+      if (!spec || (s.built[id] ?? 0) <= 0) continue;
+      s.built[id] -= 1;
+      demolitionLaborThisWindow += spec.demolishCrew ?? 0;
+      const recycle = spec.recycleFrac ?? 0;
+      for (const r of Object.keys(spec.buildMaterials) as ResourceKind[]) {
+        s.stocks[r] += (spec.buildMaterials[r] ?? 0) * recycle;
+      }
+      demolishedThis.push(id);
     }
 
     // on-pad explosions for this window's launches → pads lost for FUTURE windows (D-043)
@@ -728,7 +788,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
   // solar_plant sitting there before the first colonists ever land must not read as a total
   // blackout; the mechanic is meant to catch DEGRADATION from an established headcount, not the
   // absence of any headcount ever having existed (same absence≠penalty convention as condOf/energyPower).
-  const laborNeed = laborDemand(s.built);
+  const laborNeed = laborDemand(s.built) + demolitionLaborThisWindow; // D-081: teardown is a surge, not a persistent job
   const laborRatio = s.pop > 0 && laborNeed > 0 ? Math.min(1, s.pop / laborNeed) : 1;
   genMult *= laborRatio;
   allMult *= laborRatio;
@@ -984,6 +1044,7 @@ export function commitWindow(s: ColonyState, order: EarthOrder, build: string[] 
     spent,
     capped: pv.capped,
     built: builtThis,
+    demolished: demolishedThis,
     explosions,
     energyGen: energy.generation,
     energyDemand: energy.generation + energy.deficit,

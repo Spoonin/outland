@@ -13,11 +13,18 @@
 //
 // order JSON shape (all fields optional):
 //   { "resources": {"food": 50000, "water": 20000}, "colonists": 10,
-//     "build": ["farm", "farm"], "structures": {"habitat": 1}, "importStruct": {"habitat": 1},
-//     "pads": {"classic": 1, "refuel": 0}, "unlockRefuel": true, "autoSpares": true }
+//     "build": ["farm", "farm"], "demolish": ["steel_plant"],
+//     "structures": {"habitat": 1}, "importStruct": {"habitat": 1},
+//     "pads": {"classic": 1, "refuel": 0}, "scrapPads": {"classic": 1, "refuel": 0},
+//     "unlockRefuel": true, "autoSpares": true }
 // ("structures"/"importStruct" are aliases — both mean import-fully-built from Earth.)
 // "autoSpares": true keeps the spares order floored at current upkeep need every window from here
 // on (set once, it stays on) — you can still order MORE spares than the floor, never less.
+// "demolish": D-081 — tear down existing Mars structures, money-free, recycles a fraction of their
+// build materials back to stock, costs one-time colonist labor (shared with ongoing crew, D-075).
+// "scrapPads": D-080 — decommission existing launch pads for a cash refund (fraction of capex) —
+// the escape valve for an over-built fleet whose idle maintenance (D-038) would otherwise only grow
+// with inflation forever.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ColonyStore, type KV } from '../src/ui/colonyStore';
@@ -123,6 +130,7 @@ function printStatus(store: ColonyStore): void {
     if (last.mortality) console.log(`  † погибло ${last.mortality} (${Object.entries(last.mortalityBreakdown).map(([c, n]) => `${c}:${n}`).join(', ')})`);
     if (last.births) console.log(`  🐣 рождения: +${last.births}`);
     if (last.built.length) console.log(`  🏗 построено: ${last.built.join(', ')}`);
+    if (last.demolished.length) console.log(`  🔧 демонтировано: ${last.demolished.join(', ')}`);
     if (last.milestones.length) {
       console.log(`  ★ майлстоуны: ${last.milestones.map((id) => {
         const m = MILESTONE_BY_ID.get(id);
@@ -150,7 +158,7 @@ function printCatalog(): void {
     const mats = Object.entries(st.buildMaterials).map(([r, q]) => `${r}:${q}`).join(',');
     const prod = Object.entries(st.produces).map(([r, q]) => `${r}:+${q}`).join(',');
     const cons = Object.entries(st.consumes).map(([r, q]) => `${r}:-${q}`).join(',');
-    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.n2Leak ? `  n2Leak=${st.n2Leak}/окно` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}${st.minPop ? `  minPop=${st.minPop}` : ''}${st.opsCrew ? `  opsCrew=${st.opsCrew}` : ''}`);
+    console.log(`  ${st.id.padEnd(16)} ${money(st.capex).padStart(12)}  energy=${st.energy}${st.housing ? `  housing=${st.housing}` : ''}${st.n2Leak ? `  n2Leak=${st.n2Leak}/окно` : ''}${st.prereq ? `  prereq=${st.prereq}` : ''}${st.minPop ? `  minPop=${st.minPop}` : ''}${st.opsCrew ? `  opsCrew=${st.opsCrew}` : ''}${st.demolishCrew ? `  demolishCrew=${st.demolishCrew}` : ''}${st.recycleFrac ? `  recycleFrac=${st.recycleFrac}` : ''}`);
     if (mats) console.log(`      materials: ${mats}`);
     if (prod || cons) console.log(`      ${prod}  ${cons}`);
   }
@@ -200,9 +208,11 @@ function main(): void {
       resources?: Partial<Record<ResourceKind, number>>;
       colonists?: number;
       build?: string[];
+      demolish?: string[];
       structures?: Record<string, number>;
       importStruct?: Record<string, number>;
       pads?: { classic?: number; refuel?: number };
+      scrapPads?: { classic?: number; refuel?: number };
       unlockRefuel?: boolean;
       autoSpares?: boolean;
     };
@@ -210,9 +220,12 @@ function main(): void {
     if (o.autoSpares !== undefined && o.autoSpares !== store.autoSparesEnabled) store.toggleAutoSpares();
     for (const [r, qty] of Object.entries(o.resources ?? {})) store.setRes(r as ResourceKind, qty ?? 0);
     for (const id of o.build ?? []) store.addBuild(id);
+    for (const id of o.demolish ?? []) store.addDemolish(id); // D-081
     for (const [id, n] of Object.entries({ ...(o.structures ?? {}), ...(o.importStruct ?? {}) })) store.setImportQty(id, n);
     if (o.pads?.classic) store.setPad('classic', o.pads.classic);
     if (o.pads?.refuel) store.setPad('refuel', o.pads.refuel);
+    if (o.scrapPads?.classic) store.setPadScrap('classic', o.scrapPads.classic); // D-080
+    if (o.scrapPads?.refuel) store.setPadScrap('refuel', o.scrapPads.refuel);
     if (o.unlockRefuel) store.toggleUnlockRefuel();
     if (o.colonists !== undefined) store.setColonists(o.colonists);
 

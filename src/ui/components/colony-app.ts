@@ -140,7 +140,7 @@ export class ColonyApp extends LitElement {
       </div>
       <div class="ebar"><div class="efill ${eShort ? 'short' : ''}" style="width:${ePct}%"></div></div>
       <div class="line">
-        <span>стоимость завоза с Земли</span>
+        <span>стоимость завоза с Земли${plan.earth.padScrapRefund > 0 ? ` (за вычетом возврата за утилизацию ${money(plan.earth.padScrapRefund)})` : ''}</span>
         <span class=${plan.overBudget ? 'neg' : 'ok'}>${money(plan.totalCost)} / ${money(plan.budget)}</span>
       </div>
       <div class="line">
