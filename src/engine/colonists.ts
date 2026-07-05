@@ -96,3 +96,40 @@ export function removeRandom(colonists: Colonist[], n: number, rng: Rng): void {
     colonists.splice(Math.floor(rng.random() * colonists.length), 1);
   }
 }
+
+/** Standard normal CDF via the Abramowitz–Stegun 7.1.26 erf approximation — plenty accurate for a
+ * dashboard forecast, not a scientific claim. Φ(0)=0.5, Φ(1.96)≈0.975. Exported for its own
+ * accuracy test; callers normally only need expectedOldAgeDeaths below. */
+export function phi(x: number): number {
+  const t = 1 / (1 + 0.3275911 * (Math.abs(x) / Math.SQRT2));
+  const erf =
+    1 -
+    (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t) *
+      Math.exp(-(x * x) / 2);
+  return x >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
+}
+
+/** Statistical forecast of old-age deaths over the next `windows` — roadmap-2 demography UI
+ * (D-084 sibling, D-083 data). Deliberately reads only `age` and the DISTRIBUTION parameters
+ * (lifeExpectancy/lifeExpectancySd), NEVER a colonist's own pre-rolled `deathAge` — that's one
+ * person's specific fate, and showing it would telegraph the future a storyteller forbids (D-063).
+ * For each living colonist of age a: P(dies of old age within k windows | alive at a) =
+ * (Φ((a+kΔ−μ)/σ) − Φ((a−μ)/σ)) / (1 − Φ((a−μ)/σ)), summed across the population. */
+export function expectedOldAgeDeaths(
+  colonists: readonly Colonist[],
+  p: DemographicParams,
+  windows: number,
+): number {
+  const mu = p.lifeExpectancy;
+  const sigma = p.lifeExpectancySd;
+  const delta = windows * YEARS_PER_WINDOW;
+  let total = 0;
+  for (const c of colonists) {
+    const zNow = (c.age - mu) / sigma;
+    const zFuture = (c.age + delta - mu) / sigma;
+    const aliveNow = Math.max(1e-9, 1 - phi(zNow)); // conditioned on having survived to `age`
+    const diesWithin = Math.max(0, phi(zFuture) - phi(zNow));
+    total += diesWithin / aliveNow;
+  }
+  return Math.round(total * 10) / 10;
+}

@@ -12,7 +12,7 @@ import {
   BUFFER_LOOKAHEAD,
   type ColonyParams,
 } from './colony';
-import { colonistRng, YEARS_PER_WINDOW } from './colonists';
+import { colonistRng, YEARS_PER_WINDOW, phi, expectedOldAgeDeaths } from './colonists';
 import { serializeColony, loadColony } from './colony-save';
 
 /** Demographics in isolation: no storyteller noise, no births unless the test asks, and no
@@ -170,5 +170,47 @@ describe('demography and the rest of the engine (D-083)', () => {
     expect(a.reports.map((r) => r.mortality)).toEqual(b.reports.map((r) => r.mortality));
     // and the per-window streams are genuinely different draws
     expect(colonistRng(7, 1).random()).not.toBeCloseTo(colonistRng(7, 2).random(), 10);
+  });
+});
+
+// Roadmap-2: the demography UI's statistical old-age forecast. `expectedOldAgeDeaths` must never
+// read a colonist's own pre-rolled `deathAge` — that's one person's specific fate, and showing it
+// would telegraph the future (D-063). It reads only `age` + the distribution parameters.
+describe('expectedOldAgeDeaths / phi (roadmap-2 demography forecast)', () => {
+  it('phi (standard normal CDF) matches known control points', () => {
+    expect(phi(0)).toBeCloseTo(0.5, 3);
+    expect(phi(1.96)).toBeCloseTo(0.975, 2);
+    expect(phi(-1.96)).toBeCloseTo(0.025, 2);
+  });
+
+  it('a young colony (25–35, default lifeExpectancy 60±5) has a negligible 3-window forecast', () => {
+    const s = newColony(demoParams({ pop0: 100 }));
+    expect(expectedOldAgeDeaths(s.colonists, s.p, 3)).toBeLessThan(0.05);
+  });
+
+  it('a colony aged to 58 (near the mean) has a 3-window forecast covering most of the population', () => {
+    const s = newColony(demoParams({ pop0: 100 }));
+    for (const c of s.colonists) c.age = 58;
+    expect(expectedOldAgeDeaths(s.colonists, s.p, 3)).toBeGreaterThan(50); // > half of 100
+  });
+
+  it('is monotonic — an older population (same size) forecasts strictly more deaths', () => {
+    const s = newColony(demoParams({ pop0: 50 }));
+    for (const c of s.colonists) c.age = 40;
+    const younger = expectedOldAgeDeaths(s.colonists, s.p, 3);
+    for (const c of s.colonists) c.age = 55;
+    const older = expectedOldAgeDeaths(s.colonists, s.p, 3);
+    expect(older).toBeGreaterThan(younger);
+  });
+
+  it('never reads deathAge — swapping it for wildly different values leaves the forecast unchanged', () => {
+    const s = newColony(demoParams({ pop0: 30 }));
+    for (const c of s.colonists) c.age = 55;
+    const a = expectedOldAgeDeaths(s.colonists, s.p, 3);
+    // real deathAges cluster ~60±5σ; 500+ is nowhere near that range — a hard proof the function
+    // never touches this field, not just a coincidental match
+    const rearranged = s.colonists.map((c, i) => ({ ...c, deathAge: 500 + i }));
+    const b = expectedOldAgeDeaths(rearranged, s.p, 3);
+    expect(b).toBe(a);
   });
 });

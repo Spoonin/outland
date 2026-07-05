@@ -33,6 +33,8 @@ import {
   supplyDeaths,
   projectOrder,
   pharmaNeed,
+  expectedOldAgeDeaths as computeExpectedOldAgeDeaths,
+  YEARS_PER_WINDOW,
   STRUCTURES,
   STRUCT_BY_ID,
   RESOURCES,
@@ -86,6 +88,18 @@ export interface ColonyStatus {
   collapsed: boolean;
 }
 
+/** Age structure for the roadmap-2 demography UI — a snapshot, not a forecast of WHO dies (that
+ * would read individual `deathAge`s, a telegraph D-063 forbids). Only `expectedOldAgeDeaths` looks
+ * ahead, and it does so STATISTICALLY, off the (age, lifeExpectancy, lifeExpectancySd) distribution
+ * alone. `maturingSoon` is the one honestly-deterministic forecast here — a child's climb to
+ * adultAge is on a fixed calendar, not a coin flip. */
+export interface DemographySnapshot {
+  buckets: { label: string; count: number }[];
+  avgAge: number;
+  expectedOldAgeDeaths: number; // statistical forecast over DEMOGRAPHY_FORECAST_WINDOWS
+  maturingSoon: number; // children crossing adultAge within DEMOGRAPHY_FORECAST_WINDOWS — deterministic
+}
+
 /** A milestone as shown in the debrief checklist (D-064) — `window` is undefined if not yet achieved. */
 export interface MilestoneLine {
   id: MilestoneId;
@@ -135,7 +149,10 @@ export interface KV {
   removeItem(key: string): void;
 }
 
-const SAVE_KEY = 'outland.colony'; // versioning handled inside the save blob, not the key
+// exported so tests can inject an exact ColonyState via the same save/load path the store itself
+// uses (serializeColony/loadColony) — the only way to get precise fixtures (e.g. a colonist at a
+// specific fractional age) into a ColonyStore, which otherwise only builds state through gameplay.
+export const SAVE_KEY = 'outland.colony'; // versioning handled inside the save blob, not the key
 const memoryKV: KV = (() => {
   const m = new Map<string, string>();
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v), removeItem: (k) => void m.delete(k) };
@@ -157,6 +174,20 @@ const LIFE_R: ResourceKind[] = ['food', 'water', 'o2', 'n2'];
 const CAUSE_RU: Partial<Record<MortalityCause, string>> = {
   food: 'голод', water: 'жажда', o2: 'нехватка O₂', n2: 'удушье (N₂)', energy: 'браунаут ЖО',
 };
+
+/** Fixed age-bucket edges for the demography UI (roadmap-2) — deliberately literal numbers, not
+ * derived from adultAge (16 by default, D-083): these are display buckets, not a labor-pool rule. */
+const AGE_BUCKETS: readonly { label: string; lo: number; hi: number }[] = [
+  { label: '0–15', lo: 0, hi: 15 },
+  { label: '16–29', lo: 16, hi: 29 },
+  { label: '30–44', lo: 30, hi: 44 },
+  { label: '45–54', lo: 45, hi: 54 },
+  { label: '55+', lo: 55, hi: Infinity },
+];
+
+/** Lookahead for both demography forecasts (roadmap-2) — short enough to feel like "coming up",
+ * long enough to be worth a glance; independent of BUFFER_LOOKAHEAD (a different kind of horizon). */
+const DEMOGRAPHY_FORECAST_WINDOWS = 3;
 
 export class ColonyStore {
   private state: ColonyState;
@@ -699,6 +730,29 @@ export class ColonyStore {
       n2LeakKgPerWindow,
       ended: this.ended,
       collapsed: s.collapsed,
+    };
+  }
+
+  /** Age structure + forecasts for the demography UI (roadmap-2). See DemographySnapshot for why
+   * expectedOldAgeDeaths is statistical (never reads a colonist's own deathAge) while maturingSoon
+   * is exactly computed (aging to adultAge is a fixed calendar, not a coin flip). */
+  demography(): DemographySnapshot {
+    const s = this.state;
+    const buckets = AGE_BUCKETS.map((b) => ({
+      label: b.label,
+      count: s.colonists.reduce((n, c) => n + (c.age >= b.lo && c.age <= b.hi ? 1 : 0), 0),
+    }));
+    const avgAge = s.colonists.length ? s.colonists.reduce((a, c) => a + c.age, 0) / s.colonists.length : 0;
+    const horizon = DEMOGRAPHY_FORECAST_WINDOWS * YEARS_PER_WINDOW;
+    const maturingSoon = s.colonists.reduce(
+      (n, c) => n + (c.age < s.p.adultAge && c.age + horizon >= s.p.adultAge ? 1 : 0),
+      0,
+    );
+    return {
+      buckets,
+      avgAge,
+      expectedOldAgeDeaths: computeExpectedOldAgeDeaths(s.colonists, s.p, DEMOGRAPHY_FORECAST_WINDOWS),
+      maturingSoon,
     };
   }
 

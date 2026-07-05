@@ -70,7 +70,7 @@ export {
   sickBedCapacity,
   structuralN2Leak,
 } from './structures';
-export { colonistRng, workforceCount, YEARS_PER_WINDOW } from './colonists';
+export { colonistRng, workforceCount, YEARS_PER_WINDOW, expectedOldAgeDeaths, phi } from './colonists';
 export type { Colonist, DemographicParams } from './colonists';
 export type { Structure, BuiltCounts, EnergyResolution, Condition, StructureDiag } from './structures';
 export { SAVE_VERSION, serializeColony, hydrateColony, loadColony } from './colony-save';

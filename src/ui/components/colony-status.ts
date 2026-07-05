@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import type { ColonyStatus, ResourceLine } from '../colonyStore';
+import type { ColonyStatus, ResourceLine, DemographySnapshot } from '../colonyStore';
 import { STRUCT_BY_ID, type Stocks, type ColonyReport } from '../../engine';
 
 const ICON: Record<string, string> = {
@@ -23,6 +23,8 @@ export class ColonyStatusPanel extends LitElement {
   /** D-084: repairRate + upkeep as of NOW — used only to turn lastReport.repairSpentKg into the
    * displayed percentage; an approximation if the fleet changed since (informational only). */
   @property({ attribute: false }) repairInfo?: { rate: number; upkeep: number };
+  /** Roadmap-2: age structure + forecasts (buckets, expected old-age deaths, kids maturing soon). */
+  @property({ attribute: false }) demography?: DemographySnapshot;
 
   static styles = css`
     :host {
@@ -70,6 +72,20 @@ export class ColonyStatusPanel extends LitElement {
     .crit {
       color: #d96a6a;
     }
+    .agebars {
+      display: flex;
+      align-items: flex-end;
+      gap: 3px;
+      height: 28px;
+      margin: 0.2rem 0;
+    }
+    .agebar {
+      flex: 1;
+      background: #3a3a46;
+      border-radius: 2px 2px 0 0;
+      min-height: 2px;
+      max-width: 22px;
+    }
   `;
 
   private transitLine(): TemplateResult | typeof nothing {
@@ -80,6 +96,32 @@ export class ColonyStatusPanel extends LitElement {
     for (const [k, v] of Object.entries(t.stocks)) if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? k} ${kg(v!)}`);
     for (const [id, n] of Object.entries(t.structures)) if ((n ?? 0) > 0) parts.push(`${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id}×${n}`);
     return html`<div class="dim">🚀 в пути (придёт след. окно): ${parts.length ? parts.join(' · ') : 'пусто'}</div>`;
+  }
+
+  /** Roadmap-2: a compact 5-bucket age bar chart + the forecast line beneath it. Bar height is
+   * proportional to count within THIS render (no external scale) — a glance at shape, not a chart
+   * meant for precise reading; exact counts are in each bar's tooltip. */
+  private demographyBlock(): TemplateResult | typeof nothing {
+    const d = this.demography;
+    if (!d || !this.status || this.status.pop <= 0) return nothing;
+    const maxCount = Math.max(1, ...d.buckets.map((b) => b.count));
+    const showForecast = d.expectedOldAgeDeaths >= 0.5 || d.maturingSoon > 0;
+    return html`
+      <div class="agebars">
+        ${d.buckets.map(
+          (b) => html`<div
+            class="agebar"
+            style="height:${Math.max(2, (b.count / maxCount) * 28)}px"
+            title="${b.label} лет: ${b.count}"
+          ></div>`,
+        )}
+      </div>
+      ${showForecast
+        ? html`<div class="dim">
+            ⏳ ~${d.expectedOldAgeDeaths.toFixed(1)} смертей от старости за 3 ок · 🎓 +${d.maturingSoon} в труд
+          </div>`
+        : nothing}
+    `;
   }
 
   private cell(r: ResourceLine): TemplateResult {
@@ -137,6 +179,7 @@ export class ColonyStatusPanel extends LitElement {
         </div>
         <div class="dim">субсидия ${money(s.budget)}/окно</div>
       </div>
+      ${this.demographyBlock()}
       ${this.transitLine()}
       <div class="grid">${s.resources.map((r) => this.cell(r))}</div>
     `;

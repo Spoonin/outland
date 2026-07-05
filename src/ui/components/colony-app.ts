@@ -216,6 +216,7 @@ export class ColonyApp extends LitElement {
         .inTransit=${this.store.inTransit()}
         .lastReport=${this.store.lastReport()}
         .repairInfo=${this.store.repairInfo()}
+        .demography=${this.store.demography()}
       ></colony-status>
       <chronicle-panel .store=${this.store}></chronicle-panel>
       ${st.ended

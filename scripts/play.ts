@@ -121,6 +121,17 @@ function printStatus(store: ColonyStore): void {
       : 0;
   console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%${repairPct > 0 ? ` (🔧 ремонт +${repairPct.toFixed(1)}%)` : ''}  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);
   if (s.crewCoverage < 1) console.log(`⚠ экипаж: население покрывает только ${(s.crewCoverage * 100).toFixed(0)}% нужного штата — выпуск всех объектов просажен`);
+  // roadmap-2: демография — труд/дети/больные (D-083) + возрастная структура и статистический
+  // прогноз старения (never reads a colonist's own deathAge — see expectedOldAgeDeaths, D-063).
+  if (s.pop > 0) {
+    console.log(`демография: 💪 труд ${s.workforce} · 🧒 дети ${s.kids} · 🤒 больных ${s.sick} · 🛏 коек ${s.sickBeds}`);
+    const dem = store.demography();
+    const forecast =
+      dem.expectedOldAgeDeaths >= 0.5 || dem.maturingSoon > 0
+        ? ` · ⏳ ~${dem.expectedOldAgeDeaths.toFixed(1)}† старость/3 ок · 🎓 +${dem.maturingSoon} в труд`
+        : '';
+    console.log(`возраст: ${dem.buckets.map((b) => `${b.label}: ${b.count}`).join(' · ')}${forecast}`);
+  }
   console.log(`авто-ЗИП: ${store.autoSparesEnabled ? 'вкл' : 'выкл'} · авто-фарма: ${store.autoPharmaEnabled ? 'вкл' : 'выкл'}`);
   console.log(
     `текущие цены: колонист ${money(store.colonistPriceNow())} · classic-площадка ${money(store.padPriceNow('classic'))}` +
