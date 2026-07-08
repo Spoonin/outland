@@ -113,6 +113,8 @@ function eventLine(ev: WindowEvent): string {
       return `${ev.icon} ${ev.name}: ${ev.target ? `${STRUCT_BY_ID[ev.target]?.name ?? ev.target} — стоит ${ev.windows} ок` : 'отказывать нечему — обошлось'}`;
     case 'crash':
       return `${ev.icon} ${ev.name}: потеряно ${pct(ev.mag)} конвоя${ev.lostKg ? ` (~${kg(ev.lostKg)})` : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+    case 'harvest':
+      return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса еды${ev.covered ? ' — склад смягчил' : ''}`;
   }
 }
 
@@ -129,6 +131,9 @@ function printStatus(store: ColonyStore): void {
       ? repairInfo.rate * (lastForRepair.repairSpentKg / repairInfo.upkeep) * 100
       : 0;
   console.log(`энергия: ${Math.round(s.energyGen)}/${Math.round(s.energyDemand)} (браунаут ${Math.round(s.energyDeficit)})  ·  износ ${(s.avgCondition * 100).toFixed(0)}%${repairPct > 0 ? ` (🔧 ремонт +${repairPct.toFixed(1)}%)` : ''}  ·  жильё ${s.pop}/${s.housingCapacity || '∞'}`);
+  const foodStock = s.resources.find((r) => r.kind === 'food')?.stock ?? 0;
+  const waterStock = s.resources.find((r) => r.kind === 'water')?.stock ?? 0;
+  console.log(`склад: еда ${kg(foodStock)}/${kg(s.foodCapacityTotal)}  ·  вода ${kg(waterStock)}/${kg(s.waterCapacityTotal)}`);
   if (s.crewCoverage < 1) console.log(`⚠ экипаж: население покрывает только ${(s.crewCoverage * 100).toFixed(0)}% нужного штата — выпуск всех объектов просажен`);
   // roadmap-2: демография — труд/дети/больные (D-083) + возрастная структура и статистический
   // прогноз старения (never reads a colonist's own deathAge — see expectedOldAgeDeaths, D-063).
@@ -171,6 +176,12 @@ function printStatus(store: ColonyStore): void {
     if (last.built.length) console.log(`  🏗 построено: ${last.built.join(', ')}`);
     if (last.demolished.length) console.log(`  🔧 демонтировано: ${last.demolished.join(', ')}`);
     if (last.repairSpentKg > 0) console.log(`  🔧 ремонт: потрачено ${kg(last.repairSpentKg)} сверх обслуживания (D-084)`);
+    if (last.foodSpoiledKg > 0 || last.pharmaSpoiledKg > 0) {
+      const parts: string[] = [];
+      if (last.foodSpoiledKg > 0) parts.push(`еда -${kg(last.foodSpoiledKg)}`);
+      if (last.pharmaSpoiledKg > 0) parts.push(`фарма -${kg(last.pharmaSpoiledKg)}`);
+      console.log(`  🦠 порча: ${parts.join(', ')}`);
+    }
     if (last.milestones.length) {
       console.log(`  ★ майлстоуны: ${last.milestones.map((id) => {
         const m = MILESTONE_BY_ID.get(id);

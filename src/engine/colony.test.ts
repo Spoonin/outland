@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   newColony,
   defaultColonyParams,
+  defaultCatalog,
   previewOrder,
   priceMult,
   commitWindow,
@@ -33,10 +34,21 @@ function seedForEvent(targetId: string, window = 1): number {
 }
 const ALWAYS_FIRE = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1 };
 
+/** D-085: zeroes pharma's spoilage only — pharma has NO local production in this game (D-045/050,
+ * hi-tech Earth-only forever), so a one-time stockpile can never survive an indefinite zero-import
+ * simulation once it decays exponentially. This fixture's pharma exists to keep births/illness-
+ * treatment going long enough to test BULK self-sufficiency + condition holding, not to test
+ * pharma spoilage itself — that gets its own dedicated tests in the D-085 describe block. Food's
+ * spoilRate stays ACTIVE (production covers consumption here, so it should be a no-op either way). */
+function noPharmaSpoilCatalog(): ReturnType<typeof defaultCatalog> {
+  const cat = defaultCatalog();
+  return { ...cat, pharma: { ...cat.pharma, spoilRate: 0 } };
+}
+
 /** A colony whose local production fully covers 100 colonists at HONEST per-capita masses (D-066):
  * food 80 000 ≥ 50 000 · water 240 000 ≥ (240 000+20 000)×0.7 · O₂ 60 000 ≥ 46 200 · energy 400 ≥ 335. */
 function selfSufficient100(overrides = {}): ReturnType<typeof newColony> {
-  const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, ...overrides }));
+  const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, catalog: noPharmaSpoilCatalog(), ...overrides }));
   // D-083: "self-sufficient" now includes DEMOGRAPHY — without a medbay + pharma the founders
   // simply age out (~windows 10–18) with no births to replace them, and no amount of food/O₂
   // keeps a colony of corpses alive. Capacity is sized for the population wave to ~230 heads
@@ -1300,6 +1312,76 @@ describe('disaster events — breach / radiation / outage / crash (D-072)', () =
     expect(s.pop).toBeLessThan(10); // survivors only
     expect(r.milestones).toContain('first_landing'); // someone DID land alive
     expect(r.milestones).not.toContain('zero_import'); // a crashed convoy is not independence
+  });
+});
+
+// D-085: passive spoilage (food/pharma) + harvest_loss — pure stock damage, no mortality cause of
+// its own (see decisions.md D-085 — a wrecked crop/decayed stock starves people LATER through the
+// ordinary Liebig deficit, not directly). Fixtures use pop0:0 + direct s.stocks assignment so the
+// only thing touching food/pharma each commit is the mechanic under test — no consumption noise.
+describe('spoilage + harvest_loss (D-085)', () => {
+  it('food spoils at the catalog rate with no food_silo', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.stocks.food = 100_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(s.stocks.food).toBeCloseTo(100_000 * (1 - 0.35), 5);
+    expect(r.foodSpoiledKg).toBeCloseTo(100_000 * 0.35, 5);
+  });
+
+  it('pharma spoils at the catalog rate — no structure mitigates it at all', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.stocks.pharma = 100_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(s.stocks.pharma).toBeCloseTo(100_000 * (1 - 0.45), 5);
+    expect(r.pharmaSpoiledKg).toBeCloseTo(100_000 * 0.45, 5);
+  });
+
+  it('one food_silo halves the effective spoilage rate', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { food_silo: 1 };
+    s.condition = { food_silo: 1 };
+    s.stocks.food = 100_000;
+    const r = commitWindow(s, emptyOrder());
+    const expectedRate = Math.max(0.05, 0.35 * 0.5); // 0.175 — well above the floor
+    expect(r.foodSpoiledKg).toBeCloseTo(100_000 * expectedRate, 0);
+  });
+
+  it('minSpoilRate floors the rate — enough food_silo units can\'t reach zero spoilage', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { food_silo: 6 }; // 0.35 × 0.5^6 ≈ 0.00547 — well under the 0.05 floor
+    s.condition = { food_silo: 1 };
+    s.stocks.food = 100_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.foodSpoiledKg).toBeCloseTo(100_000 * 0.05, 0); // floored, not the raw ~0.55%
+  });
+
+  it('harvest_loss without a silo destroys the full rolled fraction of food STOCK, no direct mortality', () => {
+    const seed = seedForEvent('harvest_loss');
+    const s = newColony(defaultColonyParams({ pop0: 0, seed, ...ALWAYS_FIRE }));
+    s.stocks.food = 1_000_000; // huge buffer — isolates the event's stock hit from spoilage's own bite
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('harvest_loss');
+    expect(r.event?.covered).toBe(false);
+    // no 'harvest' mortality cause exists at all (not in the MortalityCause union) — pure stock
+    // damage, confirmed structurally rather than by probing a key that can't typecheck
+    expect(Object.keys(r.mortalityBreakdown)).toEqual([]);
+    expect(r.mortality).toBe(0); // pop0:0, nobody to die anyway — sanity check on the report shape
+  });
+
+  it('harvest_loss WITH a food_silo is covered — loss capped at coveredMag regardless of the roll', () => {
+    const seed = seedForEvent('harvest_loss');
+    const s = newColony(defaultColonyParams({ pop0: 0, seed, ...ALWAYS_FIRE }));
+    s.built = { food_silo: 1 };
+    s.condition = { food_silo: 1 };
+    s.stocks.food = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('harvest_loss');
+    expect(r.event?.covered).toBe(true);
+    // covered loss (0.05) applies BEFORE this window's own spoilage (food_silo halves that too) —
+    // just check the harvest hit alone landed in the covered ballpark, not the uncovered 30-60% range
+    const afterHarvestOnly = 1_000_000 * (1 - 0.05);
+    expect(s.stocks.food).toBeLessThanOrEqual(afterHarvestOnly * 1.001);
+    expect(s.stocks.food).toBeGreaterThan(1_000_000 * (1 - 0.6)); // nowhere near the uncovered range
   });
 });
 

@@ -10,10 +10,12 @@ import eventsCsv from '../data/events.csv?raw';
 // D-072 (плейтест-2 "больше событий"): breach = разгерметизация (вентит сток N₂ + жертвы, ЗИП
 // прикрывает), radiation = солнечная вспышка SPE (все в укрытие: весь выпуск падает + жертвы,
 // медблок прикрывает), outage = отказ узла (случайная рабочая структура встаёт), crash =
-// EDL-крушение конвоя, который садится в это окно.
+// EDL-крушение конвоя, который садится в это окно. harvest (D-085) = гибель урожая — чистое
+// повреждение СТОКА еды, без своей причины смертности (как breach, но без жертв — недостача еды
+// накажет через обычный Liebig-дефицит в СЛЕДУЮЩЕМ окне, а не напрямую).
 export type EventEffect =
   | 'energy' | 'subsidy' | 'delay' | 'price' | 'farm' | 'epidemic'
-  | 'breach' | 'radiation' | 'outage' | 'crash';
+  | 'breach' | 'radiation' | 'outage' | 'crash' | 'harvest';
 
 export interface EventSpec {
   id: string;
@@ -25,7 +27,8 @@ export interface EventSpec {
   minDur: number;
   maxDur: number;
   coveredMag: number; // breach/radiation — mortality fraction when the cover holds (the epidemic
-  // stopped using this in D-083: its mag is now a spiked illness probability, beds do the rest)
+  // stopped using this in D-083: its mag is now a spiked illness probability, beds do the rest);
+  // harvest (D-085) reuses this as the covered STOCK-loss fraction when ≥1 food_silo is built
   pharmaCost: number; // radiation — one-time pharma kg/colonist consumed when covered
   deathMag: number; // breach/radiation — uncovered mortality fraction (mag is the physical hit, not deaths)
 }

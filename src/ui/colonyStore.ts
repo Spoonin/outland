@@ -19,6 +19,8 @@ import {
   laborDemand,
   housingCapacity,
   sickBedCapacity,
+  foodCapacity,
+  waterCapacity,
   workforceCount,
   structuralN2Leak,
   serializeColony,
@@ -83,6 +85,8 @@ export interface ColonyStatus {
   sparesCoverage: number; // spares stock vs upkeep need
   crewCoverage: number; // D-075: pop vs total opsCrew demand — 1 if fully staffed or nothing needs crew
   housingCapacity: number; // total colonist slots from habitats (V7); 0 = unconstrained
+  foodCapacityTotal: number; // D-085: baseFoodCapacity + food_silo — total food stockpile ceiling
+  waterCapacityTotal: number; // D-085: same, for water (water_tank)
   n2LeakKgPerWindow: number; // structural N₂ hull leak per window (V7)
   ended: boolean; // collapsed, or the player clicked "finish" (D-064) — never a time/window limit
   collapsed: boolean;
@@ -289,7 +293,12 @@ export class ColonyStore {
     return this.draftRes[r] ?? 0;
   }
   setRes(r: ResourceKind, qty: number): void {
-    this.draftRes[r] = Math.max(0, Math.round(qty || 0));
+    let v = Math.max(0, Math.round(qty || 0));
+    // D-085: food/water are hard-capped by store-layer capacity (D-056 housing precedent) — the
+    // engine itself never checks this, so a raw commitWindow() call in a test can still exceed it.
+    if (r === 'food') v = Math.min(v, this.maxFoodStock());
+    if (r === 'water') v = Math.min(v, this.maxWaterStock());
+    this.draftRes[r] = v;
     this.emit();
   }
   get autoSparesEnabled(): boolean {
@@ -423,6 +432,39 @@ export class ColonyStore {
   setColonists(n: number): void {
     this.draftColonists = Math.max(0, Math.min(this.maxColonists(), Math.floor(n || 0)));
     this.emit();
+  }
+
+  /** D-085: free room left to stockpile food, right now — same shape as maxColonists() (D-056
+   * precedent: a structure defines a capacity, the STORE clamps orders against it, the engine
+   * itself never checks this). Counts capacity from built + in-transit + this window's queued
+   * build/import food_silo units, minus what's already on hand or already inbound. */
+  maxFoodStock(): number {
+    const queued = this.draftBuild.reduce((a, id) => a + (STRUCT_BY_ID[id]?.foodCapacity ?? 0), 0);
+    const imported = Object.keys(this.draftImport).reduce(
+      (a, id) => a + (STRUCT_BY_ID[id]?.foodCapacity ?? 0) * (this.draftImport[id] ?? 0),
+      0,
+    );
+    const inTransitCap = Object.keys(this.state.inTransit.structures).reduce(
+      (a, id) => a + (STRUCT_BY_ID[id]?.foodCapacity ?? 0) * (this.state.inTransit.structures[id] ?? 0),
+      0,
+    );
+    const cap = this.state.p.baseFoodCapacity + foodCapacity(this.state.built) + inTransitCap + queued + imported;
+    return Math.max(0, cap - this.state.stocks.food - this.state.inTransit.stocks.food);
+  }
+
+  /** Same as maxFoodStock(), for water (D-085) — water_tank instead of food_silo. */
+  maxWaterStock(): number {
+    const queued = this.draftBuild.reduce((a, id) => a + (STRUCT_BY_ID[id]?.waterCapacity ?? 0), 0);
+    const imported = Object.keys(this.draftImport).reduce(
+      (a, id) => a + (STRUCT_BY_ID[id]?.waterCapacity ?? 0) * (this.draftImport[id] ?? 0),
+      0,
+    );
+    const inTransitCap = Object.keys(this.state.inTransit.structures).reduce(
+      (a, id) => a + (STRUCT_BY_ID[id]?.waterCapacity ?? 0) * (this.state.inTransit.structures[id] ?? 0),
+      0,
+    );
+    const cap = this.state.p.baseWaterCapacity + waterCapacity(this.state.built) + inTransitCap + queued + imported;
+    return Math.max(0, cap - this.state.stocks.water - this.state.inTransit.stocks.water);
   }
   preview(): OrderPreview {
     return previewOrder(this.state, this.order());
@@ -727,6 +769,8 @@ export class ColonyStore {
       crewCoverage:
         s.pop > 0 && laborNeed > 0 ? Math.min(1, workforceCount(s.colonists, s.p.adultAge) / laborNeed) : 1,
       housingCapacity: housingCapacity(s.built),
+      foodCapacityTotal: s.p.baseFoodCapacity + foodCapacity(s.built),
+      waterCapacityTotal: s.p.baseWaterCapacity + waterCapacity(s.built),
       n2LeakKgPerWindow,
       ended: this.ended,
       collapsed: s.collapsed,

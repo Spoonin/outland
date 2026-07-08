@@ -145,6 +145,8 @@ export class ChroniclePanel extends LitElement {
         return `${ev.icon} ${ev.name}: ${ev.target ? `${STRUCT_BY_ID[ev.target]?.name ?? ev.target} — стоит ${ev.windows} ок` : 'отказывать нечему — обошлось'}`;
       case 'crash':
         return `${ev.icon} ${ev.name}: потеряно ${pct(ev.mag)} конвоя${ev.lostKg ? ` (~${kg(ev.lostKg)} кг)` : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+      case 'harvest':
+        return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса еды${ev.covered ? ' — склад смягчил' : ''}`;
     }
   }
 
@@ -157,6 +159,12 @@ export class ChroniclePanel extends LitElement {
     if (r.built.length) ev.push(`🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
     if (r.demolished.length) ev.push(`🔧 демонтировано: ${r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
     if (r.repairSpentKg > 0) ev.push(`🔧 ремонт: потрачено ${kg(r.repairSpentKg)} кг ЗИПа сверх обслуживания (D-084)`);
+    if (r.foodSpoiledKg > 0 || r.pharmaSpoiledKg > 0) {
+      const parts: string[] = [];
+      if (r.foodSpoiledKg > 0) parts.push(`еда −${kg(r.foodSpoiledKg)} кг`);
+      if (r.pharmaSpoiledKg > 0) parts.push(`фарма −${kg(r.pharmaSpoiledKg)} кг`);
+      ev.push(`🦠 порча: ${parts.join(', ')}`);
+    }
     if (r.births > 0) ev.push(`🐣 рождения: +${r.births}`);
     for (const id of r.milestones) ev.push(`★ майлстоун: ${milestoneLabel(id)}`);
     return ev;
@@ -171,6 +179,8 @@ export class ChroniclePanel extends LitElement {
       r.built.length === 0 &&
       r.demolished.length === 0 &&
       r.repairSpentKg === 0 &&
+      r.foodSpoiledKg === 0 &&
+      r.pharmaSpoiledKg === 0 &&
       r.births === 0 &&
       !r.event &&
       !r.milestones.length

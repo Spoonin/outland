@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   newColony,
   defaultColonyParams,
+  defaultCatalog,
   commitWindow,
   emptyOrder,
   bufferRunway,
@@ -143,8 +144,18 @@ describe('demography and the rest of the engine (D-083)', () => {
   });
 
   it('the buffer gauge ignores background demography — only SUPPLY deaths stop it (D-062/D-083)', () => {
-    // no medbay: baseline illness kills someone most windows, but stocks cover the whole lookahead
-    const s = newColony(demoParams({ pop0: 100, startStockWindows: 14 }));
+    // no medbay: baseline illness kills someone most windows, but stocks cover the whole lookahead.
+    // D-085: food spoilage neutralized — this test isolates DEMOGRAPHIC background noise from the
+    // gauge, not the (separate, legitimate) supply-side attrition spoilage adds; that gets its own
+    // dedicated tests. Without production, no finite food stock survives BUFFER_LOOKAHEAD windows
+    // of 35%/window decay regardless of demography, which would defeat the point of this test.
+    // minSpoilRate:0 too — colony.ts floors food's effective rate at 5%/window regardless of the
+    // catalog value (meant to stop food_silo from ever reaching zero), so zeroing spoilRate alone
+    // isn't quite a true zero; harmless at this test's generous 14-vs-12-window margin, but let's
+    // actually mean "neutralized" rather than "close enough by accident."
+    const cat = defaultCatalog();
+    const noSpoil = { ...cat, food: { ...cat.food, spoilRate: 0 } };
+    const s = newColony(demoParams({ pop0: 100, startStockWindows: 14, minSpoilRate: 0, catalog: noSpoil }));
     expect(bufferRunway(s)).toBe(BUFFER_LOOKAHEAD);
   });
 

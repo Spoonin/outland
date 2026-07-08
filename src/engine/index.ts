@@ -68,6 +68,9 @@ export {
   laborDemand,
   housingCapacity,
   sickBedCapacity,
+  foodCapacity,
+  waterCapacity,
+  foodSpoilRateMult,
   structuralN2Leak,
 } from './structures';
 export { colonistRng, workforceCount, YEARS_PER_WINDOW, expectedOldAgeDeaths, phi } from './colonists';

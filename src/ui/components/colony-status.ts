@@ -185,6 +185,12 @@ export class ColonyStatusPanel extends LitElement {
           ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} кг/окно` : ''}
         </div>` : ''}
         <div class="dim">
+          🍞 склад
+          <b>${kg(s.resources.find((r) => r.kind === 'food')?.stock ?? 0)} / ${kg(s.foodCapacityTotal)}</b>
+          · 💧 склад
+          <b>${kg(s.resources.find((r) => r.kind === 'water')?.stock ?? 0)} / ${kg(s.waterCapacityTotal)}</b>
+        </div>
+        <div class="dim">
           🛡 без завоза
           <b style="color:${s.buffer >= 2 ? '#5ad17a' : s.buffer >= 1 ? '#d1b65a' : '#d96a6a'}"
             >${s.buffer}${s.bufferSaturated ? '+' : ''} ок</b>

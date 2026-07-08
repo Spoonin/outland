@@ -34,6 +34,14 @@ export interface Structure {
   sickBeds?: number; // D-083: seriously-ill colonists one unit can treat per window (medbay 5;
   // base_block 2 — its 20 residents' clinic corner, without which bootstrap bleeds background
   // illness deaths with no counter); absent → 0
+  foodCapacity?: number; // D-085: kg of food this unit adds to the store-layer stockpile ceiling
+  // (food_silo) — engine itself never checks this, same "structure defines a cap, store enforces
+  // it on ORDERS" pattern as housing (D-056); absent → 0
+  waterCapacity?: number; // D-085: same, for water (water_tank) — water doesn't spoil, so this
+  // structure only ever contributes capacity, never a spoilRateMult
+  spoilRateMult?: number; // D-085: per-unit multiplier on food's spoilRate, stacking as mult^count
+  // with a floor at ColonyParams.minSpoilRate (D-052-style — spoilage pressure never fully zeroes
+  // out); absent → 1 (no effect). Only food_silo sets this; water doesn't spoil at all.
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -70,6 +78,9 @@ function loadStructures(): Structure[] {
     if (row.demolishCrew) s.demolishCrew = num(row.demolishCrew);
     if (row.recycleFrac) s.recycleFrac = num(row.recycleFrac);
     if (row.sickBeds) s.sickBeds = num(row.sickBeds);
+    if (row.foodCapacity) s.foodCapacity = num(row.foodCapacity);
+    if (row.waterCapacity) s.waterCapacity = num(row.waterCapacity);
+    if (row.spoilRateMult) s.spoilRateMult = num(row.spoilRateMult);
     return s;
   });
 }
@@ -246,6 +257,36 @@ export function sickBedCapacity(built: BuiltCounts): number {
   let total = 0;
   for (const s of STRUCTURES) total += (s.sickBeds ?? 0) * (built[s.id] ?? 0);
   return total;
+}
+
+/** Extra food stockpile ceiling from built storage (D-085) — added to ColonyParams.baseFoodCapacity
+ * at the store layer (D-056 pattern: a structure defines capacity, the STORE enforces it on orders,
+ * the engine itself never gates on this). */
+export function foodCapacity(built: BuiltCounts): number {
+  let total = 0;
+  for (const s of STRUCTURES) total += (s.foodCapacity ?? 0) * (built[s.id] ?? 0);
+  return total;
+}
+
+/** Same as foodCapacity, for water (D-085) — water never spoils, so water_tank only ever
+ * contributes here, never to a spoilage multiplier. */
+export function waterCapacity(built: BuiltCounts): number {
+  let total = 0;
+  for (const s of STRUCTURES) total += (s.waterCapacity ?? 0) * (built[s.id] ?? 0);
+  return total;
+}
+
+/** Multiplicative food spoilage-rate reduction from built food_silo units (D-085) — mult^count,
+ * e.g. 2 silos at 0.5 each → 0.25× the base rate before ColonyParams.minSpoilRate's floor applies
+ * (that floor is enforced by the caller, colony.ts — this function is pure structure-counting). */
+export function foodSpoilRateMult(built: BuiltCounts): number {
+  let mult = 1;
+  for (const s of STRUCTURES) {
+    if (s.spoilRateMult === undefined) continue;
+    const n = built[s.id] ?? 0;
+    if (n > 0) mult *= Math.pow(s.spoilRateMult, n);
+  }
+  return mult;
 }
 
 /** Total N₂ leaked per window from pressurized hull volume of built structures (V7). */

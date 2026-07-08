@@ -50,6 +50,7 @@ import {
   laborDemand,
   housingCapacity,
   sickBedCapacity,
+  foodSpoilRateMult,
   structuralN2Leak,
   type BuiltCounts,
   type Condition,
@@ -71,6 +72,7 @@ export interface ResourceSpec {
   perCapita: number; // life-support draw per colonist per window (0 = not life-support)
   recycle: number; // η recovered fraction (ECLSS)
   tare: number; // extra SHIP mass per kg for containment (gases: tank ≥ gas → ~1.0). Imports only.
+  spoilRate: number; // D-085: passive fraction lost per window (food/pharma only; 0 = doesn't spoil)
 }
 
 export type ResourceCatalog = Record<ResourceKind, ResourceSpec>;
@@ -92,6 +94,10 @@ export interface ColonyParams extends DemographicParams {
   // at one extra upkeep's worth per window — deliberately a THIRD of wearRate: repair is heavier
   // than maintenance, not a free undo of neglect (D-052's pressure survives this).
   birthRate: number; // per-window growth when a supplied medbay is running (D-030)
+  minSpoilRate: number; // D-085: floor on food's spoilage rate after food_silo multipliers —
+  // spoilage pressure never fully zeroes out, same D-052 philosophy as repairRate never undoing wear for free
+  baseFoodCapacity: number; // D-085: store-layer stockpile ceiling for food with zero storage built
+  baseWaterCapacity: number; // D-085: same, for water
   popEnergyPerCapita: number; // life-support energy draw per colonist (priority 0)
   catalog: ResourceCatalog;
   launch: LaunchParams;
@@ -174,6 +180,7 @@ export function defaultCatalog(): ResourceCatalog {
       perCapita: num(row.perCapita),
       recycle: num(row.recycle),
       tare: num(row.tare),
+      spoilRate: num(row.spoilRate),
     };
   }
   return cat;
@@ -195,6 +202,20 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     wearRate: 0.12,
     repairRate: 0.04, // D-084: a third of wearRate — restoring from 0.5 needs ~12 windows of double ЗИП
     birthRate: 0.05,
+    // D-085: spoilage — food/pharma decay rates live in resources.csv (spoilRate), calibrated via
+    // real-world shelf-life half-lives (see decision text). These three are the mitigation knobs.
+    minSpoilRate: 0.05, // floor after food_silo multipliers — never fully undoable
+    // D-085 recalibrated twice from an initial ~1-window-for-100 target: that clipped both routine
+    // bootstrap-scale orders AND the LIFE-SUPPORT BUFFER newColony() itself seeds from pop0 ×
+    // startStockWindows (e.g. 1000 × 14 × 500 kg/capita = 7 000 000 kg, an entirely normal starting
+    // colony, not hoarding). The store-layer cap only ever gates NEW orders (D-056 pattern, engine
+    // itself never checks it) — but if a colony's own starting buffer already exceeds the cap,
+    // maxFoodStock() correctly reports zero headroom and silently clips every subsequent order,
+    // which is exactly what broke here. Spoilage remains the PRIMARY anti-hoarding lever regardless
+    // of stock size; this ceiling is sized generously enough to stay out of the way of any
+    // reasonably-sized colony's own life support, only biting at genuinely excessive stockpiling.
+    baseFoodCapacity: 10000000,
+    baseWaterCapacity: 30000000,
     // D-083 demographics (individual colonists). illnessProb is 0.03, not the spec's 0.05: with
     // cureProb 0.5 even a fully-bedded colony loses P/2 per window to illness, and at 0.05 the
     // REALIZED life expectancy (illness + old age together) sagged to ≈55 against the agreed 60.
@@ -559,6 +580,8 @@ export interface ColonyReport {
   avgCondition: number; // mean structure condition 0..1 (V6)
   sparesCoverage: number; // fraction of spares upkeep met this window
   repairSpentKg: number; // D-084: spares spent on repair (beyond upkeep) this window — 0 if none
+  foodSpoiledKg: number; // D-085: food lost to passive spoilage this window — 0 if none
+  pharmaSpoiledKg: number; // D-085: pharma lost to passive spoilage this window — 0 if none
   housingCapacity: number; // total colonist slots from habitat structures (V7); 0 = unconstrained
   n2LeakKg: number; // kg N₂ leaked from hull this window (V7)
   structDiag: Record<string, StructureDiag>; // per-structure-type output breakdown (D-061)
@@ -995,6 +1018,28 @@ export function commitWindow(
     s.stocks.n2 = Math.max(0, s.stocks.n2 * (1 - roll.mag));
   }
 
+  // harvest_loss (D-085): pure stock damage, no mortality fraction of its own — a wrecked crop
+  // starves people LATER through the ordinary Liebig deficit next window, exactly like any other
+  // supply shortfall (same non-lethal-on-impact shape as subsidy_cut/price_spike, not breach/
+  // radiation). Binary coverage (≥1 food_silo), same pattern as epidemic/radiation's medbay+pharma
+  // check — no natural continuous ratio to graduate by here, unlike ЗИП coverage (D-073).
+  let harvestCovered = false;
+  if (roll?.spec.effect === 'harvest') {
+    harvestCovered = (s.built['food_silo'] ?? 0) > 0;
+    const frac = harvestCovered ? roll.spec.coveredMag : roll.mag;
+    s.stocks.food = Math.max(0, s.stocks.food * (1 - frac));
+  }
+
+  // spoilage, food half (D-085): passive end-of-window decay — applied to WHATEVER's left after
+  // every other flow/event this window (freshly landed stock gets no grace window, joins the same
+  // pool and decays alongside everything else). No mortality cause of its own, same reasoning as
+  // harvest_loss above. Pharma's half is applied LATER (after the D-083 treatment draw below,
+  // which still needs to spend against the pre-spoilage pharma pool this same window) — see there.
+  const foodSpoilRate = Math.max(p.minSpoilRate, p.catalog.food.spoilRate * foodSpoilRateMult(s.built));
+  const foodBeforeSpoil = s.stocks.food;
+  s.stocks.food = Math.max(0, s.stocks.food * (1 - foodSpoilRate));
+  const foodSpoiledKg = foodBeforeSpoil - s.stocks.food;
+
   // mortality from the worst life-support shortfall (Liebig), stock resources only (food/water/o2/n2);
   // track WHICH resource is binding — Liebig means only the worst one drives consumableFrac, so it's
   // also the one true "cause" to name in the chronicle (D-061).
@@ -1052,6 +1097,14 @@ export function commitWindow(
   if (treatedCount > 0) {
     s.stocks.pharma = Math.max(0, s.stocks.pharma - treatedCount * p.pharmaPerTreatment);
   }
+
+  // spoilage, pharma half (D-085): deliberately placed AFTER the radiation/treatment draws just
+  // above — those spend against what pharma was ACTUALLY available for this window's medicine, and
+  // spoilage must only eat the LEFTOVER once every real use has already been paid for out of it.
+  const pharmaSpoilRate = p.catalog.pharma.spoilRate; // no mitigating structure (D-085 decision)
+  const pharmaBeforeSpoil = s.stocks.pharma;
+  s.stocks.pharma = Math.max(0, s.stocks.pharma * (1 - pharmaSpoilRate));
+  const pharmaSpoiledKg = pharmaBeforeSpoil - s.stocks.pharma;
 
   // named attribution (D-061): split the shortfall deaths between their independent risks
   // proportionally to their (pre-combination) fractions — consumableFrac has exactly one binding
@@ -1145,6 +1198,7 @@ export function commitWindow(
       windowEvent.covered = radCovered;
       windowEvent.deaths = mortalityBreakdown.radiation ?? 0;
     }
+    if (roll.spec.effect === 'harvest') windowEvent.covered = harvestCovered;
     if (roll.spec.effect === 'outage') windowEvent.target = outageTarget;
     if (roll.spec.effect === 'crash') {
       windowEvent.deaths = crashDeaths;
@@ -1235,6 +1289,8 @@ export function commitWindow(
     avgCondition: avgCondition(s),
     sparesCoverage,
     repairSpentKg: repairSpend,
+    foodSpoiledKg,
+    pharmaSpoiledKg,
     housingCapacity: housing,
     n2LeakKg,
     structDiag: sf.diag,
