@@ -17,7 +17,9 @@
 //     "build": ["farm", "farm"], "demolish": ["steel_plant"],
 //     "structures": {"habitat": 1}, "importStruct": {"habitat": 1},
 //     "pads": {"classic": 1, "refuel": 0}, "scrapPads": {"classic": 1, "refuel": 0},
-//     "unlockRefuel": true, "autoSpares": true, "autoPharma": true }
+//     "unlockRefuel": true, "unlockTech": "some_tech_id", "autoSpares": true, "autoPharma": true }
+// "unlockTech": D-088 (P0) — buy one techs.csv tech this window (catalog ships empty for now,
+// content arrives P1+); ignored if not actually buyable (gate unmet, already owned, ...).
 // ("structures"/"importStruct" are aliases — both mean import-fully-built from Earth.)
 // "autoSpares": true keeps the spares order floored at current upkeep need every window from here
 // on (set once, it stays on) — you can still order MORE spares than the floor, never less.
@@ -238,6 +240,7 @@ interface OrderInput {
   pads?: { classic?: number; refuel?: number };
   scrapPads?: { classic?: number; refuel?: number };
   unlockRefuel?: boolean;
+  unlockTech?: string; // D-088 (P0): buy this techs.csv tech this window (empty catalog for now)
   autoSpares?: boolean;
   autoPharma?: boolean;
 }
@@ -258,6 +261,7 @@ function applyDraft(store: ColonyStore, o: OrderInput): void {
   if (o.scrapPads?.classic) store.setPadScrap('classic', o.scrapPads.classic); // D-080
   if (o.scrapPads?.refuel) store.setPadScrap('refuel', o.scrapPads.refuel);
   if (o.unlockRefuel) store.toggleUnlockRefuel();
+  if (o.unlockTech) store.setUnlockTech(o.unlockTech); // D-088
   if (o.colonists !== undefined) store.setColonists(o.colonists);
 }
 

@@ -48,6 +48,7 @@ export {
   prereqMet,
   importPrereqMet,
   lockReason,
+  techGateMet,
   structureImportPlan,
   bufferRunway,
   BUFFER_LOOKAHEAD,

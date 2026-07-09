@@ -335,39 +335,51 @@ export function marsPlanMaterials(build: string[]): Partial<Stocks> {
   return need;
 }
 
+/** D-088 (P0): can `id` be built/imported given the techs owned so far? Pure and CSV-content-
+ * agnostic — with `techGate` blank (every row today) this is always true, so the whole P0 gate
+ * is a no-op until P1+ actually sets a `techGate` on some structure. */
+export function techGateMet(techGate: string | undefined, techs: readonly string[]): boolean {
+  return !techGate || techs.includes(techGate);
+}
+
 /** Can a structure be LOCALLY BUILT now? (prereq already standing AND minPop reached, D-074/075:
  * minPop is a construction-labor gate — a 20-person outpost has no trained crew to erect a reactor
- * from raw steel on-site). */
+ * from raw steel on-site; D-088: an ungated `techGate` tech must also be owned). */
 export function prereqMet(s: ColonyState, id: string): boolean {
   const st = STRUCT_BY_ID[id];
   if (!st) return false;
   const prereqOk = !st.prereq || (s.built[st.prereq] ?? 0) > 0;
   const popOk = !st.minPop || s.pop >= st.minPop;
-  return prereqOk && popOk;
+  return prereqOk && popOk && techGateMet(st.techGate, s.techs);
 }
 
 /** Can a structure be IMPORTED (pre-built from Earth, D-057) right now? Only the structure prereq
- * applies — it ships ready-to-run with no local assembly step, so minPop (a LOCAL build-labor gate)
- * doesn't apply: nobody on Mars needs to erect a turnkey unit from raw materials (D-075). Its
- * ongoing opsCrew still counts once it lands, same as anything built locally. */
+ * and tech gate apply — it ships ready-to-run with no local assembly step, so minPop (a LOCAL
+ * build-labor gate) doesn't apply: nobody on Mars needs to erect a turnkey unit from raw materials
+ * (D-075). Its ongoing opsCrew still counts once it lands, same as anything built locally. The tech
+ * gate DOES apply to imports too (D-088) — a `techGate`'d design is proprietary/unbuilt tech, not
+ * something Earth can just ship you around the gate. */
 export function importPrereqMet(s: ColonyState, id: string): boolean {
   const st = STRUCT_BY_ID[id];
   if (!st) return false;
-  return !st.prereq || (s.built[st.prereq] ?? 0) > 0;
+  return (!st.prereq || (s.built[st.prereq] ?? 0) > 0) && techGateMet(st.techGate, s.techs);
 }
 
 /** Why a structure is locked right now, if it is (D-074) — prereqMet only answers yes/no; the
- * UI needs to tell "build the prereq first" apart from "grow the colony first". */
+ * UI needs to tell "build the prereq first" apart from "grow the colony first" apart from "buy the
+ * tech first" (D-088). */
 export interface LockReason {
   missingStructure?: string; // s.prereq, if that structure isn't standing yet
   minPopNeeded?: number; // st.minPop, if current pop falls short
+  missingTech?: string; // st.techGate, if that tech isn't owned yet (D-088)
 }
 export function lockReason(s: ColonyState, id: string): LockReason | undefined {
   const st = STRUCT_BY_ID[id];
   if (!st) return undefined;
   const missingStructure = st.prereq && (s.built[st.prereq] ?? 0) <= 0 ? st.prereq : undefined;
   const minPopNeeded = st.minPop && s.pop < st.minPop ? st.minPop : undefined;
-  return missingStructure || minPopNeeded ? { missingStructure, minPopNeeded } : undefined;
+  const missingTech = st.techGate && !techGateMet(st.techGate, s.techs) ? st.techGate : undefined;
+  return missingStructure || minPopNeeded || missingTech ? { missingStructure, minPopNeeded, missingTech } : undefined;
 }
 
 // ---- order preview (for the UI manifest) --------------------------------

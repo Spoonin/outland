@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
-import type { Structure } from '../../engine';
+import { TECH_BY_ID, type Structure } from '../../engine';
 
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
 
@@ -113,6 +113,7 @@ export class MarsTab extends LitElement {
     const parts: string[] = [];
     if (why.missingStructure) parts.push(`нужен сначала: ${why.missingStructure}`);
     if (why.minPopNeeded) parts.push(`нужно населения ≥ ${why.minPopNeeded.toLocaleString('ru-RU')}`);
+    if (why.missingTech) parts.push(`нужна технология: ${TECH_BY_ID[why.missingTech]?.name ?? why.missingTech}`);
     return html`<div class="lock">🔒 ${parts.join(' · ')}</div>`;
   }
 

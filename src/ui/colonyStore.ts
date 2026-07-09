@@ -40,6 +40,8 @@ import {
   STRUCTURES,
   STRUCT_BY_ID,
   RESOURCES,
+  ADVANCED_TECHS,
+  techBuyable as engineTechBuyable,
   type ColonyState,
   type ColonyParams,
   type EarthOrder,
@@ -54,6 +56,7 @@ import {
   type MilestoneId,
   type MortalityCause,
   type LockReason,
+  type TechSpec,
 } from '../engine';
 
 export interface ResourceLine {
@@ -203,6 +206,8 @@ export class ColonyStore {
   private draftPads: Record<LaunchTech, number> = { classic: 0, refuel: 0 };
   private draftPadsScrap: Record<LaunchTech, number> = { classic: 0, refuel: 0 }; // D-080
   private draftUnlockRefuel = false;
+  private draftUnlockTech?: string; // D-088 (P0): at most one tech bought per window (mirrors the
+  // engine's own `EarthOrder.unlockTech` scaffold — a single slot, not an array)
   private draftColonists = 0;
   private draftBuild: string[] = [];
   private draftDemolish: string[] = []; // D-081: Mars structures queued to tear down this window
@@ -273,6 +278,7 @@ export class ColonyStore {
       padsToBuild: { ...this.draftPads },
       padsToScrap: { ...this.draftPadsScrap },
       unlockRefuel: this.draftUnlockRefuel,
+      unlockTech: this.draftUnlockTech,
       colonists: this.draftColonists,
       structures: { ...this.draftImport },
     };
@@ -351,6 +357,36 @@ export class ColonyStore {
   }
   toggleUnlockRefuel(): void {
     this.draftUnlockRefuel = !this.draftUnlockRefuel;
+    this.emit();
+  }
+
+  // ---- advanced tech tree (D-088, P0) --------------------------------------
+
+  /** The whole catalog (from techs.csv) — empty today, P0 ships zero content on purpose. */
+  techs(): readonly TechSpec[] {
+    return ADVANCED_TECHS;
+  }
+  techOwned(id: string): boolean {
+    return this.state.techs.includes(id);
+  }
+  /** Same feasibility check `commitWindow` itself re-validates (prereqTech/prereqStructure/minPop/
+   * everHadPop) — a locked card in the UI can never be bought only to bounce at commit time. */
+  techBuyable(id: string): boolean {
+    return engineTechBuyable(id, this.state.techs, this.state.built, this.state.pop, this.state.everHadPop);
+  }
+  /** Inflation-adjusted price right now, same `previewOrder` path as every other price on screen —
+   * 0 if `id` isn't actually buyable (already owned, gate unmet, ...). */
+  techPriceNow(id: string): number {
+    return previewOrder(this.state, { ...emptyOrder(), unlockTech: id }).techCost;
+  }
+  unlockTechDraft(): string | undefined {
+    return this.draftUnlockTech;
+  }
+  /** Selecting a tech replaces any previously selected one (at most one purchase per window,
+   * matching the engine's single-slot `EarthOrder.unlockTech`); clicking the selected one again
+   * deselects it. */
+  setUnlockTech(id: string | undefined): void {
+    this.draftUnlockTech = this.draftUnlockTech === id ? undefined : id;
     this.emit();
   }
   fleet(): Fleet {
@@ -611,6 +647,7 @@ export class ColonyStore {
       this.draftPads.classic <= 0 &&
       this.draftPads.refuel <= 0 &&
       !this.draftUnlockRefuel &&
+      !this.draftUnlockTech &&
       this.draftColonists <= 0;
     if (!manifestOtherwiseEmpty) return null;
     const spares = this.autoSpares && this.manualResQty('spares') <= 0 && spareUpkeep(this.state.built) > 0;
@@ -673,6 +710,7 @@ export class ColonyStore {
     this.draftPads = { classic: 0, refuel: 0 };
     this.draftPadsScrap = { classic: 0, refuel: 0 };
     this.draftUnlockRefuel = false;
+    this.draftUnlockTech = undefined;
     this.draftColonists = 0;
     this.draftBuild = [];
     this.draftDemolish = [];
@@ -688,6 +726,7 @@ export class ColonyStore {
     this.draftPads = { classic: 0, refuel: 0 };
     this.draftPadsScrap = { classic: 0, refuel: 0 };
     this.draftUnlockRefuel = false;
+    this.draftUnlockTech = undefined;
     this.draftColonists = 0;
     this.draftBuild = [];
     this.draftDemolish = [];

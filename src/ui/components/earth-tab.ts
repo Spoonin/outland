@@ -1,7 +1,7 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
-import { padClassFor, type ResourceKind } from '../../engine';
+import { padClassFor, type ResourceKind, type TechSpec } from '../../engine';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -18,6 +18,7 @@ const TABS = [
   { id: 'tech', label: '🔬 Хайтек' },
   { id: 'people', label: '🧑‍🚀 Люди' },
   { id: 'import', label: '📦 Импорт построек' },
+  { id: 'ttree', label: '🌳 Технологии' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -222,6 +223,7 @@ export class EarthTab extends LitElement {
         </div>
         <div class="cards">${store.structures().map((s) => this.structImportCard(s.id))}</div>
       `;
+    if (this.tab === 'ttree') return this.techTree();
     // logistics
     return this.logistics();
   }
@@ -245,7 +247,13 @@ export class EarthTab extends LitElement {
       <div class="sub">
         ${money(landedCost)}/шт под ключ (готовая структура ${money(unit.cost)} + доставка ${money(deliveryCost)}, ${kg(unit.mass)}, ${del.tech})
         ${struct.energy > 0 ? ` · ⚡ средняя мощность +${struct.energy}/окно (среднегодовая)` : ''}
-        ${struct.housing ? ` · жильё +${struct.housing}` : ''}${!prereqOk ? ` · 🔒 нужен сначала: ${struct.prereq}` : ''}
+        ${struct.housing ? ` · жильё +${struct.housing}` : ''}${
+          !prereqOk
+            ? struct.techGate && !store.techOwned(struct.techGate)
+              ? ` · 🔒 нужна технология: ${struct.techGate}`
+              : ` · 🔒 нужен сначала: ${struct.prereq}`
+            : ''
+        }
       </div>
       ${qty > 0 ? html`<div class="sub">≈ ${money(landedCost * qty)} за позицию</div>` : nothing}
     </div>`;
@@ -296,6 +304,44 @@ export class EarthTab extends LitElement {
               @change=${() => store.toggleUnlockRefuel()} /> заказать R&D в этом окне
           </label>`}
     </div>`;
+  }
+
+  /** Buy-a-tech card (D-088, P0 — by the R&D ladder's own pattern, D-068). */
+  private techCard(t: TechSpec): TemplateResult {
+    const store = this.store;
+    const owned = store.techOwned(t.id);
+    const buyable = store.techBuyable(t.id);
+    const selected = store.unlockTechDraft() === t.id;
+    return html`<div class="card">
+      <div class="h">
+        <span>${t.icon} ${t.name}</span>
+        <span class="v">${owned ? '✓ куплено' : buyable ? money(store.techPriceNow(t.id)) : '🔒'}</span>
+      </div>
+      ${t.notes ? html`<div class="sub">${t.notes}</div>` : nothing}
+      ${owned
+        ? nothing
+        : buyable
+          ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
+              <input type="checkbox" .checked=${selected} @change=${() => store.setUnlockTech(t.id)} />
+              заказать в этом окне
+            </label>`
+          : html`<div class="sub" style="opacity:.7">🔒 нужен пререквизит (тех/структура/население)</div>`}
+    </div>`;
+  }
+
+  /** D-088 (P0): dedicated tab for the advanced-tech tree — fundament only, techs.csv ships empty
+   * on purpose (real content arrives P1+, colony-sim.md §9 / documents/tech-tree/). */
+  private techTree(): TemplateResult {
+    const techs = this.store.techs();
+    return html`
+      <div class="sub" style="margin-bottom:.5rem">
+        Технологии углубляют играбельную модель к реализму — каждая открывает индустриальную
+        стадию, схлопнутую ради играбельности (documents/tech-tree/). Не больше одной покупки за окно.
+      </div>
+      ${techs.length
+        ? html`<div class="cards">${techs.map((t) => this.techCard(t))}</div>`
+        : html`<div class="sub">дерево пока пусто — фундамент готов, контент приходит по фазам P1–P8</div>`}
+    `;
   }
 
   private logistics(): TemplateResult {

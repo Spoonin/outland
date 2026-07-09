@@ -12,12 +12,16 @@ import {
   BUFFER_LOOKAHEAD,
   collapseRunway,
   COLLAPSE_LOOKAHEAD,
+  prereqMet,
+  importPrereqMet,
+  lockReason,
+  techGateMet,
   type EarthOrder,
 } from './colony';
 import { rollEvent } from './events';
 import { makeRng } from './rng';
 import { serializeColony, loadColony } from './colony-save';
-import { laborDemand } from './structures';
+import { laborDemand, STRUCT_BY_ID } from './structures';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
@@ -1691,5 +1695,64 @@ describe('collapseRunway — the debrief-only named survival runway (D-064)', ()
   it('collapseRunway ≥ bufferRunway — full collapse never comes before the first death', () => {
     const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }));
     expect(collapseRunway(s)).toBeGreaterThanOrEqual(bufferRunway(s));
+  });
+});
+
+// D-088 (P0): the tech tree becomes visible/functional — structures.csv gets a `techGate` column
+// and prereqMet/importPrereqMet/lockReason honor it. techs.csv itself still ships EMPTY (P0 is
+// pure machinery, real content arrives P1+), so the integration tests below temporarily stamp a
+// techGate onto a REAL structure via STRUCT_BY_ID (restored in `finally`) instead of adding
+// fixture rows to the production catalog.
+describe('D-088 tech gate scaffold (P0)', () => {
+  it('techGateMet: no gate is always met, regardless of what techs are owned', () => {
+    expect(techGateMet(undefined, [])).toBe(true);
+    expect(techGateMet(undefined, ['anything'])).toBe(true);
+  });
+
+  it('techGateMet: a gate is met only once its OWN tech is owned', () => {
+    expect(techGateMet('some_tech', [])).toBe(false);
+    expect(techGateMet('some_tech', ['other_tech'])).toBe(false);
+    expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
+  });
+
+  it('every structures.csv row ships techGate-free today — P0 is pure machinery, zero content yet', () => {
+    expect(Object.values(STRUCT_BY_ID).every((s) => !s.techGate)).toBe(true);
+  });
+
+  it('a techGate blocks build/import until the tech is owned, then unblocks (prereqMet/importPrereqMet/lockReason)', () => {
+    const original = STRUCT_BY_ID.waste_pad.techGate;
+    STRUCT_BY_ID.waste_pad.techGate = 'test_only_tech';
+    try {
+      const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+      expect(prereqMet(s, 'waste_pad')).toBe(false);
+      expect(importPrereqMet(s, 'waste_pad')).toBe(false);
+      expect(lockReason(s, 'waste_pad')?.missingTech).toBe('test_only_tech');
+
+      s.techs.push('test_only_tech');
+      expect(prereqMet(s, 'waste_pad')).toBe(true);
+      expect(importPrereqMet(s, 'waste_pad')).toBe(true);
+      expect(lockReason(s, 'waste_pad')).toBeUndefined();
+    } finally {
+      STRUCT_BY_ID.waste_pad.techGate = original;
+    }
+  });
+
+  it('a techGate on the build queue blocks the WHOLE order in commitWindow (not just prereqMet in isolation)', () => {
+    const original = STRUCT_BY_ID.waste_pad.techGate;
+    STRUCT_BY_ID.waste_pad.techGate = 'test_only_tech';
+    try {
+      const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+      s.stocks.steel = 10_000; // waste_pad's buildMaterials (3000 kg steel) — isolate the test to
+      // the techGate, not an unrelated materials shortfall (startStockWindows only seeds life-support)
+      commitWindow(s, emptyOrder(), ['waste_pad']); // Mars build is money-free (D-054) — the build
+      // queue itself, not `spent`, is the tell that the whole order was rejected
+      expect(s.built.waste_pad ?? 0).toBe(0);
+
+      s.techs.push('test_only_tech');
+      commitWindow(s, emptyOrder(), ['waste_pad']);
+      expect(s.built.waste_pad ?? 0).toBe(1);
+    } finally {
+      STRUCT_BY_ID.waste_pad.techGate = original;
+    }
   });
 });

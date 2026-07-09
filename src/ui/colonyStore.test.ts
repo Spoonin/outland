@@ -88,6 +88,26 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.plan().rndBlocked).toBe(false);
   });
 
+  it('tech tree store plumbing: empty catalog today, draft round-trips through order(), clears on commit (D-088, P0)', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
+    expect(store.techs()).toEqual([]); // techs.csv ships empty — P0 is pure machinery
+    expect(store.unlockTechDraft()).toBeUndefined();
+    expect(store.order().unlockTech).toBeUndefined();
+
+    store.setUnlockTech('nonexistent_tech'); // nothing to buy yet, but the DRAFT slot still works
+    expect(store.unlockTechDraft()).toBe('nonexistent_tech');
+    expect(store.order().unlockTech).toBe('nonexistent_tech');
+    expect(store.techBuyable('nonexistent_tech')).toBe(false); // not in the (empty) catalog
+    expect(store.techPriceNow('nonexistent_tech')).toBe(0); // unbuyable ⇒ free preview, never charged
+
+    store.setUnlockTech('nonexistent_tech'); // clicking the same id again deselects it
+    expect(store.unlockTechDraft()).toBeUndefined();
+
+    store.setUnlockTech('nonexistent_tech');
+    store.commit(); // stale/unbuyable id is silently dropped by commitWindow's own techBuyable gate
+    expect(store.unlockTechDraft()).toBeUndefined(); // draft cleared regardless
+  });
+
   it('cargo alone is bootstrap-blocked before any colonist has landed, freely once established (D-078)', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV()); // pop0 defaults to 0
     store.setRes('steel', 20_000); // resources, no colonists in the draft

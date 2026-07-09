@@ -48,6 +48,9 @@ export interface Structure {
   wearRateMult: number; // D-086: per-type multiplier on ColonyParams.wearRate (dust abrasion wears
   // exposed panels faster than a sealed reactor); absent/blank → 1. repairRate is NOT scaled —
   // only the wear side of the D-052 condition system is asymmetric.
+  techGate?: string; // D-088 (P0): id of a techs.csv tech that must be bought before this can be
+  // built OR imported (prereqMet/importPrereqMet, colony.ts); absent → no gate. Every current row
+  // ships blank — P0 is pure machinery, real gates arrive with P1+ content.
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -89,6 +92,7 @@ function loadStructures(): Structure[] {
     if (row.foodCapacity) s.foodCapacity = num(row.foodCapacity);
     if (row.waterCapacity) s.waterCapacity = num(row.waterCapacity);
     if (row.spoilRateMult) s.spoilRateMult = num(row.spoilRateMult);
+    if (row.techGate) s.techGate = row.techGate;
     return s;
   });
 }
