@@ -16,13 +16,22 @@ import {
   importPrereqMet,
   lockReason,
   techGateMet,
+  MILESTONES,
   type EarthOrder,
   type ColonyState,
 } from './colony';
 import { rollEvent } from './events';
 import { makeRng } from './rng';
 import { serializeColony, loadColony, hydrateColony } from './colony-save';
-import { laborDemand, STRUCT_BY_ID, industryMult, housingCapacity, foodCapacity } from './structures';
+import {
+  laborDemand,
+  STRUCT_BY_ID,
+  industryMult,
+  housingCapacity,
+  foodCapacity,
+  recycleBonusCapacity,
+  birthRateMult,
+} from './structures';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
@@ -1723,7 +1732,7 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the D-089..D-094 tech-tree structures are gated', () => {
+  it('every PRE-P1 structure ships techGate-free — only the D-089..D-095 tech-tree structures are gated', () => {
     const gated = [
       'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
       'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
@@ -1731,6 +1740,7 @@ describe('D-088 tech gate scaffold (P0)', () => {
       'robotics_bay', // D-092 (P4)
       'school', 'university', // D-093 (P5)
       'shield_berm', // D-094 (radiation)
+      'fusion_plant', 'blss_module', 'maternity_complex', // D-095 (P6)
     ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
@@ -2201,5 +2211,110 @@ describe('D-094: radiation — shield_berm gate + chronic dose + solar_flare dou
     const saved = serializeColony(s);
     const loaded = hydrateColony(saved, s.p);
     expect(loaded.colonists[0]!.radiationDose).toBe(s.colonists[0]!.radiationDose);
+  });
+});
+
+// D-095 (P6): city scale — fusion_plant (GWh energy, no eternal fuel import, unlike nuclear_plant),
+// blss_module (recycleBonus — capacity-scaled toward recycleCeiling, D-087 §2 "cycle, not one-shot"),
+// maternity_complex (birthRateMult — flat while built, same shape as robotics' opsCrewMult), plus
+// fusion_online + pop_1000/10000/50000/100000 milestones (path-to-100k.md checkpoints).
+describe('D-095 P6: city scale (fusion_plant, blss_module, maternity_complex)', () => {
+  it('all three P6 structures are gated by their own new tech (fusion/closed_loop/demographics)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 300, startStockWindows: 5 }));
+    expect(prereqMet(s, 'fusion_plant')).toBe(false);
+    expect(prereqMet(s, 'blss_module')).toBe(false);
+    expect(prereqMet(s, 'maternity_complex')).toBe(false);
+
+    s.techs.push('robotics'); // fusion's own prereqTech
+    s.techs.push('fusion');
+    expect(prereqMet(s, 'fusion_plant')).toBe(true);
+
+    s.techs.push('electrolysis'); // closed_loop's own prereqTech
+    s.techs.push('closed_loop');
+    expect(prereqMet(s, 'blss_module')).toBe(true);
+
+    s.techs.push('education', 'higher_education'); // demographics' own prereqTech chain
+    s.techs.push('demographics');
+    expect(prereqMet(s, 'maternity_complex')).toBe(true);
+  });
+
+  it('fusion_plant generates GWh-scale energy while drawing an ongoing (small) chips cost — an eternal import tail, unlike nuclear_plant\'s fuel-only draw', () => {
+    const s = newColony(defaultColonyParams({ pop0: 300, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { fusion_plant: 1 };
+    s.condition = { fusion_plant: 1 };
+    s.stocks.chips = 1_000_000; // plenty on hand — isolate from an input-gate throttle
+    const r = commitWindow(s, emptyOrder());
+    expect(r.energyGen).toBeGreaterThan(STRUCT_BY_ID.nuclear_plant.energy); // GWh > nuclear's 500
+    expect(s.stocks.chips).toBeLessThan(1_000_000); // ongoing ЗИП draw actually happened
+  });
+
+  it('recycleBonusCapacity sums blss_module capacity across built units, same shape as shieldCapacity', () => {
+    expect(recycleBonusCapacity({})).toBe(0);
+    expect(recycleBonusCapacity({ blss_module: 2 })).toBe(2 * STRUCT_BY_ID.blss_module.recycleBonus!);
+  });
+
+  it('blss_module full coverage raises water/o2 recycle η toward the ceiling — a self-sufficient colony loses less net water/window than an identical one without it', () => {
+    const pop0 = 200;
+    const build = (withBlss: boolean) => {
+      const s = newColony(defaultColonyParams({ pop0, startStockWindows: 5, eventChanceCap: 0 }));
+      s.built = withBlss ? { blss_module: 1 } : {}; // capacity 300 ≥ pop 200 → full coverage
+      s.condition = withBlss ? { blss_module: 1 } : {};
+      s.stocks.chips = 0;
+      return s;
+    };
+    const without = build(false);
+    const withBlss = build(true);
+    const waterBefore = without.stocks.water;
+    commitWindow(without, emptyOrder());
+    commitWindow(withBlss, emptyOrder());
+    const drawWithout = waterBefore - without.stocks.water;
+    const drawWith = waterBefore - withBlss.stocks.water;
+    expect(drawWith).toBeLessThan(drawWithout); // higher η → less net stock loss for the same population
+  });
+
+  it('birthRateMult(built) is 1 with no maternity_complex, and the structure\'s own magnitude with one built', () => {
+    expect(birthRateMult({})).toBe(1);
+    expect(birthRateMult({ maternity_complex: 1 })).toBe(STRUCT_BY_ID.maternity_complex.birthRateMult);
+  });
+
+  it('maternity_complex multiplies births beyond the base medbay+pharma rate (D-030), same window', () => {
+    const build = (withMaternity: boolean) => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, eventChanceCap: 0 }));
+      s.built = { solar_plant: 3, medbay: 1, ...(withMaternity ? { maternity_complex: 1 } : {}) };
+      s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
+      s.stocks.pharma = 1_000_000;
+      return s;
+    };
+    const r1 = commitWindow(build(false), emptyOrder());
+    const r2 = commitWindow(build(true), emptyOrder());
+    expect(r1.births).toBe(1000 * 0.05); // base birthRate, exact (probRound is a no-op on an integer mean)
+    expect(r2.births).toBe(Math.round(1000 * 0.05 * STRUCT_BY_ID.maternity_complex.birthRateMult!));
+    expect(r2.births).toBeGreaterThan(r1.births);
+  });
+
+  it('fusion_online marks the first window a fusion_plant stands, energy-affordability aside', () => {
+    const s = newColony(defaultColonyParams({ pop0: 300, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { fusion_plant: 1 };
+    s.condition = { fusion_plant: 1 };
+    s.stocks.chips = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.milestones).toContain('fusion_online');
+  });
+
+  it('pop_1000 marks the first window population crosses 1000 (path-to-100k.md checkpoint)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 950, startStockWindows: 5, eventChanceCap: 0, birthRate: 0.1 }));
+    s.built = { solar_plant: 2, medbay: 1 };
+    s.condition = { solar_plant: 1, medbay: 1 };
+    s.stocks.pharma = 1_000_000;
+    for (let i = 0; i < 5 && s.pop < 1000; i++) commitWindow(s, emptyOrder());
+    expect(s.pop).toBeGreaterThanOrEqual(1000);
+    expect(s.milestones.pop_1000).toBeDefined();
+  });
+
+  it('all five new milestones are registered with a subsidyBonus (real scale, not luck/automatic)', () => {
+    for (const id of ['fusion_online', 'pop_1000', 'pop_10000', 'pop_50000', 'pop_100000'] as const) {
+      const spec = MILESTONES.find((m) => m.id === id);
+      expect(spec?.subsidyBonus).toBeGreaterThan(0);
+    }
   });
 });

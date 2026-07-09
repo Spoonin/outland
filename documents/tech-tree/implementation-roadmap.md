@@ -149,15 +149,23 @@ UI и структуры не гейтятся техами.
 
 ---
 
-## P6 — Городской масштаб (D-08x…)
+## P6 — Городской масштаб (D-095)
 
-- **Структуры:** `fusion_plant` (ГВт-энергия, дорогая лестница как D-068), `blss_module`
-  (эффект `recycleBonus` — модифицируемый η, сейчас фиксирован в resources.csv), `maternity_complex`
-  (эффект `birthRateMult`). Гейты `fusion`, `closed_loop`, `demographics`.
-- **Движок:** `recycleBonus` (η ресурса становится модифицируемым техами/структурами);
-  `birthRateMult` (D-083 births). Средняя сложность.
+> **Статус: сделано (2026-07-09).** Полная запись — `decisions.md` D-095; сводка — `index.md`.
+
+- **Структуры:** `fusion_plant` (энергия 3000, на порядок больше `nuclear_plant`, БЕЗ `cons_fuel` —
+  вместо этого малый постоянный `cons_chips`, «атом без импортного топлива»), `blss_module`
+  (эффект `recycleBonus` — capacity-scaled к `recycleCeiling` 0.95, поднимает η water/o2, никогда
+  не до 1.0), `maternity_complex` (эффект `birthRateMult` — флэт, как `robotics`'ий `opsCrewMult`).
+  Гейты `fusion` (prereqTech `robotics`), `closed_loop` (prereqTech `electrolysis`), `demographics`
+  (prereqTech `higher_education`).
+- **Движок:** `Structure.recycleBonus`/`recycleBonusCapacity(built)` + `recycleMap(p, built, pop)`
+  (расширена сигнатура, coverage-scaled как `shieldCapacity` D-094); `Structure.birthRateMult`/
+  `birthRateMult(built)`, умножает `p.birthRate` в блоке рождений.
 - **Майлстоуны:** `fusion_online`, `pop_1000`/`pop_10000`/`pop_50000`/`pop_100000` (расширяют D-064;
-  масштабные дают субсидию-бонус по образцу D-076).
+  эскалирующий subsidyBonus $5.0B→$20.0B, по образцу D-076).
+- **UI:** без изменений — подтверждено аудитом, рендер структур/техов/майлстоунов уже generic.
+- **Тесты:** новый `describe('D-095 P6...')`, 9 кейсов; 402 теста всего (было 393).
 
 ---
 

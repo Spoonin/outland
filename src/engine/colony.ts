@@ -52,6 +52,8 @@ import {
   laborDemand,
   housingCapacity,
   shieldCapacity,
+  recycleBonusCapacity,
+  birthRateMult,
   sickBedCapacity,
   foodSpoilRateMult,
   structuralN2Leak,
@@ -114,6 +116,10 @@ export interface ColonyParams extends DemographicParams {
   eventRampPerWindow: number; // linear chance increase per window past eventStartWindow
   eventChanceCap: number; // ceiling on per-window event chance
   eventPopRef: number; // population at which event severity reaches its full magnitude range (D-063)
+  recycleBonusMax: number; // D-095 (P6): max η ADDED to water/o2's base recycle at full blss_module
+  // coverage (coverage=1) — combines with the base resources.csv recycle, capped at recycleCeiling
+  recycleCeiling: number; // D-095: hard ceiling on combined recycle η for any resource — never a
+  // literal 1.0 (D-052-style: some loss always survives, same philosophy as shieldFloor/minSpoilRate)
 }
 
 export interface Transit {
@@ -246,6 +252,10 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     chronicDoseSvPerWindow: 0.5,
     shieldFloor: 0.15, // GCR barely attenuates even through regolith — coverage never zeroes it
     radiationLifespanPerSv: 3, // TOY order-of-magnitude on real chronic-exposure life-shortening estimates
+    // D-095 (P6): blss_module raises water/o2's recycle η toward the ceiling as coverage grows —
+    // 0.6 added at full coverage takes water/o2 from their 0.3 base to 0.9, short of the 0.95 ceiling.
+    recycleBonusMax: 0.6,
+    recycleCeiling: 0.95,
     popEnergyPerCapita: 0.05,
     catalog: defaultCatalog(),
     launch: defaultLaunchParams(),
@@ -287,9 +297,21 @@ export function consumption(s: ColonyState): Partial<Stocks> {
   return c;
 }
 
-function recycleMap(p: ColonyParams): Partial<Stocks> {
+// D-095 (P6): blss_module raises the loop only for the two resources that already have a
+// real recycle η in resources.csv (water/o2) — food has no recycle concept, only spoilage.
+const RECYCLE_BONUS_RESOURCES: ResourceKind[] = ['water', 'o2'];
+
+function recycleMap(p: ColonyParams, built: BuiltCounts, pop: number): Partial<Stocks> {
   const m: Partial<Stocks> = {};
-  for (const r of RESOURCES) if (p.catalog[r].recycle > 0) m[r] = p.catalog[r].recycle;
+  const coverage = pop > 0 ? Math.min(1, recycleBonusCapacity(built) / pop) : 1;
+  for (const r of RESOURCES) {
+    let v = p.catalog[r].recycle;
+    if (v <= 0) continue;
+    if (RECYCLE_BONUS_RESOURCES.includes(r)) {
+      v = Math.min(p.recycleCeiling, v + p.recycleBonusMax * coverage);
+    }
+    m[r] = v;
+  }
   return m;
 }
 
@@ -646,7 +668,12 @@ export type MilestoneId =
   | 'local_metals' // D-089/D-091: first mre_plant — steel no longer only from imported ingots
   | 'local_construction' // D-090/D-091: first sinter_plant — habitat volume no longer only steel/glass
   | 'local_fabrication' // D-091: first fab_shop — components no longer only imported
-  | 'local_spares'; // D-091: first machine_shop — spares floor no longer 100% imported
+  | 'local_spares' // D-091: first machine_shop — spares floor no longer 100% imported
+  | 'fusion_online' // D-095 (P6): first fusion_plant — GWh energy without an eternal fuel import
+  | 'pop_1000' // D-095: city-scale population checkpoints (path-to-100k.md)
+  | 'pop_10000'
+  | 'pop_50000'
+  | 'pop_100000';
 
 export interface MilestoneSpec {
   id: MilestoneId;
@@ -675,6 +702,14 @@ export const MILESTONES: readonly MilestoneSpec[] = [
   { id: 'local_construction', name: 'Стройка из реголита', icon: '🧱', subsidyBonus: 2.0e9 },
   { id: 'local_fabrication', name: 'Местная фабрикация', icon: '🏭', subsidyBonus: 2.5e9 },
   { id: 'local_spares', name: 'Местный ЗИП', icon: '🔧', subsidyBonus: 2.5e9 },
+  // D-095 (P6): city scale — fusion closes the last eternal-fuel energy dependency (nuclear still
+  // needs fuel forever); the pop rungs mark path-to-100k.md's own checkpoints, escalating bonuses
+  // (later rungs represent a MUCH bigger demonstrated colony, same "real scale" criterion as above).
+  { id: 'fusion_online', name: 'Термояд онлайн', icon: '☀️🔮', subsidyBonus: 4.0e9 },
+  { id: 'pop_1000', name: '1 000 колонистов', icon: '👥', subsidyBonus: 5.0e9 },
+  { id: 'pop_10000', name: '10 000 колонистов', icon: '👥', subsidyBonus: 8.0e9 },
+  { id: 'pop_50000', name: '50 000 колонистов', icon: '👥', subsidyBonus: 12.0e9 },
+  { id: 'pop_100000', name: '100 000 колонистов', icon: '👥', subsidyBonus: 20.0e9 },
 ];
 
 // N₂ included: habitat hull leak → N₂ shortage → mortality (V7); no habitats → leak=0 → no effect
@@ -1084,7 +1119,7 @@ export function commitWindow(
   // N₂ structural hull leak: each habitat module bleeds N₂ regardless of occupancy (V7)
   const n2LeakKg = structuralN2Leak(s.built);
   if (n2LeakKg > 0) combinedCons.n2 = (combinedCons.n2 ?? 0) + n2LeakKg;
-  const recycle = recycleMap(p);
+  const recycle = recycleMap(p, s.built, s.pop);
   const { stocks, deficit } = applyFlows(s.stocks, {
     arrivals: landedEff.stocks,
     production: sf.production,
@@ -1223,7 +1258,7 @@ export function commitWindow(
   if ((s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0 && housingOk && worstRatio === 0 && energyRatio === 0) {
     // D-083: newborns are individuals at age 0 — ≈7.4 windows of eating before they can work;
     // probRound keeps a sub-20-person outpost growing in expectation despite integer people
-    births = probRound(s.pop * p.birthRate, crng);
+    births = probRound(s.pop * p.birthRate * birthRateMult(s.built), crng);
     for (let i = 0; i < births; i++) s.colonists.push(newborn(crng, effP));
     s.pop = s.colonists.length;
   }
@@ -1317,6 +1352,11 @@ export function commitWindow(
   if (landedEff.colonists > 0) mark('first_landing'); // someone must land ALIVE (D-072 crash)
   if (births > 0) mark('first_birth');
   if (s.pop >= 100) mark('pop_100');
+  if (s.pop >= 1000) mark('pop_1000'); // D-095
+  if (s.pop >= 10000) mark('pop_10000');
+  if (s.pop >= 50000) mark('pop_50000');
+  if (s.pop >= 100000) mark('pop_100000');
+  if ((s.built.fusion_plant ?? 0) > 0) mark('fusion_online'); // D-095
   if (bulkAutonomyOk) mark('bulk_autonomy');
   if (buffer !== undefined && buffer >= 2) mark('buffer_2');
   if ((s.built.mre_plant ?? 0) > 0) mark('local_metals'); // D-089

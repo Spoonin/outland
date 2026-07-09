@@ -66,6 +66,12 @@ export interface Structure {
   shieldCapacity?: number; // D-094: colonists this unit's regolith mass protects from radiation —
   // capacity-scaled like housing/sickBeds, not binary (a berm covers a fixed volume). Only
   // shield_berm sets this; absent → 0 (no shielding contribution).
+  recycleBonus?: number; // D-095 (P6): colonists' worth of life-support loop this unit closes —
+  // capacity-scaled like shieldCapacity, not a one-shot unlock (D-087 §2). Only blss_module sets
+  // this; absent → 0. Combines with ColonyParams.recycleBonusMax/recycleCeiling in colony.ts.
+  birthRateMult?: number; // D-095 (P6): multiplies ColonyParams.birthRate while at least one unit
+  // is built — flat, not capacity-scaled (mirrors the robotics tech's opsCrewMult precedent: an
+  // engine upgrade, not a per-capita coverage race). Only maternity_complex sets this; absent → 1.
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -113,6 +119,8 @@ function loadStructures(): Structure[] {
     if (row.rampScale) s.rampScale = num(row.rampScale);
     if (row.minSpecialists) s.minSpecialists = num(row.minSpecialists);
     if (row.shieldCapacity) s.shieldCapacity = num(row.shieldCapacity);
+    if (row.recycleBonus) s.recycleBonus = num(row.recycleBonus);
+    if (row.birthRateMult) s.birthRateMult = num(row.birthRateMult);
     return s;
   });
 }
@@ -329,6 +337,25 @@ export function shieldCapacity(built: BuiltCounts): number {
   let total = 0;
   for (const s of STRUCTURES) total += (s.shieldCapacity ?? 0) * (built[s.id] ?? 0);
   return total;
+}
+
+/** D-095 (P6): colonists' worth of life-support recycling loop closed by built BLSS capacity —
+ * capacity-scaled against pop by the caller, same shape as shieldCapacity. */
+export function recycleBonusCapacity(built: BuiltCounts): number {
+  let total = 0;
+  for (const s of STRUCTURES) total += (s.recycleBonus ?? 0) * (built[s.id] ?? 0);
+  return total;
+}
+
+/** D-095 (P6): multiplier on ColonyParams.birthRate from built demographic-engine structures —
+ * flat while present (stacks multiplicatively if more than one type ever qualifies), not
+ * capacity-scaled — mirrors the robotics tech's opsCrewMult precedent. 1 = no effect. */
+export function birthRateMult(built: BuiltCounts): number {
+  let mult = 1;
+  for (const s of STRUCTURES) {
+    if (s.birthRateMult && (built[s.id] ?? 0) > 0) mult *= s.birthRateMult;
+  }
+  return mult;
 }
 
 /** Total treatment slots for seriously-ill colonists this window (D-083). */

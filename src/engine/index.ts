@@ -69,6 +69,8 @@ export {
   laborDemand,
   housingCapacity,
   shieldCapacity,
+  recycleBonusCapacity,
+  birthRateMult,
   sickBedCapacity,
   foodCapacity,
   waterCapacity,
