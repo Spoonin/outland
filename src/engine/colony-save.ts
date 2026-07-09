@@ -8,7 +8,7 @@ import { RESOURCES, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
 import { type ActiveEffect } from './events';
 
-export const SAVE_VERSION = 8; // D-089 (P1): added `industryOutput` (depletion/ramp cumulative) + widened `Stocks` (regolith/hydrogen/co2)
+export const SAVE_VERSION = 9; // D-090 (P2 core): widened `Stocks` (composite/components)
 
 /** The persisted shape — dynamic state only (config is rebuilt from defaults on load). */
 export interface ColonySave {

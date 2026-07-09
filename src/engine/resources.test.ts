@@ -105,6 +105,8 @@ describe('resource set (dробный набор, D-042)', () => {
     expect(RESOURCES).toContain('regolith'); // D-089 (P1): local ISRU intermediate
     expect(RESOURCES).toContain('hydrogen');
     expect(RESOURCES).toContain('co2');
-    expect(RESOURCES.length).toBe(16);
+    expect(RESOURCES).toContain('composite'); // D-090 (P2): regolith construction
+    expect(RESOURCES).toContain('components');
+    expect(RESOURCES.length).toBe(18);
   });
 });

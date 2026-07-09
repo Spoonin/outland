@@ -28,6 +28,12 @@ export const RESOURCES = [
   'regolith',
   'hydrogen',
   'co2',
+  // D-090 (P2, tech-tree): regolith construction — NOT localOnly (unlike the P1 trio above):
+  // physically shippable, just steeply priced (bulk sintered brick / fabricated parts) — the
+  // reason nobody would bother is cost, not physics. `components` is deliberately importable
+  // until fab_shop (P3/4) localizes it (D-057 "smooth start" pattern, same as pre-built structures).
+  'composite',
+  'components',
 ] as const;
 export type ResourceKind = (typeof RESOURCES)[number];
 export type Stocks = Record<ResourceKind, number>;

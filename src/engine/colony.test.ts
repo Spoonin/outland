@@ -21,7 +21,7 @@ import {
 import { rollEvent } from './events';
 import { makeRng } from './rng';
 import { serializeColony, loadColony, hydrateColony } from './colony-save';
-import { laborDemand, STRUCT_BY_ID, industryMult } from './structures';
+import { laborDemand, STRUCT_BY_ID, industryMult, housingCapacity, foodCapacity } from './structures';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
@@ -1715,8 +1715,11 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the 5 new D-089 ISRU structures are gated', () => {
-    const gated = ['excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant'];
+  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090 tech-tree structures are gated', () => {
+    const gated = [
+      'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
+      'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
+    ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
       else expect(s.techGate).toBeFalsy();
@@ -1882,5 +1885,70 @@ describe('D-089 P1: primary mining + local metals + depletion/ramp-up', () => {
     const saved = serializeColony(s);
     const loaded = hydrateColony(saved, s.p);
     expect(loaded.industryOutput.excavator).toBe(s.industryOutput.excavator);
+  });
+});
+
+// D-090 (P2 core): regolith construction — composite/components (importable, NOT localOnly, unlike
+// P1's regolith/hydrogen/co2) + sinter_plant (ramp-up, second localizing process after mre_plant)
+// + habitat_regolith/silo_regolith, which reuse the EXISTING housing/foodCapacity fields verbatim —
+// zero new engine code for either of those two.
+describe('D-090 P2 core: regolith construction', () => {
+  it('composite/components are ORDERABLE from Earth (unlike P1\'s regolith/hydrogen/co2) — previewOrder counts them', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    const clean = previewOrder(s, emptyOrder());
+    const withOrder = previewOrder(s, ord({ resources: { composite: 1000, components: 1000 } }));
+    expect(withOrder.goodsCost).toBeGreaterThan(clean.goodsCost);
+    expect(withOrder.mass).toBeGreaterThan(clean.mass);
+  });
+
+  it('sinter_plant/habitat_regolith/silo_regolith are gated by regolith_construction (prereqTech isru_extraction)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    expect(prereqMet(s, 'sinter_plant')).toBe(false);
+    expect(prereqMet(s, 'habitat_regolith')).toBe(false);
+    expect(prereqMet(s, 'silo_regolith')).toBe(false);
+
+    s.techs.push('isru_extraction'); // regolith_construction's prereqTech, not the gate itself
+    expect(prereqMet(s, 'sinter_plant')).toBe(false);
+
+    s.techs.push('regolith_construction');
+    expect(prereqMet(s, 'sinter_plant')).toBe(true);
+    expect(prereqMet(s, 'habitat_regolith')).toBe(true);
+    expect(prereqMet(s, 'silo_regolith')).toBe(true);
+  });
+
+  it('sinter_plant has a ramp-up curve (like mre_plant), NOT depletion (regolith is mined by excavator, not by sintering it)', () => {
+    const sinter = STRUCT_BY_ID.sinter_plant;
+    expect(sinter.rampScale).toBeTruthy();
+    expect(sinter.depletionScale).toBeFalsy();
+    expect(industryMult(sinter, 0)).toBeCloseTo(sinter.rampStart ?? 0, 5);
+    expect(industryMult(sinter, sinter.rampScale!)).toBeCloseTo(1, 5);
+  });
+
+  it('habitat_regolith adds housing exactly like habitat — reuses the SAME generic housingCapacity(), zero new engine code', () => {
+    expect(STRUCT_BY_ID.habitat_regolith.housing).toBe(STRUCT_BY_ID.habitat.housing);
+    expect(housingCapacity({ habitat_regolith: 2 })).toBe(2 * STRUCT_BY_ID.habitat.housing!);
+  });
+
+  it('silo_regolith adds food capacity exactly like food_silo — reuses the SAME generic foodCapacity()/spoilRateMult, zero new engine code', () => {
+    expect(STRUCT_BY_ID.silo_regolith.foodCapacity).toBe(STRUCT_BY_ID.food_silo.foodCapacity);
+    expect(STRUCT_BY_ID.silo_regolith.spoilRateMult).toBe(STRUCT_BY_ID.food_silo.spoilRateMult);
+    expect(foodCapacity({ silo_regolith: 1 })).toBe(STRUCT_BY_ID.food_silo.foodCapacity);
+  });
+
+  it('sinter_plant closes the loop: local regolith becomes LOCAL composite, which builds habitat_regolith with zero Earth-composite import', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+    s.techs = ['regolith_construction']; // habitat_regolith's own techGate (D-088)
+    s.built = { sinter_plant: 1, solar_plant: 1 };
+    s.condition = { sinter_plant: 1, solar_plant: 1 };
+    s.stocks.regolith = 1_000_000; // plentiful feedstock — isolates this test from excavator's own timing (D-089 already covers that)
+    s.stocks.spares = 100_000; // full ЗИП coverage — isolates this test from wear (D-052), which
+    // would otherwise dock BOTH structures' condition before this very first window's production
+    commitWindow(s, emptyOrder()); // sinter_plant runs (ramp-up start ~40%) — no composite import at all
+    expect(s.stocks.composite).toBeGreaterThan(7999); // habitat_regolith's own buildMaterials need (8000, floating-point-safe margin)
+
+    // components still Earth-imported until fab_shop (P3/4) — D-090's own deliberate scope, not a gap
+    s.stocks.components = 1000;
+    commitWindow(s, emptyOrder(), ['habitat_regolith']);
+    expect(s.built.habitat_regolith ?? 0).toBe(1); // built from LOCAL composite, not an imported kg of it
   });
 });
