@@ -68,6 +68,7 @@ export {
   spareUpkeep,
   laborDemand,
   housingCapacity,
+  shieldCapacity,
   sickBedCapacity,
   foodCapacity,
   waterCapacity,
@@ -75,7 +76,15 @@ export {
   structuralN2Leak,
   industryMult,
 } from './structures';
-export { colonistRng, workforceCount, YEARS_PER_WINDOW, expectedOldAgeDeaths, phi } from './colonists';
+export {
+  colonistRng,
+  workforceCount,
+  YEARS_PER_WINDOW,
+  expectedOldAgeDeaths,
+  phi,
+  shieldAttenuation,
+  effectiveDeathAge,
+} from './colonists';
 export type { Colonist, DemographicParams } from './colonists';
 // roadmap-2/V8 scaffold — TECHS aliased to ADVANCED_TECHS: `TECHS` already names logistics.ts's
 // pad-class list (classic/refuel) in this barrel; two different "TECHS" would collide.

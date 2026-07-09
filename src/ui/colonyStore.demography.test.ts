@@ -13,7 +13,7 @@ function memKV(): KV {
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v), removeItem: (k) => void m.delete(k) };
 }
 
-const healthy = (age: number): Colonist => ({ age, deathAge: age + 40, sick: false, doomed: false });
+const healthy = (age: number): Colonist => ({ age, deathAge: age + 40, sick: false, doomed: false, radiationDose: 0 });
 
 /** Builds a ColonyStore whose colonists are EXACTLY the given list, via save/load injection. */
 function storeWithColonists(colonists: Colonist[]): ColonyStore {

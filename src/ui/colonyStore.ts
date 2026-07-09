@@ -18,6 +18,7 @@ import {
   spareUpkeep,
   laborDemand,
   housingCapacity,
+  shieldCapacity,
   sickBedCapacity,
   foodCapacity,
   waterCapacity,
@@ -90,6 +91,8 @@ export interface ColonyStatus {
   avgCondition: number; // mean structure condition 0..1 (V6)
   sparesCoverage: number; // spares stock vs upkeep need
   crewCoverage: number; // D-075: pop vs total opsCrew demand — 1 if fully staffed or nothing needs crew
+  shieldCoverage: number; // D-094: shield_berm capacity vs pop — 1 if nobody's alive or fully covered;
+  // never fully removes chronic dose (or solar_flare's magnitude) even at 1 — see shieldFloor
   housingCapacity: number; // total colonist slots from habitats (V7); 0 = unconstrained
   foodCapacityTotal: number; // D-085: baseFoodCapacity + food_silo — total food stockpile ceiling
   waterCapacityTotal: number; // D-085: same, for water (water_tank)
@@ -818,6 +821,8 @@ export class ColonyStore {
       // D-083: coverage is judged by the ABLE-BODIED pool, mirroring the engine's laborRatio
       crewCoverage:
         s.pop > 0 && laborNeed > 0 ? Math.min(1, workforceCount(s.colonists, s.p.adultAge) / laborNeed) : 1,
+      // D-094: same capacity-vs-pop shape as housing/sickBeds, not the labor-pool basis crewCoverage uses
+      shieldCoverage: s.pop > 0 ? Math.min(1, shieldCapacity(s.built) / s.pop) : 1,
       housingCapacity: housingCapacity(s.built),
       foodCapacityTotal: s.p.baseFoodCapacity + foodCapacity(s.built),
       waterCapacityTotal: s.p.baseWaterCapacity + waterCapacity(s.built),

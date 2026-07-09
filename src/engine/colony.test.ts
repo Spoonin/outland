@@ -71,7 +71,14 @@ function selfSufficient100(overrides = {}): ReturnType<typeof newColony> {
   // simply age out (~windows 10–18) with no births to replace them, and no amount of food/O₂
   // keeps a colony of corpses alive. Capacity is sized for the population wave to ~230 heads
   // (births compound while the founder cohort is still alive), medbay beds cover baseline illness.
-  s.built = { solar_plant: 7, farm: 2, water_recycler: 5, o2_generator: 7, medbay: 1 };
+  // D-094: "self-sufficient" now includes RADIATION SHIELDING too — 2× shield_berm (400 capacity,
+  // full coverage up to ~400 pop) caps chronic dose at its floor (15% of unshielded) rather than
+  // the unmitigated rate, which would otherwise age the whole colony out regardless of resources.
+  // solar_plant bumped 7→9: shield_berm's own −20 energy draw ×2 ate most of the original fixture's
+  // already-thin ~80-unit margin, which (verified by sweeping the constant) turned out to sit right
+  // at a knife-edge in this multi-generational 60-window simulation — not a radiation miscalibration,
+  // a genuine energy-margin gap the original fixture never had to cover before shield_berm existed.
+  s.built = { solar_plant: 9, farm: 2, water_recycler: 5, o2_generator: 7, medbay: 1, shield_berm: 2 };
   s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
   s.stocks.spares = 1_000_000; // upkeep fully covered — no wear over any lookahead
   s.stocks.pharma = 200_000; // births gate + illness treatment doses over the whole lookahead
@@ -1716,13 +1723,14 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090/D-091/D-092/D-093 tech-tree structures are gated', () => {
+  it('every PRE-P1 structure ships techGate-free — only the D-089..D-094 tech-tree structures are gated', () => {
     const gated = [
       'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
       'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
       'fab_shop', 'machine_shop', // D-091 (P3 core)
       'robotics_bay', // D-092 (P4)
       'school', 'university', // D-093 (P5)
+      'shield_berm', // D-094 (radiation)
     ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
@@ -2117,5 +2125,81 @@ describe('D-093 P5: cadres/education (specialists pool)', () => {
     } finally {
       STRUCT_BY_ID.rnd_lab.minSpecialists = original;
     }
+  });
+});
+
+// D-094 (radiation, /grill-with-docs — 15 resolved questions): chronic dose (GCR) as a per-colonist
+// attribute, shield_berm's capacity-scaled coverage (never to zero), double duty against the
+// existing acute solar_flare event, and the expectedOldAgeDeaths honesty fix. See colonists.test.ts
+// for the pure-function unit tests (shieldAttenuation/effectiveDeathAge) — this block is engine
+// integration.
+describe('D-094: radiation — shield_berm gate + chronic dose + solar_flare double duty', () => {
+  it('shield_berm is gated by regolith_construction (reused tech, D-090) — same machinery as sinter_plant/habitat_regolith/silo_regolith', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    expect(prereqMet(s, 'shield_berm')).toBe(false);
+    s.techs.push('isru_extraction', 'regolith_construction');
+    expect(prereqMet(s, 'shield_berm')).toBe(true);
+  });
+
+  it('chronic dose accrues every colonist every window, deterministically — no shield, no storyteller needed', () => {
+    const s = newColony(defaultColonyParams({ pop0: 50, startStockWindows: 5, eventChanceCap: 0 }));
+    expect(s.colonists.every((c) => c.radiationDose === 0)).toBe(true);
+    commitWindow(s, emptyOrder());
+    expect(s.colonists.length).toBeGreaterThan(0);
+    expect(s.colonists.every((c) => c.radiationDose > 0)).toBe(true);
+    const doseAfter1 = s.colonists[0]!.radiationDose;
+    commitWindow(s, emptyOrder());
+    expect(s.colonists[0]!.radiationDose).toBeGreaterThan(doseAfter1); // strictly monotonic
+  });
+
+  it('shield_berm coverage reduces the per-window dose rate to EXACTLY the floor fraction at full coverage — never to zero', () => {
+    const unshielded = newColony(defaultColonyParams({ pop0: 50, startStockWindows: 5, eventChanceCap: 0 }));
+    const shielded = newColony(defaultColonyParams({ pop0: 50, startStockWindows: 5, eventChanceCap: 0 }));
+    shielded.built = { shield_berm: 1 }; // capacity 200 ≥ pop 50 → full coverage
+    shielded.condition = { shield_berm: 1 };
+    commitWindow(unshielded, emptyOrder());
+    commitWindow(shielded, emptyOrder());
+    const doseUnshielded = unshielded.colonists[0]!.radiationDose;
+    const doseShielded = shielded.colonists[0]!.radiationDose;
+    expect(doseShielded).toBeGreaterThan(0); // floor — never zero even at full coverage
+    expect(doseShielded).toBeCloseTo(doseUnshielded * unshielded.p.shieldFloor, 6);
+  });
+
+  it("solar_flare does double duty: shield_berm coverage ALSO cuts the acute event's magnitude, layered on top of (not replacing) medbay+pharma coverage", () => {
+    const seed = seedForEvent('solar_flare');
+    const build = (shieldUnits: number) => {
+      const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+      s.built = { medbay: 1, ...(shieldUnits ? { shield_berm: shieldUnits } : {}) };
+      s.condition = Object.fromEntries(Object.keys(s.built).map((id) => [id, 1]));
+      s.stocks.pharma = 1_000_000; // medbay+pharma coverage satisfied identically in both cases
+      return s;
+    };
+    const unshielded = build(0);
+    const shielded = build(5); // capacity 1000 ≥ pop 1000 → full coverage
+    const r1 = commitWindow(unshielded, emptyOrder());
+    const r2 = commitWindow(shielded, emptyOrder());
+    expect(r1.event?.id).toBe('solar_flare');
+    expect(r2.event?.id).toBe('solar_flare');
+    expect(r2.event!.deaths ?? 0).toBeLessThan(r1.event!.deaths ?? 0); // same medical coverage, less physical exposure
+  });
+
+  it('mortality from a radiation-shortened effective deathAge falls into the EXISTING old_age bucket — no new MortalityCause', () => {
+    const s = newColony(defaultColonyParams({ pop0: 1, startStockWindows: 5, eventChanceCap: 0, popEnergyPerCapita: 0 }));
+    const c = s.colonists[0]!;
+    c.age = c.deathAge - 10; // comfortably short of natural old age THIS window, unshielded
+    c.radiationDose = 100; // enormous accumulated dose — guarantees effectiveDeathAge collapses below age
+    const r = commitWindow(s, emptyOrder());
+    expect(s.pop).toBe(0); // died from the dose-shortened effective deathAge, not natural aging alone
+    expect(r.mortalityBreakdown.old_age).toBe(1);
+    expect(r.mortalityBreakdown.radiation).toBeUndefined(); // D-094: not a distinct cause
+  });
+
+  it('radiationDose round-trips through save/load (D-094, SAVE_VERSION bump)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 10, startStockWindows: 5, eventChanceCap: 0 }));
+    commitWindow(s, emptyOrder());
+    expect(s.colonists[0]!.radiationDose).toBeGreaterThan(0);
+    const saved = serializeColony(s);
+    const loaded = hydrateColony(saved, s.p);
+    expect(loaded.colonists[0]!.radiationDose).toBe(s.colonists[0]!.radiationDose);
   });
 });

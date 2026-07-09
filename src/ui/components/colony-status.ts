@@ -192,6 +192,8 @@ export class ColonyStatusPanel extends LitElement {
             : nothing}
           ${s.crewCoverage < 1 ? html`· экипаж
           <b style="color:#d96a6a">${(s.crewCoverage * 100).toFixed(0)}%</b>` : nothing}
+          ${s.shieldCoverage < 1 ? html`· 🛡 радиац. защита
+          <b style="color:#d96a6a">${(s.shieldCoverage * 100).toFixed(0)}%</b>` : nothing}
         </div>
         ${s.housingCapacity > 0 ? html`<div class="dim">
           🏠 жильё

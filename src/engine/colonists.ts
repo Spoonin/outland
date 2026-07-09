@@ -14,6 +14,9 @@ export interface Colonist {
   // ≈ 87 expected years), so old age is its own mechanism with a legible chronicle cause
   sick: boolean; // in the ACTIVE stage this window → not in the labor pool (D-075/083)
   doomed: boolean; // sick and untreated (no bed/pharma) or uncured — dies at the START of next window
+  radiationDose: number; // D-094: cumulative chronic dose (GCR, Sv) — only ever grows. Deliberately
+  // NEVER mutates `deathAge` itself (that field keeps meaning exactly what its comment says); instead
+  // `effectiveDeathAge()` below computes the shortened lifespan fresh each window from this + deathAge.
 }
 
 /** Synodic window ≈ 26 months. */
@@ -31,6 +34,11 @@ export interface DemographicParams {
   lifeExpectancy: number; // mean of the pre-rolled natural-death age
   lifeExpectancySd: number;
   adultAge: number; // younger than this → not in the labor pool
+  chronicDoseSvPerWindow: number; // D-094: unshielded GCR dose accrued per colonist per window —
+  // real-world anchor ~250 mSv/yr surface (gaps-vs-reality.md) × YEARS_PER_WINDOW
+  shieldFloor: number; // D-094: shieldAttenuation's floor (0..1) — GCR barely attenuates even
+  // through regolith, so coverage never drives dose (or solar_flare's magnitude) to zero
+  radiationLifespanPerSv: number; // D-094: years shaved off effectiveDeathAge per cumulative Sv
 }
 
 /** Dedicated per-window RNG stream for colonist rolls — a pure function of (seed, window), mixed
@@ -67,12 +75,29 @@ export function newArrival(rng: Rng, p: DemographicParams): Colonist {
     p.arrivalAgeMax,
     Math.max(p.arrivalAgeMin, p.arrivalAgeMean + sampleNormal(rng) * p.arrivalAgeSd),
   );
-  return { age, deathAge: rollDeathAge(rng, p, age), sick: false, doomed: false };
+  return { age, deathAge: rollDeathAge(rng, p, age), sick: false, doomed: false, radiationDose: 0 };
 }
 
 /** A colonist born on Mars: age 0 — eats like everyone, works only from `adultAge` (≈7.4 windows). */
 export function newborn(rng: Rng, p: DemographicParams): Colonist {
-  return { age: 0, deathAge: rollDeathAge(rng, p, 0), sick: false, doomed: false };
+  return { age: 0, deathAge: rollDeathAge(rng, p, 0), sick: false, doomed: false, radiationDose: 0 };
+}
+
+/** D-094: how much of the unshielded chronic-dose rate (or, doing double duty, `solar_flare`'s
+ * acute magnitude — same physical process, one curve) gets through at a given shielding coverage
+ * (0..1, capacity ÷ pop, `shieldCapacity` below). Floors at `floor` — GCR barely attenuates even
+ * through regolith, so coverage can shrink but never zero the hit. */
+export function shieldAttenuation(coverage: number, floor: number): number {
+  const c = Math.max(0, Math.min(1, coverage));
+  return floor + (1 - floor) * (1 - c);
+}
+
+/** D-094: a colonist's EFFECTIVE natural-death age, `deathAge` shortened by accumulated chronic
+ * dose — computed fresh every window, never mutates `deathAge` itself (see Colonist.radiationDose).
+ * Whoever crosses this dies of old age exactly as before (D-063: still never telegraphed — dose is
+ * a fact about the past, not the pre-decided fate `deathAge` alone would be). */
+export function effectiveDeathAge(c: Colonist, p: DemographicParams): number {
+  return c.deathAge - p.radiationLifespanPerSv * c.radiationDose;
 }
 
 /** Able-bodied count for the D-075 labor pool: adults not in the active stage of an illness. */
@@ -113,6 +138,10 @@ export function phi(x: number): number {
  * (D-084 sibling, D-083 data). Deliberately reads only `age` and the DISTRIBUTION parameters
  * (lifeExpectancy/lifeExpectancySd), NEVER a colonist's own pre-rolled `deathAge` — that's one
  * person's specific fate, and showing it would telegraph the future a storyteller forbids (D-063).
+ * D-094: `mu` is adjusted PER COLONIST by their own accumulated chronic dose — that's still fine
+ * under D-063 (dose is a fact about their past, not their pre-decided fate) — otherwise this
+ * forecast would silently drift low the moment radiation exists, since a population with unequal
+ * dose histories no longer shares one true mean lifespan.
  * For each living colonist of age a: P(dies of old age within k windows | alive at a) =
  * (Φ((a+kΔ−μ)/σ) − Φ((a−μ)/σ)) / (1 − Φ((a−μ)/σ)), summed across the population. */
 export function expectedOldAgeDeaths(
@@ -120,11 +149,11 @@ export function expectedOldAgeDeaths(
   p: DemographicParams,
   windows: number,
 ): number {
-  const mu = p.lifeExpectancy;
   const sigma = p.lifeExpectancySd;
   const delta = windows * YEARS_PER_WINDOW;
   let total = 0;
   for (const c of colonists) {
+    const mu = p.lifeExpectancy - p.radiationLifespanPerSv * c.radiationDose; // D-094
     const zNow = (c.age - mu) / sigma;
     const zFuture = (c.age + delta - mu) / sigma;
     const aliveNow = Math.max(1e-9, 1 - phi(zNow)); // conditioned on having survived to `age`

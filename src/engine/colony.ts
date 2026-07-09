@@ -35,6 +35,8 @@ import {
   shuffle,
   workforceCount,
   YEARS_PER_WINDOW,
+  shieldAttenuation,
+  effectiveDeathAge,
   type Colonist,
   type DemographicParams,
 } from './colonists';
@@ -49,6 +51,7 @@ import {
   spareUpkeep,
   laborDemand,
   housingCapacity,
+  shieldCapacity,
   sickBedCapacity,
   foodSpoilRateMult,
   structuralN2Leak,
@@ -238,6 +241,11 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     lifeExpectancy: 60,
     lifeExpectancySd: 5,
     adultAge: 16, // ≈7.4 windows from birth to the labor pool — births finally cost something
+    // D-094: chronic dose (GCR) — real-world anchor ~250 mSv/yr unshielded surface
+    // (gaps-vs-reality.md) × YEARS_PER_WINDOW (2.17) ≈ 0.54 Sv/window, rounded to a TOY 0.5.
+    chronicDoseSvPerWindow: 0.5,
+    shieldFloor: 0.15, // GCR barely attenuates even through regolith — coverage never zeroes it
+    radiationLifespanPerSv: 3, // TOY order-of-magnitude on real chronic-exposure life-shortening estimates
     popEnergyPerCapita: 0.05,
     catalog: defaultCatalog(),
     launch: defaultLaunchParams(),
@@ -737,8 +745,19 @@ export function commitWindow(
     return true;
   });
   for (const c of s.colonists) c.age += YEARS_PER_WINDOW;
+
+  // D-094: chronic dose (GCR) — deterministic accrual every window (like wearRate/spoilRate, NOT
+  // a storyteller roll), scaled by shield_berm's capacity-based coverage (never fully to zero —
+  // GCR barely attenuates even through regolith). Computed here, BEFORE the old-age check, so a
+  // severe cumulative dose can push someone's EFFECTIVE deathAge below their current age the same
+  // window; `shieldCoverage` stays in scope for solar_flare's mitigation later in this function
+  // (D-094 p.7 — same physical shielding, doing double duty).
+  const shieldCoverage = s.colonists.length > 0 ? Math.min(1, shieldCapacity(s.built) / s.colonists.length) : 1;
+  const doseThisWindow = p.chronicDoseSvPerWindow * shieldAttenuation(shieldCoverage, p.shieldFloor);
+  for (const c of s.colonists) c.radiationDose += doseThisWindow;
+
   s.colonists = s.colonists.filter((c) => {
-    if (c.age >= c.deathAge) {
+    if (c.age >= effectiveDeathAge(c, p)) {
       oldAgeDeaths += 1;
       return false;
     }
@@ -1136,12 +1155,15 @@ export function commitWindow(
     breachFrac = roll.spec.deathMag - (roll.spec.deathMag - roll.spec.coveredMag) * sparesCoverage;
   }
   // solar_flare casualties (D-072): acute radiation — medbay + pharma (anti-rad meds) cover it
-  // like an epidemic, with the same one-time pharma draw.
+  // like an epidemic, with the same one-time pharma draw. D-094: shield_berm's coverage does
+  // double duty — the SAME physical regolith mass ALSO cuts the magnitude here, layered on top of
+  // (not replacing) medbay+pharma's own independent binary coverage (medicine treats casualties;
+  // shielding stops the dose reaching anyone in the first place — two different mechanisms).
   let radFrac = 0;
   let radCovered = false;
   if (roll?.spec.effect === 'radiation') {
     radCovered = (s.built['medbay'] ?? 0) > 0 && (avail['pharma'] ?? 0) > 0;
-    radFrac = radCovered ? roll.spec.coveredMag : roll.spec.deathMag;
+    radFrac = (radCovered ? roll.spec.coveredMag : roll.spec.deathMag) * shieldAttenuation(shieldCoverage, p.shieldFloor);
   }
 
   // D-083: the soft-OR fraction now selects REAL victims — an integer count (probabilistically

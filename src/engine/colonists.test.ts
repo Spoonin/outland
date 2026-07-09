@@ -13,7 +13,14 @@ import {
   BUFFER_LOOKAHEAD,
   type ColonyParams,
 } from './colony';
-import { colonistRng, YEARS_PER_WINDOW, phi, expectedOldAgeDeaths } from './colonists';
+import {
+  colonistRng,
+  YEARS_PER_WINDOW,
+  phi,
+  expectedOldAgeDeaths,
+  shieldAttenuation,
+  effectiveDeathAge,
+} from './colonists';
 import { serializeColony, loadColony } from './colony-save';
 
 /** Demographics in isolation: no storyteller noise, no births unless the test asks, and no
@@ -223,5 +230,47 @@ describe('expectedOldAgeDeaths / phi (roadmap-2 demography forecast)', () => {
     const rearranged = s.colonists.map((c, i) => ({ ...c, deathAge: 500 + i }));
     const b = expectedOldAgeDeaths(rearranged, s.p, 3);
     expect(b).toBe(a);
+  });
+
+  it('D-094: DOES factor in radiationDose (a fact about the past, not the forbidden deathAge) — higher dose forecasts strictly more near-term deaths, same age', () => {
+    const s = newColony(demoParams({ pop0: 30 }));
+    for (const c of s.colonists) c.age = 50;
+    const undosed = expectedOldAgeDeaths(s.colonists, s.p, 3);
+    const dosed = s.colonists.map((c) => ({ ...c, radiationDose: 5 })); // 5 Sv × radiationLifespanPerSv
+    const withDose = expectedOldAgeDeaths(dosed, s.p, 3);
+    expect(withDose).toBeGreaterThan(undosed);
+  });
+});
+
+describe('D-094: chronic dose (GCR) — shieldAttenuation / effectiveDeathAge', () => {
+  it('shieldAttenuation: zero coverage passes the full (unattenuated) rate', () => {
+    expect(shieldAttenuation(0, 0.15)).toBeCloseTo(1, 10);
+  });
+
+  it('shieldAttenuation: full coverage floors at `floor`, never reaches zero', () => {
+    expect(shieldAttenuation(1, 0.15)).toBeCloseTo(0.15, 10);
+  });
+
+  it('shieldAttenuation: clamps coverage to [0,1] — over/under-coverage does not overshoot the curve', () => {
+    expect(shieldAttenuation(2, 0.15)).toBeCloseTo(shieldAttenuation(1, 0.15), 10);
+    expect(shieldAttenuation(-1, 0.15)).toBeCloseTo(shieldAttenuation(0, 0.15), 10);
+  });
+
+  it('shieldAttenuation: monotonically decreasing in coverage', () => {
+    expect(shieldAttenuation(0.8, 0.15)).toBeLessThan(shieldAttenuation(0.2, 0.15));
+  });
+
+  it('effectiveDeathAge: zero accumulated dose leaves deathAge untouched', () => {
+    const s = newColony(demoParams({ pop0: 1 }));
+    const c = { ...s.colonists[0]!, radiationDose: 0 };
+    expect(effectiveDeathAge(c, s.p)).toBe(c.deathAge);
+  });
+
+  it('effectiveDeathAge: shortens deathAge linearly by radiationLifespanPerSv × dose, never mutates deathAge itself', () => {
+    const s = newColony(demoParams({ pop0: 1 }));
+    const original = s.colonists[0]!.deathAge;
+    const c = { ...s.colonists[0]!, radiationDose: 2 };
+    expect(effectiveDeathAge(c, s.p)).toBeCloseTo(original - s.p.radiationLifespanPerSv * 2, 10);
+    expect(c.deathAge).toBe(original); // the field itself is untouched — D-094's whole point
   });
 });

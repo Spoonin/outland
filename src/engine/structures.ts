@@ -63,6 +63,9 @@ export interface Structure {
   // s.stocks.specialists instead of s.pop — a hi-tech object needs trained crew, not just bodies.
   // Absent/0 → no gate. Pure machinery today: no P5 structure sets it, future P8 consumers
   // (chip_fab/api_plant) will, same "fundament before content" pattern as techGate in P0.
+  shieldCapacity?: number; // D-094: colonists this unit's regolith mass protects from radiation —
+  // capacity-scaled like housing/sickBeds, not binary (a berm covers a fixed volume). Only
+  // shield_berm sets this; absent → 0 (no shielding contribution).
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -109,6 +112,7 @@ function loadStructures(): Structure[] {
     if (row.rampStart) s.rampStart = num(row.rampStart);
     if (row.rampScale) s.rampScale = num(row.rampScale);
     if (row.minSpecialists) s.minSpecialists = num(row.minSpecialists);
+    if (row.shieldCapacity) s.shieldCapacity = num(row.shieldCapacity);
     return s;
   });
 }
@@ -316,6 +320,14 @@ export function laborDemand(built: BuiltCounts): number {
 export function housingCapacity(built: BuiltCounts): number {
   let total = 0;
   for (const s of STRUCTURES) total += (s.housing ?? 0) * (built[s.id] ?? 0);
+  return total;
+}
+
+/** D-094: colonists protected from chronic dose (and, doing double duty, from a bigger cut of
+ * solar_flare's magnitude) — capacity-scaled against pop by the caller, same shape as housing. */
+export function shieldCapacity(built: BuiltCounts): number {
+  let total = 0;
+  for (const s of STRUCTURES) total += (s.shieldCapacity ?? 0) * (built[s.id] ?? 0);
   return total;
 }
 

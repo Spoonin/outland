@@ -8,7 +8,7 @@ import { RESOURCES, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
 import { type ActiveEffect } from './events';
 
-export const SAVE_VERSION = 9; // D-090 (P2 core): widened `Stocks` (composite/components)
+export const SAVE_VERSION = 10; // D-094: Colonist gained `radiationDose` — old saves lack it (→ NaN math), must discard
 
 /** The persisted shape — dynamic state only (config is rebuilt from defaults on load). */
 export interface ColonySave {

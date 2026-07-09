@@ -119,6 +119,24 @@ people are dying of a shortage (D-055). No automatic immigration. Growing the
 colony is always a budget trade-off, and staying small is sometimes optimal.
 _Avoid_: settler, migrant, headcount (the person is a Colonist; the count is "population")
 
+**Chronic dose**:
+The background radiation (GCR) a Colonist accumulates every window, distinct from
+the acute SPE hit `solar_flare` already models. An attribute of the individual, not
+a colony-wide pool — it never touches their pre-rolled `deathAge` directly, only
+shortens their *effective* remaining lifespan, so it dies with them and never
+telegraphs a specific person's fate (D-063 still holds). Never fully blockable by
+Shielding coverage — a floor always gets through.
+_Avoid_: radiation (bare — that name is taken by the acute `solar_flare` effect),
+radiation exposure, background radiation
+
+**Shielding coverage**:
+The capacity-scaled fraction of the colony protected by `shield_berm` (built
+capacity ÷ population, same shape as housing/sickBeds — not binary). Cuts both
+Chronic dose *and* (deliberately, doing double duty) the magnitude of the acute
+`solar_flare` event, layered on top of that event's own existing medbay+pharma
+treatment coverage rather than replacing it.
+_Avoid_: rad shielding, protection level
+
 ## Presentation
 
 **Diegetic framing**:
