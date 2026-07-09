@@ -73,6 +73,8 @@ export interface ResourceSpec {
   recycle: number; // η recovered fraction (ECLSS)
   tare: number; // extra SHIP mass per kg for containment (gases: tank ≥ gas → ~1.0). Imports only.
   spoilRate: number; // D-085: passive fraction lost per window (food/pharma only; 0 = doesn't spoil)
+  localOnly: boolean; // D-089 (P1): ISRU intermediate (regolith/hydrogen/co2) — produced AND
+  // consumed on Mars, physically absurd to ship; previewOrder ignores any qty ordered for it.
 }
 
 export type ResourceCatalog = Record<ResourceKind, ResourceSpec>;
@@ -139,6 +141,9 @@ export interface ColonyState {
   // must survive a reload like everything else earned in-game.
   techs: string[]; // roadmap-2/V8 scaffold: ids of bought techs (data/techs.csv) — [] until content
   // exists (the CSV ships with zero rows); techMods() folds this into neutral multipliers either way
+  industryOutput: Record<string, number>; // D-089 (P1): cumulative kg EVER produced, by structure
+  // type (all built units of that type share one counter — one deposit, one learning curve) — read
+  // by industryMult() for depletion/ramp-up; {} for every type without depletionScale/rampScale
   p: ColonyParams;
 }
 
@@ -181,6 +186,7 @@ export function defaultCatalog(): ResourceCatalog {
       recycle: num(row.recycle),
       tare: num(row.tare),
       spoilRate: num(row.spoilRate),
+      localOnly: num(row.localOnly) === 1,
     };
   }
   return cat;
@@ -310,6 +316,7 @@ export function newColony(p: ColonyParams): ColonyState {
     milestones: {},
     subsidyBonus: 0,
     techs: [],
+    industryOutput: {},
     p,
   };
 }
@@ -484,6 +491,10 @@ export function previewOrder(s: ColonyState, order: EarthOrder): OrderPreview {
   let goodsMass = 0;
   let goodsCost = 0;
   for (const r of RESOURCES) {
+    // D-089: a localOnly ISRU intermediate (regolith/hydrogen/co2) can't be ordered from Earth at
+    // all — same "blind/stale request silently costs nothing" pattern as techOk/rndOk below, not a
+    // hard validation error, so a stray qty in a draft/save never bills or ships.
+    if (p.catalog[r].localOnly) continue;
     const qty = Math.max(0, order.resources[r] ?? 0);
     goodsMass += qty * (1 + p.catalog[r].tare); // ship mass = resource + container/tare
     // price_spike (D-063): an active event can multiply one resource category's earth price
@@ -1015,7 +1026,15 @@ export function commitWindow(
   const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
   const genGate = generationInputGate(s.built, s.condition, avail);
   const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult, genGate, stormMult);
-  const sf = structureFlows(s.built, energy.served, avail, s.condition, farmMult, outMult, allMult);
+  const sf = structureFlows(s.built, energy.served, avail, s.condition, farmMult, outMult, allMult, s.industryOutput);
+  // D-089: bank this window's ACTUAL output (already industryMult-scaled) into the cumulative
+  // counter industryMult reads back NEXT window — only for types that actually deplete/ramp, so
+  // industryOutput doesn't grow for every ordinary producer that never reads it back.
+  for (const id of Object.keys(sf.diag)) {
+    const spec = STRUCT_BY_ID[id];
+    if (!spec || (!spec.depletionScale && !spec.rampScale)) continue;
+    s.industryOutput[id] = (s.industryOutput[id] ?? 0) + sf.diag[id].outputKg;
+  }
 
   // life-support + structure consumption + spares upkeep; arrivals + structure production
   const cons = consumption(s);

@@ -42,6 +42,7 @@ import {
   RESOURCES,
   ADVANCED_TECHS,
   techBuyable as engineTechBuyable,
+  industryMult,
   type ColonyState,
   type ColonyParams,
   type EarthOrder,
@@ -65,6 +66,8 @@ export interface ResourceLine {
   net: number; // local production − total consumption per window (no imports); <0 = draining
   windows: number; // windows of cover if draining (Infinity if net ≥ 0)
   lifeSupport: boolean;
+  localOnly: boolean; // D-089 (P1): ISRU intermediate, not orderable from Earth — UI collapses
+  // these into a separate "industrial stocks" section instead of the main food/water/o2/n2 grid
 }
 
 export interface ColonyStatus {
@@ -634,6 +637,13 @@ export class ColonyStore {
   lockReason(id: string): LockReason | undefined {
     return lockReason(this.state, id);
   }
+  /** D-089 (P1): current depletion/ramp-up yield fraction for a structure type — undefined if it
+   * has neither (the vast majority of structures, untouched by this mechanic). 1 = full yield. */
+  industryMultNow(id: string): number | undefined {
+    const spec = STRUCT_BY_ID[id];
+    if (!spec || (!spec.depletionScale && !spec.rampScale)) return undefined;
+    return industryMult(spec, this.state.industryOutput[id] ?? 0);
+  }
 
   /** Does the CURRENT draft's manifest look empty to the player, but auto-spares/auto-pharma will
    * still ship something (roadmap-1, C3/C4)? `zero_import` (D-064 finale-boss) requires TWO
@@ -778,6 +788,7 @@ export class ColonyStore {
         net,
         windows: net < 0 ? stock / -net : Infinity,
         lifeSupport: lifeSet.has(r),
+        localOnly: s.p.catalog[r].localOnly,
       };
     });
     const builtIds = Object.keys(s.built).filter((id) => (s.built[id] ?? 0) > 0);

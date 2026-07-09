@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { energyGeneration, resolveColonyEnergy, structureFlows } from './structures';
+import { energyGeneration, resolveColonyEnergy, structureFlows, STRUCT_BY_ID } from './structures';
 
 describe('structures — energy & production (D-044)', () => {
   it('generation sums power plants', () => {
@@ -43,5 +43,23 @@ describe('structures — energy & production (D-044)', () => {
     const f = structureFlows({ solar_plant: 1, farm: 1, steel_plant: 1 }, r.served, undefined, undefined, 0.4);
     expect(f.diag.farm!.runFrac).toBeCloseTo(f.diag.farm!.energyFrac * 0.4, 5);
     expect(f.diag.steel_plant!.inputFrac).toBe(1); // blight only touches food producers
+  });
+
+  it('diag.outputKg sums ALL of a structure\'s produced resources this window', () => {
+    const r = resolveColonyEnergy({ nuclear_plant: 1, waste_pad: 1, mre_plant: 1 }, 0);
+    const f = structureFlows({ nuclear_plant: 1, mre_plant: 1 }, r.served, { regolith: 1_000_000 });
+    // mre_plant at cumulative=0 runs at rampStart (0.4): metals 15000 + o2 5000, ×0.4
+    expect(f.diag.mre_plant!.outputKg).toBeCloseTo((15000 + 5000) * (STRUCT_BY_ID.mre_plant.rampStart ?? 0), 0);
+  });
+
+  it('cumulativeOutput (D-089) folds industryMult into runFrac — a depleted excavator yields less at the SAME condition/energy/inputs', () => {
+    const r = resolveColonyEnergy({ solar_plant: 1, excavator: 1 }, 0);
+    const fresh = structureFlows({ solar_plant: 1, excavator: 1 }, r.served, undefined, undefined, 1, undefined, 1, {});
+    const depleted = structureFlows({ solar_plant: 1, excavator: 1 }, r.served, undefined, undefined, 1, undefined, 1, {
+      excavator: STRUCT_BY_ID.excavator.depletionScale ?? 0, // exactly the half-yield point
+    });
+    expect(fresh.diag.excavator!.runFrac).toBeGreaterThan(0);
+    expect(depleted.diag.excavator!.runFrac).toBeCloseTo(fresh.diag.excavator!.runFrac * 0.5, 5);
+    expect(depleted.production.regolith).toBeCloseTo((fresh.production.regolith ?? 0) * 0.5, 0);
   });
 });

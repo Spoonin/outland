@@ -9,6 +9,7 @@ const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
   steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
   pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
+  regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
 };
 /** Shared with the debrief (D-064) — one Russian label per named mortality cause (D-061/D-063). */
 export const CAUSE_LABEL: Partial<Record<MortalityCause, string>> = {

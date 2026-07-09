@@ -20,8 +20,8 @@ import {
 } from './colony';
 import { rollEvent } from './events';
 import { makeRng } from './rng';
-import { serializeColony, loadColony } from './colony-save';
-import { laborDemand, STRUCT_BY_ID } from './structures';
+import { serializeColony, loadColony, hydrateColony } from './colony-save';
+import { laborDemand, STRUCT_BY_ID, industryMult } from './structures';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
@@ -1699,10 +1699,10 @@ describe('collapseRunway — the debrief-only named survival runway (D-064)', ()
 });
 
 // D-088 (P0): the tech tree becomes visible/functional — structures.csv gets a `techGate` column
-// and prereqMet/importPrereqMet/lockReason honor it. techs.csv itself still ships EMPTY (P0 is
-// pure machinery, real content arrives P1+), so the integration tests below temporarily stamp a
-// techGate onto a REAL structure via STRUCT_BY_ID (restored in `finally`) instead of adding
-// fixture rows to the production catalog.
+// and prereqMet/importPrereqMet/lockReason honor it. The integration test below still temporarily
+// stamps a techGate onto an UNRELATED real structure (waste_pad, restored in `finally`) rather than
+// asserting on the five real P1 gates (excavator/ice_mine/co2_capture/electrolyzer/mre_plant,
+// D-089) — that keeps this test about the MECHANISM, immune to P1's exact numbers changing later.
 describe('D-088 tech gate scaffold (P0)', () => {
   it('techGateMet: no gate is always met, regardless of what techs are owned', () => {
     expect(techGateMet(undefined, [])).toBe(true);
@@ -1715,8 +1715,12 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every structures.csv row ships techGate-free today — P0 is pure machinery, zero content yet', () => {
-    expect(Object.values(STRUCT_BY_ID).every((s) => !s.techGate)).toBe(true);
+  it('every PRE-P1 structure ships techGate-free — only the 5 new D-089 ISRU structures are gated', () => {
+    const gated = ['excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant'];
+    for (const s of Object.values(STRUCT_BY_ID)) {
+      if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
+      else expect(s.techGate).toBeFalsy();
+    }
   });
 
   it('a techGate blocks build/import until the tech is owned, then unblocks (prereqMet/importPrereqMet/lockReason)', () => {
@@ -1754,5 +1758,129 @@ describe('D-088 tech gate scaffold (P0)', () => {
     } finally {
       STRUCT_BY_ID.waste_pad.techGate = original;
     }
+  });
+});
+
+// D-089 (P1): first real content on the tech tree — primary mining (excavator/ice_mine/
+// co2_capture) + local metallurgy (electrolyzer/mre_plant), gated by 3 real techs, plus the two
+// life-cycle mechanics D-087 mandated for this phase: depletion (excavator/ice_mine) and a
+// learning-curve ramp-up (mre_plant, the tree's first true localizing process).
+describe('D-089 P1: primary mining + local metals + depletion/ramp-up', () => {
+  it('localOnly resources (regolith/hydrogen/co2) cannot be ordered from Earth — previewOrder ignores any stray qty', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    const clean = previewOrder(s, emptyOrder());
+    const withStrayQty = previewOrder(s, ord({ resources: { regolith: 50_000, hydrogen: 10_000, co2: 20_000 } }));
+    expect(withStrayQty.goodsCost).toBe(clean.goodsCost);
+    expect(withStrayQty.mass).toBe(clean.mass);
+  });
+
+  it('the 5 new ISRU structures are gated by their real P1 techs — unbuildable before purchase, buildable after', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    expect(prereqMet(s, 'excavator')).toBe(false);
+    expect(prereqMet(s, 'ice_mine')).toBe(false);
+    expect(prereqMet(s, 'co2_capture')).toBe(false);
+    expect(prereqMet(s, 'electrolyzer')).toBe(false);
+    expect(prereqMet(s, 'mre_plant')).toBe(false);
+
+    s.techs.push('isru_extraction');
+    expect(prereqMet(s, 'excavator')).toBe(true);
+    expect(prereqMet(s, 'ice_mine')).toBe(true);
+    expect(prereqMet(s, 'co2_capture')).toBe(true);
+    expect(prereqMet(s, 'electrolyzer')).toBe(false); // needs `electrolysis`, not `isru_extraction`
+    expect(prereqMet(s, 'mre_plant')).toBe(false); // needs `regolith_metallurgy`
+
+    s.techs.push('electrolysis', 'regolith_metallurgy');
+    expect(prereqMet(s, 'electrolyzer')).toBe(true);
+    expect(prereqMet(s, 'mre_plant')).toBe(true);
+  });
+
+  it('mre_plant closes the "steel from imported ingots" gap: local metals (from regolith) build a steel_plant with zero Earth import', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    s.built = { mre_plant: 1, solar_plant: 2 };
+    s.condition = { mre_plant: 1, solar_plant: 1 };
+    s.stocks.regolith = 1_000_000; // plentiful feedstock — isolates this test from excavator/depletion timing
+    commitWindow(s, emptyOrder()); // mre_plant runs (ramp-up start ~40%) — no import at all
+    expect(s.stocks.metals).toBeGreaterThanOrEqual(2000); // steel_plant's own buildMaterials need
+
+    commitWindow(s, emptyOrder(), ['steel_plant']); // minPop 15 met (pop0=100); Mars build is
+    // money-free (D-054), so `built` (not `spent`, which still carries mandatory pad upkeep, D-079)
+    // is the tell that this was paid for in LOCAL metals, not a single imported kg
+    expect(s.built.steel_plant ?? 0).toBe(1);
+  });
+
+  it('industryMult: depletion (excavator/ice_mine) lowers yield as cumulative output grows; co2_capture/electrolyzer are immune', () => {
+    const excavator = STRUCT_BY_ID.excavator;
+    expect(industryMult(excavator, 0)).toBe(1); // fresh deposit, full yield
+    expect(industryMult(excavator, excavator.depletionScale!)).toBeCloseTo(0.5, 5); // half-yield point, by definition
+    expect(industryMult(excavator, excavator.depletionScale! * 3)).toBeLessThan(0.5);
+
+    // deliberate exclusions (D-089 rationale): atmosphere doesn't deplete; electrolysis isn't the
+    // tree's first localizing process
+    expect(industryMult(STRUCT_BY_ID.co2_capture, 10_000_000)).toBe(1);
+    expect(industryMult(STRUCT_BY_ID.electrolyzer, 10_000_000)).toBe(1);
+  });
+
+  it('industryMult: mre_plant ramps UP from rampStart toward 1.0 as cumulative output grows (learning curve)', () => {
+    const mre = STRUCT_BY_ID.mre_plant;
+    expect(industryMult(mre, 0)).toBeCloseTo(mre.rampStart!, 5); // starts rough
+    expect(industryMult(mre, mre.rampScale!)).toBeCloseTo(1, 5); // fully ramped
+    const mid = industryMult(mre, mre.rampScale! / 2);
+    expect(mid).toBeGreaterThan(mre.rampStart!);
+    expect(mid).toBeLessThan(1);
+  });
+
+  it('excavator yield falls over many windows as industryOutput accumulates (depletion, full engine integration)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 })); // isolate depletion from the storyteller (D-063)
+    s.built = { excavator: 1, solar_plant: 1 };
+    s.condition = { excavator: 1, solar_plant: 1 };
+    // 80+ windows of life support at once — this test is about depletion, not survival; without
+    // this the colony starves by ~window 6 (startStockWindows: 5) and labor collapse (D-075) zeros
+    // ALL output, which would look like depletion but isn't.
+    s.stocks.food = 1e9;
+    s.stocks.water = 1e9;
+    s.stocks.o2 = 1e9;
+    s.stocks.n2 = 1e9;
+    const r1 = commitWindow(s, emptyOrder());
+    const firstOutput = r1.structDiag.excavator!.outputKg;
+    expect(firstOutput).toBeGreaterThan(0);
+    for (let i = 0; i < 80; i++) {
+      commitWindow(s, emptyOrder());
+      s.condition.excavator = 1; // pin wear (D-052) at full — isolate depletion from the unrelated
+      s.condition.solar_plant = 1; // condition-decay mechanic, which this test isn't about
+    }
+    const rLater = commitWindow(s, emptyOrder());
+    expect(rLater.structDiag.excavator!.outputKg).toBeLessThan(firstOutput);
+    expect(s.industryOutput.excavator).toBeGreaterThan(0);
+  });
+
+  it('mre_plant yield ramps UP over many windows as industryOutput accumulates (learning curve, full engine integration)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 })); // isolate the ramp from the storyteller (D-063)
+    s.built = { mre_plant: 1, solar_plant: 2 };
+    s.condition = { mre_plant: 1, solar_plant: 1 };
+    s.stocks.regolith = 10_000_000; // never the bottleneck
+    s.stocks.food = 1e9; // this test is about the ramp curve, not survival (see excavator test above)
+    s.stocks.water = 1e9;
+    s.stocks.o2 = 1e9;
+    s.stocks.n2 = 1e9;
+    const r1 = commitWindow(s, emptyOrder());
+    const firstOutput = r1.structDiag.mre_plant!.outputKg;
+    for (let i = 0; i < 20; i++) {
+      commitWindow(s, emptyOrder());
+      s.condition.mre_plant = 1; // pin wear — isolate the ramp from condition decay
+      s.condition.solar_plant = 1;
+    }
+    const rLater = commitWindow(s, emptyOrder());
+    expect(rLater.structDiag.mre_plant!.outputKg).toBeGreaterThan(firstOutput);
+  });
+
+  it('SAVE_VERSION bump: industryOutput round-trips through serialize/hydrate', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    s.built = { excavator: 1, solar_plant: 1 };
+    s.condition = { excavator: 1, solar_plant: 1 };
+    commitWindow(s, emptyOrder());
+    expect(s.industryOutput.excavator).toBeGreaterThan(0);
+    const saved = serializeColony(s);
+    const loaded = hydrateColony(saved, s.p);
+    expect(loaded.industryOutput.excavator).toBe(s.industryOutput.excavator);
   });
 });

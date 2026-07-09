@@ -102,6 +102,9 @@ describe('resource set (dробный набор, D-042)', () => {
     expect(RESOURCES).toContain('pharma'); // hi-tech, import-only (D-046/D-045)
     expect(RESOURCES).toContain('chips');
     expect(RESOURCES).toContain('fuel'); // nuclear fuel, import-only (D-074)
-    expect(RESOURCES.length).toBe(13);
+    expect(RESOURCES).toContain('regolith'); // D-089 (P1): local ISRU intermediate
+    expect(RESOURCES).toContain('hydrogen');
+    expect(RESOURCES).toContain('co2');
+    expect(RESOURCES.length).toBe(16);
   });
 });

@@ -51,6 +51,14 @@ export interface Structure {
   techGate?: string; // D-088 (P0): id of a techs.csv tech that must be bought before this can be
   // built OR imported (prereqMet/importPrereqMet, colony.ts); absent → no gate. Every current row
   // ships blank — P0 is pure machinery, real gates arrive with P1+ content.
+  depletionScale?: number; // D-089 (P1): kg of CUMULATIVE output (this type, all units combined —
+  // they share one deposit) at which industryMult halves (1/(1+cumulative/scale)); absent → no
+  // depletion. Only excavator/ice_mine (a mined deposit runs down); co2_capture doesn't — the
+  // atmosphere isn't a site that depletes on human timescales.
+  rampStart?: number; // D-089 (P1): fractional yield (0..1) a new localizing PROCESS starts at
+  // (learning curve); paired with rampScale. Absent → no ramp (full yield from unit #1).
+  rampScale?: number; // D-089 (P1): kg of cumulative output at which yield ramps up to 1.0, linear
+  // from rampStart. Only mre_plant for now — the tree's first true localizing process.
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -93,6 +101,9 @@ function loadStructures(): Structure[] {
     if (row.waterCapacity) s.waterCapacity = num(row.waterCapacity);
     if (row.spoilRateMult) s.spoilRateMult = num(row.spoilRateMult);
     if (row.techGate) s.techGate = row.techGate;
+    if (row.depletionScale) s.depletionScale = num(row.depletionScale);
+    if (row.rampStart) s.rampStart = num(row.rampStart);
+    if (row.rampScale) s.rampScale = num(row.rampScale);
     return s;
   });
 }
@@ -193,6 +204,23 @@ export interface StructureDiag {
   energyFrac: number; // 0..1 power served (1 for non-drawing/producing structures)
   inputFrac: number; // 0..1 worst input-availability ratio (1 if no inputs consumed)
   runFrac: number; // condition × energyFrac × inputFrac — the actual output multiplier
+  outputKg: number; // D-089: total kg produced THIS window, all this type's resources summed —
+  // feeds ColonyState.industryOutput (cumulative), which next window's industryMult reads back
+}
+
+/** D-089 (P1): depletion (mined deposits run down — same energy buys less over time) and ramp-up
+ * (a new localizing process starts rough and improves with practice) are the SAME shape — a plain
+ * number → a slow function of cumulative output — just curving opposite directions. Structures
+ * without `depletionScale`/`rampScale` get 1 unconditionally, so every pre-P1 structure (and
+ * co2_capture/electrolyzer, deliberately excluded — see D-089) is untouched by this function. */
+export function industryMult(s: Structure, cumulative: number): number {
+  let m = 1;
+  if (s.depletionScale) m *= 1 / (1 + cumulative / s.depletionScale);
+  if (s.rampScale) {
+    const start = s.rampStart ?? 0;
+    m *= Math.min(1, start + (1 - start) * (cumulative / s.rampScale));
+  }
+  return m;
 }
 
 /**
@@ -210,16 +238,17 @@ export function structureFlows(
   farmMult = 1,
   outMult?: Record<string, number>,
   allMult = 1,
+  cumulativeOutput?: Record<string, number>, // D-089: kg ever produced by this type — feeds industryMult
 ): { production: Partial<Stocks>; consumption: Partial<Stocks>; diag: Record<string, StructureDiag> } {
   const add = (acc: Partial<Stocks>, r: ResourceKind, v: number) => (acc[r] = (acc[r] ?? 0) + v);
   const energyPower = (s: Structure): number => (s.energy < 0 ? (served[s.id] ?? 0) : 1);
 
-  // pass 1: desired consumption per resource (condition × energy scaled) → availability ratio
+  // pass 1: desired consumption per resource (condition × energy × industry scaled) → availability ratio
   const desired: Partial<Stocks> = {};
   for (const s of STRUCTURES) {
     const n = built[s.id] ?? 0;
     if (n <= 0) continue;
-    const base = n * energyPower(s) * condOf(condition, s.id);
+    const base = n * energyPower(s) * condOf(condition, s.id) * industryMult(s, cumulativeOutput?.[s.id] ?? 0);
     for (const r of Object.keys(s.consumes) as ResourceKind[]) add(desired, r, (s.consumes[r] ?? 0) * base);
   }
   const ratio = (r: ResourceKind): number => {
@@ -231,6 +260,8 @@ export function structureFlows(
   };
 
   // pass 2: runFrac = condition × energy × min(input availability) × farm blight (food producers only)
+  // × industryMult (D-089: depletion/ramp-up — the WHOLE process runs at X% capacity, so it scales
+  // production AND consumption together, same as every other factor here)
   const production: Partial<Stocks> = {};
   const consumption: Partial<Stocks> = {};
   const diag: Record<string, StructureDiag> = {};
@@ -242,12 +273,18 @@ export function structureFlows(
     const isFarm = (s.produces.food ?? 0) > 0;
     const cond = condOf(condition, s.id);
     const eFrac = energyPower(s);
+    const industryFrac = industryMult(s, cumulativeOutput?.[s.id] ?? 0);
     // event throttles compound: blight (food producers) × outage (this type) × radiation (everyone)
     const eventMult = (isFarm ? farmMult : 1) * (outMult?.[s.id] ?? 1) * allMult;
-    const runFrac = cond * eFrac * inputCap * eventMult;
-    diag[s.id] = { condition: cond, energyFrac: eFrac, inputFrac: inputCap * eventMult, runFrac };
-    for (const r of Object.keys(s.produces) as ResourceKind[]) add(production, r, (s.produces[r] ?? 0) * n * runFrac);
+    const runFrac = cond * eFrac * inputCap * eventMult * industryFrac;
+    let outputKg = 0;
+    for (const r of Object.keys(s.produces) as ResourceKind[]) {
+      const v = (s.produces[r] ?? 0) * n * runFrac;
+      add(production, r, v);
+      outputKg += v;
+    }
     for (const r of Object.keys(s.consumes) as ResourceKind[]) add(consumption, r, (s.consumes[r] ?? 0) * n * runFrac);
+    diag[s.id] = { condition: cond, energyFrac: eFrac, inputFrac: inputCap * eventMult, runFrac, outputKg };
   }
   return { production, consumption, diag };
 }

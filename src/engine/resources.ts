@@ -22,6 +22,12 @@ export const RESOURCES = [
   // never happens on Mars, so unlike its capex (built once from local steel/metals) this resource
   // never stops needing an Earth leg. Heavy tare (0.5): a bare fuel assembly ships in a shielding cask.
   'fuel',
+  // D-089 (P1, tech-tree): local ISRU intermediates — produced AND consumed on Mars, never shipped
+  // (ResourceSpec.localOnly, resources.csv) — regolith→metals (mre_plant) closes the "steel from
+  // imported ingots" gap; water→hydrogen+o2 (electrolyzer) feeds later chemistry (P2+).
+  'regolith',
+  'hydrogen',
+  'co2',
 ] as const;
 export type ResourceKind = (typeof RESOURCES)[number];
 export type Stocks = Record<ResourceKind, number>;

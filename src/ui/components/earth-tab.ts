@@ -7,6 +7,7 @@ const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
   steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
   pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
+  regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
 };
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US') + ' кг';

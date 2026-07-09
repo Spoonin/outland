@@ -7,6 +7,7 @@ const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
   steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
   pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
+  regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
 };
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
@@ -149,6 +150,19 @@ export class ColonyStatusPanel extends LitElement {
     </div>`;
   }
 
+  /** D-089/D-087 (P1): ISRU intermediates (regolith/hydrogen/co2) are real stocks — buffers give
+   * real decisions before a storm/outage — but collapsed OUT of the main life-support grid so the
+   * dashboard doesn't grow a row for every industrial resource the tree eventually adds. */
+  private industrialStocks(): TemplateResult | typeof nothing {
+    const s = this.status;
+    const industrial = s?.resources.filter((r) => r.localOnly) ?? [];
+    if (industrial.length === 0) return nothing;
+    return html`<details style="margin-top:0.4rem">
+      <summary class="dim" style="cursor:pointer">⚙️ промышленные стоки (ISRU)</summary>
+      <div class="grid" style="margin-top:0.3rem">${industrial.map((r) => this.cell(r))}</div>
+    </details>`;
+  }
+
   render() {
     const s = this.status;
     if (!s) return nothing;
@@ -199,7 +213,8 @@ export class ColonyStatusPanel extends LitElement {
       </div>
       ${this.demographyBlock()}
       ${this.transitLine()}
-      <div class="grid">${s.resources.map((r) => this.cell(r))}</div>
+      <div class="grid">${s.resources.filter((r) => !r.localOnly).map((r) => this.cell(r))}</div>
+      ${this.industrialStocks()}
     `;
   }
 }

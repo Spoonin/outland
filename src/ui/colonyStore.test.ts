@@ -54,7 +54,7 @@ describe('ColonyStore (v2 Earth ordering)', () => {
   it('status exposes all resource stocks with per-window net & cover', () => {
     const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }), memKV());
     const res = store.status().resources;
-    expect(res.length).toBe(13); // all resources shown in the dashboard (incl. fuel, D-074)
+    expect(res.length).toBe(16); // all resources shown in the dashboard (incl. fuel D-074, regolith/hydrogen/co2 D-089)
     const food = res.find((c) => c.kind === 'food')!;
     expect(food.windows).toBeCloseTo(2, 1); // ~2 windows of food at start (draining, no farm)
     expect(food.net).toBeLessThan(0);
@@ -88,16 +88,16 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.plan().rndBlocked).toBe(false);
   });
 
-  it('tech tree store plumbing: empty catalog today, draft round-trips through order(), clears on commit (D-088, P0)', () => {
+  it('tech tree store plumbing: draft round-trips through order(), clears on commit, unknown ids stay inert (D-088)', () => {
     const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV());
-    expect(store.techs()).toEqual([]); // techs.csv ships empty — P0 is pure machinery
+    expect(store.techs().length).toBeGreaterThan(0); // D-089/P1: real content now (was [] at P0)
     expect(store.unlockTechDraft()).toBeUndefined();
     expect(store.order().unlockTech).toBeUndefined();
 
-    store.setUnlockTech('nonexistent_tech'); // nothing to buy yet, but the DRAFT slot still works
+    store.setUnlockTech('nonexistent_tech'); // an unknown/stale id — the DRAFT slot still works
     expect(store.unlockTechDraft()).toBe('nonexistent_tech');
     expect(store.order().unlockTech).toBe('nonexistent_tech');
-    expect(store.techBuyable('nonexistent_tech')).toBe(false); // not in the (empty) catalog
+    expect(store.techBuyable('nonexistent_tech')).toBe(false); // not in the catalog
     expect(store.techPriceNow('nonexistent_tech')).toBe(0); // unbuyable ⇒ free preview, never charged
 
     store.setUnlockTech('nonexistent_tech'); // clicking the same id again deselects it
@@ -106,6 +106,21 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     store.setUnlockTech('nonexistent_tech');
     store.commit(); // stale/unbuyable id is silently dropped by commitWindow's own techBuyable gate
     expect(store.unlockTechDraft()).toBeUndefined(); // draft cleared regardless
+  });
+
+  it('a real P1 tech (isru_extraction) is locked below minPop, buyable and priced once population/Mars presence clear the gate (D-089)', () => {
+    const store = new ColonyStore(defaultColonyParams({ startStockWindows: 5 }), memKV()); // pop0 defaults to 0
+    expect(store.techOwned('isru_extraction')).toBe(false);
+    expect(store.techBuyable('isru_extraction')).toBe(false); // nobody on Mars yet (D-077)
+    expect(store.techPriceNow('isru_extraction')).toBe(0);
+
+    const grown = new ColonyStore(defaultColonyParams({ pop0: 25, startStockWindows: 5 }), memKV());
+    expect(grown.techBuyable('isru_extraction')).toBe(true); // minPop 20 met, Mars presence established
+    expect(grown.techPriceNow('isru_extraction')).toBeGreaterThan(0);
+    grown.setUnlockTech('isru_extraction');
+    grown.commit();
+    expect(grown.techOwned('isru_extraction')).toBe(true);
+    expect(grown.unlockTechDraft()).toBeUndefined(); // draft cleared after commit
   });
 
   it('cargo alone is bootstrap-blocked before any colonist has landed, freely once established (D-078)', () => {

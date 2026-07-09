@@ -117,6 +117,17 @@ export class MarsTab extends LitElement {
     return html`<div class="lock">🔒 ${parts.join(' · ')}</div>`;
   }
 
+  /** D-089 (P1): depletion (mined deposit running down) / ramp-up (new process still learning) —
+   * a visible hint so the yield hit isn't a silent surprise (project convention: no invisible rules). */
+  private industryLine(s: Structure): TemplateResult | typeof nothing {
+    if (this.store.builtCount(s.id) <= 0) return nothing;
+    const mult = this.store.industryMultNow(s.id);
+    if (mult === undefined) return nothing;
+    const pct = (mult * 100).toFixed(0);
+    const why = s.depletionScale ? 'истощение месторождения' : 'разгон производства (кривая освоения)';
+    return html`<div class="hint">⚙️ выход ${pct}% (${why})</div>`;
+  }
+
   private card(s: Structure): TemplateResult {
     const store = this.store;
     const locked = !store.prereqMet(s.id);
@@ -156,6 +167,7 @@ export class MarsTab extends LitElement {
         ${s.housing ? html`· жильё +${kg(s.housing)}` : nothing}
         ${s.n2Leak ? html`<span class="short">· N₂ утечка −${kg(s.n2Leak)}/окно</span>` : nothing}
         ${s.demolishCrew ? html`· демонтаж: ${s.demolishCrew} чел., рециклинг ${((s.recycleFrac ?? 0) * 100).toFixed(0)}%` : nothing}
+        ${this.industryLine(s)}
       </div>
       ${locked ? this.lockLine(s) : nothing}
       <div class="ctrl">

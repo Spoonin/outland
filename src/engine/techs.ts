@@ -1,13 +1,8 @@
-// V8 advanced-tech tree (colony-sim.md §9, roadmap-2 Block C) — SCAFFOLD ONLY. The rails for a
-// design session to fill with real content (numbers/techs need new D-numbers); data/techs.csv
-// ships with ZERO rows on purpose. The CSV parser (data/csv.ts) has no comment syntax — any
-// non-blank line is a real data row — so an "example" can't live IN the CSV; here it is instead:
-//
-//   robo_ops,Робо-обслуживание,🤖,8000000000,,rnd_lab,80,opsCrewMult,0.7,снижает opsCrew на 30%
-//
-// (id, name, icon, cost, prereqTech, prereqStructure, minPop, effect, magnitude, notes). With the
-// CSV empty, TECHS is [] and techMods() below returns neutral multipliers for everyone — every
-// existing test must stay bit-for-bit identical (see techs.test.ts's "empty tree" invariant).
+// V8 advanced-tech tree (colony-sim.md §9, roadmap-2 Block C; content since D-089/P1). Row shape:
+// (id, name, icon, cost, prereqTech, prereqStructure, minPop, effect, magnitude, notes). techMods()
+// below folds every OWNED tech's effect into one neutral-by-default bundle — with an empty/absent
+// tech (unowned, or a stale id from an older save), every multiplier here stays a no-op, which is
+// what techs.test.ts's "empty tree" tests pin for the pre-P1 baseline.
 
 import { parseCsv, num } from '../data/csv';
 import techsCsv from '../data/techs.csv?raw';
@@ -18,7 +13,11 @@ export type TechEffect =
   | 'lifeExpectancyBonus' // adds to D-083's lifeExpectancy (medical unlocks)
   | 'repairRateMult' // multiplies D-084's repairRate (robo-repair)
   | 'unlockStructure' // gates a structures.csv row behind this tech (e.g. fusion)
-  | 'refuelStage3'; // reserve rung beyond D-068's two-stage refuel ladder
+  | 'refuelStage3' // reserve rung beyond D-068's two-stage refuel ladder
+  | 'none'; // D-089: a pure gate — the tech's only effect is structures.csv's OWN `techGate`
+  // column pointing back at this id (D-088); nothing for techMods() to fold in. Used by every P1
+  // tech (isru_extraction/electrolysis/regolith_metallurgy) — see D-088 "Альтернативы" for why
+  // `unlockStructure`/`prereqStructure`'s double-duty was rejected as the gating mechanism.
 
 export interface TechSpec {
   id: string;
@@ -91,6 +90,8 @@ export function techMods(techs: readonly string[]): TechMods {
         break;
       case 'refuelStage3':
         break; // reserve — no gameplay hook yet (D-067/068)
+      case 'none':
+        break; // D-089: pure techGate, nothing to fold in
     }
   }
   return { opsCrewMult, cureProbBonus, lifeExpectancyBonus, repairRateMult, unlockedStructures };

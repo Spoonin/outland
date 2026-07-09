@@ -73,6 +73,7 @@ export {
   waterCapacity,
   foodSpoilRateMult,
   structuralN2Leak,
+  industryMult,
 } from './structures';
 export { colonistRng, workforceCount, YEARS_PER_WINDOW, expectedOldAgeDeaths, phi } from './colonists';
 export type { Colonist, DemographicParams } from './colonists';

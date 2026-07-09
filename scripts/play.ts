@@ -164,8 +164,15 @@ function printStatus(store: ColonyStore): void {
   // "what happens if the next order is empty" — the same honest 2-window sim the footer warns from
   for (const w of store.projectionWarnings()) console.log(`  ${w}`);
   console.log('ресурсы (сток, net/окно, запас в окнах, текущая цена/кг):');
-  for (const r of s.resources) {
+  for (const r of s.resources.filter((r) => !r.localOnly)) {
     console.log(`  ${r.kind.padEnd(9)} ${kg(r.stock).padStart(14)}  ${dnet(r.net)}/ок${Number.isFinite(r.windows) ? `  (${r.windows.toFixed(1)} ок)` : ''}  @ ${money(store.pricePerKg(r.kind))}/кг`);
+  }
+  const industrial = s.resources.filter((r) => r.localOnly); // D-089 (P1): ISRU intermediates — never orderable, no $/kg
+  if (industrial.length) {
+    console.log('промышленные стоки (ISRU, только локально):');
+    for (const r of industrial) {
+      console.log(`  ${r.kind.padEnd(9)} ${kg(r.stock).padStart(14)}  ${dnet(r.net)}/ок${Number.isFinite(r.windows) ? `  (${r.windows.toFixed(1)} ок)` : ''}`);
+    }
   }
   const built = STRUCTURES.filter((st) => store.builtCount(st.id) > 0);
   if (built.length) console.log('построено: ' + built.map((st) => `${st.name}×${store.builtCount(st.id)}`).join(', '));
