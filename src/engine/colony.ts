@@ -625,7 +625,11 @@ export type MilestoneId =
   | 'buffer_2'
   | 'event_survived'
   | 'refuel_unlocked'
-  | 'zero_import';
+  | 'zero_import'
+  | 'local_metals' // D-089/D-091: first mre_plant — steel no longer only from imported ingots
+  | 'local_construction' // D-090/D-091: first sinter_plant — habitat volume no longer only steel/glass
+  | 'local_fabrication' // D-091: first fab_shop — components no longer only imported
+  | 'local_spares'; // D-091: first machine_shop — spares floor no longer 100% imported
 
 export interface MilestoneSpec {
   id: MilestoneId;
@@ -648,6 +652,12 @@ export const MILESTONES: readonly MilestoneSpec[] = [
   { id: 'event_survived', name: 'Пережили событие без потерь', icon: '🕊' },
   { id: 'refuel_unlocked', name: 'Орбитальная заправка', icon: '⛽', subsidyBonus: 4.0e9 },
   { id: 'zero_import', name: 'Окно без единого завоза', icon: '🌌', subsidyBonus: 3.0e9 },
+  // D-089/D-090/D-091 (tech tree): each marks a whole import dependency cracking open for the
+  // first time — genuine industrial scale, not luck/automatic, same subsidyBonus criterion as pop_100/bulk_autonomy.
+  { id: 'local_metals', name: 'Местные металлы (MRE)', icon: '⛏️', subsidyBonus: 2.0e9 },
+  { id: 'local_construction', name: 'Стройка из реголита', icon: '🧱', subsidyBonus: 2.0e9 },
+  { id: 'local_fabrication', name: 'Местная фабрикация', icon: '🏭', subsidyBonus: 2.5e9 },
+  { id: 'local_spares', name: 'Местный ЗИП', icon: '🔧', subsidyBonus: 2.5e9 },
 ];
 
 // N₂ included: habitat hull leak → N₂ shortage → mortality (V7); no habitats → leak=0 → no effect
@@ -1278,6 +1288,10 @@ export function commitWindow(
   if (s.pop >= 100) mark('pop_100');
   if (bulkAutonomyOk) mark('bulk_autonomy');
   if (buffer !== undefined && buffer >= 2) mark('buffer_2');
+  if ((s.built.mre_plant ?? 0) > 0) mark('local_metals'); // D-089
+  if ((s.built.sinter_plant ?? 0) > 0) mark('local_construction'); // D-090
+  if ((s.built.fab_shop ?? 0) > 0) mark('local_fabrication'); // D-091
+  if ((s.built.machine_shop ?? 0) > 0) mark('local_spares'); // D-091
   // "survive an event with zero deaths" counts only windows where a DEADLY effect actually applied:
   // a storm/blight throttling output, an epidemic, or the supply gap a skipped convoy left behind.
   // Economic events (subsidy/price) can't kill in their own window — surviving them is no feat.

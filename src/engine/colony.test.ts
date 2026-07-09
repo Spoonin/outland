@@ -1715,10 +1715,11 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090 tech-tree structures are gated', () => {
+  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090/D-091 tech-tree structures are gated', () => {
     const gated = [
       'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
       'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
+      'fab_shop', 'machine_shop', // D-091 (P3 core)
     ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
@@ -1950,5 +1951,80 @@ describe('D-090 P2 core: regolith construction', () => {
     s.stocks.components = 1000;
     commitWindow(s, emptyOrder(), ['habitat_regolith']);
     expect(s.built.habitat_regolith ?? 0).toBe(1); // built from LOCAL composite, not an imported kg of it
+  });
+});
+
+// D-091 (P3 core): means of production — fab_shop (metals→components) and machine_shop
+// (metals→spares), one merged tech gate `fabrication`, both with the same ramp-up curve as
+// mre_plant/sinter_plant. Radiation (P2's other open item) is deliberately NOT here — still an
+// open design question pending a grilling session, unlike this fully-specified content.
+describe('D-091 P3 core: means of production (fab_shop/machine_shop)', () => {
+  it('fab_shop/machine_shop are gated by fabrication (prereqTech regolith_metallurgy, not just isru_extraction)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    expect(prereqMet(s, 'fab_shop')).toBe(false);
+    expect(prereqMet(s, 'machine_shop')).toBe(false);
+
+    s.techs.push('isru_extraction', 'regolith_metallurgy'); // fabrication's prereqTech chain
+    expect(prereqMet(s, 'fab_shop')).toBe(false); // still missing fabrication itself
+
+    s.techs.push('fabrication');
+    expect(prereqMet(s, 'fab_shop')).toBe(true);
+    expect(prereqMet(s, 'machine_shop')).toBe(true);
+  });
+
+  it('fab_shop/machine_shop both ramp up (like mre_plant/sinter_plant), neither depletes (reprocessing metal, not mining a deposit)', () => {
+    const fab = STRUCT_BY_ID.fab_shop;
+    const machine = STRUCT_BY_ID.machine_shop;
+    for (const spec of [fab, machine]) {
+      expect(spec.rampScale).toBeTruthy();
+      expect(spec.depletionScale).toBeFalsy();
+      expect(industryMult(spec, 0)).toBeCloseTo(spec.rampStart ?? 0, 5);
+      expect(industryMult(spec, spec.rampScale!)).toBeCloseTo(1, 5);
+    }
+  });
+
+  it('fab_shop closes brешь №2b: local metals become LOCAL components, feeding habitat_regolith (D-090) with zero Earth-components import', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+    s.techs = ['isru_extraction', 'regolith_metallurgy', 'fabrication', 'regolith_construction'];
+    s.built = { fab_shop: 1, solar_plant: 2 };
+    s.condition = { fab_shop: 1, solar_plant: 1 };
+    s.stocks.metals = 1_000_000; // plentiful feedstock — isolates this from mre_plant's own timing (D-089 covers that)
+    s.stocks.spares = 100_000; // isolate from wear (same fix as D-090's sinter_plant test)
+    s.stocks.chips = 100_000; // fab_shop's other consume (CNC) — still Earth-imported (D-045), just not the bottleneck here
+    commitWindow(s, emptyOrder()); // fab_shop runs (ramp-up start ~40%) — no components import at all
+    expect(s.stocks.components).toBeGreaterThan(0);
+
+    s.stocks.composite = 10_000; // habitat_regolith's other buildMaterial — still Earth-importable (D-090)
+    commitWindow(s, emptyOrder(), ['habitat_regolith']);
+    expect(s.built.habitat_regolith ?? 0).toBe(1); // built partly from LOCAL components
+  });
+
+  it('machine_shop produces spares locally — stock grows with zero Earth import', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { machine_shop: 1, solar_plant: 1 };
+    s.condition = { machine_shop: 1, solar_plant: 1 };
+    s.stocks.metals = 1_000_000;
+    s.stocks.spares = 100_000; // isolate from wear; also proves growth is NET of machine_shop's own upkeepSpares draw
+    s.stocks.chips = 100_000; // machine_shop's other consume (CNC) — not the bottleneck here
+    const before = s.stocks.spares;
+    commitWindow(s, emptyOrder());
+    expect(s.stocks.spares).toBeGreaterThan(before); // local production outpaces upkeep draw
+  });
+
+  it('milestones: local_metals/local_construction/local_fabrication/local_spares fire on first build, each once, with a subsidy bonus', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+    const bonusBefore = s.subsidyBonus;
+    s.built = { mre_plant: 1, sinter_plant: 1, fab_shop: 1, machine_shop: 1 };
+    s.condition = { mre_plant: 1, sinter_plant: 1, fab_shop: 1, machine_shop: 1 };
+    const r = commitWindow(s, emptyOrder());
+    expect(r.milestones).toEqual(
+      expect.arrayContaining(['local_metals', 'local_construction', 'local_fabrication', 'local_spares']),
+    );
+    expect(s.subsidyBonus).toBeGreaterThan(bonusBefore);
+
+    const r2 = commitWindow(s, emptyOrder()); // still built — must NOT re-fire
+    expect(r2.milestones).not.toEqual(
+      expect.arrayContaining(['local_metals', 'local_construction', 'local_fabrication', 'local_spares']),
+    );
   });
 });
