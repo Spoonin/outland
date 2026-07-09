@@ -673,7 +673,8 @@ export type MilestoneId =
   | 'pop_1000' // D-095: city-scale population checkpoints (path-to-100k.md)
   | 'pop_10000'
   | 'pop_50000'
-  | 'pop_100000';
+  | 'pop_100000'
+  | 'first_local_chip'; // D-096 (P7): first chip_fab — the finale-boss import (D-045's chips) cracks
 
 export interface MilestoneSpec {
   id: MilestoneId;
@@ -710,6 +711,9 @@ export const MILESTONES: readonly MilestoneSpec[] = [
   { id: 'pop_10000', name: '10 000 колонистов', icon: '👥', subsidyBonus: 8.0e9 },
   { id: 'pop_50000', name: '50 000 колонистов', icon: '👥', subsidyBonus: 12.0e9 },
   { id: 'pop_100000', name: '100 000 колонистов', icon: '👥', subsidyBonus: 20.0e9 },
+  // D-096 (P7): the finale-boss milestone — chips (D-045's hardest black node) gets a local source
+  // for the first time, same subsidyBonus criterion as every other local_* milestone, top tier.
+  { id: 'first_local_chip', name: 'Первый местный чип', icon: '💾', subsidyBonus: 5.0e9 },
 ];
 
 // N₂ included: habitat hull leak → N₂ shortage → mortality (V7); no habitats → leak=0 → no effect
@@ -1357,6 +1361,7 @@ export function commitWindow(
   if (s.pop >= 50000) mark('pop_50000');
   if (s.pop >= 100000) mark('pop_100000');
   if ((s.built.fusion_plant ?? 0) > 0) mark('fusion_online'); // D-095
+  if ((s.built.chip_fab ?? 0) > 0) mark('first_local_chip'); // D-096
   if (bulkAutonomyOk) mark('bulk_autonomy');
   if (buffer !== undefined && buffer >= 2) mark('buffer_2');
   if ((s.built.mre_plant ?? 0) > 0) mark('local_metals'); // D-089

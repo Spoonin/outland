@@ -1732,7 +1732,7 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the D-089..D-095 tech-tree structures are gated', () => {
+  it('every PRE-P1 structure ships techGate-free — only the D-089..D-096 tech-tree structures are gated', () => {
     const gated = [
       'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
       'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
@@ -1741,6 +1741,7 @@ describe('D-088 tech gate scaffold (P0)', () => {
       'school', 'university', // D-093 (P5)
       'shield_berm', // D-094 (radiation)
       'fusion_plant', 'blss_module', 'maternity_complex', // D-095 (P6)
+      'chip_fab', 'api_plant', 'pgm_refinery', // D-096 (P7)
     ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
@@ -2316,5 +2317,79 @@ describe('D-095 P6: city scale (fusion_plant, blss_module, maternity_complex)', 
       const spec = MILESTONES.find((m) => m.id === id);
       expect(spec?.subsidyBonus).toBeGreaterThan(0);
     }
+  });
+});
+
+// D-096 (P7, finale-boss): the hi-tech wall — chip_fab/api_plant/pgm_refinery, "mirage megaprojects"
+// (D-022/033) that shrink the eternal import tail (D-045) without ever zeroing it (MES ≫ colony,
+// D-045). Pure content on top of machinery that's existed since D-088 (techGate) and D-093
+// (minSpecialists) — this PR sets its first real consumer.
+describe('D-096 P7: hi-tech wall (chip_fab, api_plant, pgm_refinery)', () => {
+  it('all three are gated by their own new tech (semiconductors/pharma_synthesis/pgm_extraction)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 300, startStockWindows: 5 }));
+    expect(prereqMet(s, 'chip_fab')).toBe(false);
+    expect(prereqMet(s, 'api_plant')).toBe(false);
+    expect(prereqMet(s, 'pgm_refinery')).toBe(false);
+
+    s.techs.push('semiconductors');
+    expect(prereqMet(s, 'chip_fab')).toBe(false); // minSpecialists still unmet (see next test)
+    s.stocks.specialists = STRUCT_BY_ID.chip_fab.minSpecialists!;
+    expect(prereqMet(s, 'chip_fab')).toBe(true);
+
+    s.techs.push('pharma_synthesis');
+    expect(prereqMet(s, 'api_plant')).toBe(true);
+
+    s.techs.push('pgm_extraction');
+    expect(prereqMet(s, 'pgm_refinery')).toBe(true);
+  });
+
+  it('only chip_fab carries the hard minSpecialists gate (the roadmap singles it out as "высокий") — api_plant/pgm_refinery still consume the pool operationally, but don\'t gate on it', () => {
+    expect(STRUCT_BY_ID.chip_fab.minSpecialists).toBeGreaterThan(0);
+    expect(STRUCT_BY_ID.api_plant.minSpecialists).toBeUndefined();
+    expect(STRUCT_BY_ID.pgm_refinery.minSpecialists).toBeUndefined();
+    expect(STRUCT_BY_ID.api_plant.consumes.specialists).toBeGreaterThan(0);
+    expect(STRUCT_BY_ID.pgm_refinery.consumes.specialists).toBeGreaterThan(0);
+  });
+
+  it('chip_fab produces chips locally while draining the specialists pool it needed to get built (ongoing operational cost, not just a one-time gate)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 300, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { fusion_plant: 2, chip_fab: 1 }; // fusion_plant's own 3000 × 2 easily covers chip_fab's 2000 draw
+    s.condition = { fusion_plant: 1, chip_fab: 1 };
+    s.stocks.spares = 100_000; // isolate from wear, same fix as D-090..D-095's chain tests
+    s.stocks.specialists = 10_000;
+    s.stocks.metals = 1_000_000;
+    s.stocks.chips = 1_000_000; // fusion_plant's own upkeep draw, isolate from an input-gate throttle
+    const specialistsBefore = s.stocks.specialists;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.structDiag.chip_fab!.outputKg).toBe(STRUCT_BY_ID.chip_fab.produces.chips); // full-rate local output
+    expect(s.stocks.specialists).toBeLessThan(specialistsBefore); // pool actually drains — real ongoing cost
+  });
+
+  it('pgm_refinery draws a huge regolith tonnage per window (rassejannye PGM — dilute ore, not rich)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 300, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { solar_plant: 5, pgm_refinery: 1 };
+    s.condition = { solar_plant: 1, pgm_refinery: 1 };
+    s.stocks.spares = 100_000; // isolate from wear
+    s.stocks.regolith = 1_000_000;
+    s.stocks.specialists = 10_000; // pgm_refinery also consumes specialists ongoing (D-096 BOM)
+    const r = commitWindow(s, emptyOrder());
+    expect(r.stocks.catalyst).toBeGreaterThan(0); // did produce something
+    expect(1_000_000 - r.stocks.regolith).toBe(STRUCT_BY_ID.pgm_refinery.consumes.regolith); // full-rate draw
+  });
+
+  it('first_local_chip marks the first window a chip_fab stands (same "built, not necessarily running" precedent as local_metals/local_construction/etc.)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 300, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { chip_fab: 1 };
+    const r = commitWindow(s, emptyOrder());
+    expect(r.milestones).toContain('first_local_chip');
+    const spec = MILESTONES.find((m) => m.id === 'first_local_chip');
+    expect(spec?.subsidyBonus).toBeGreaterThan(0);
+  });
+
+  it("MES ≫ colony (D-045): chip_fab's own weekly chip output would need tens of thousands of windows to pay back its capex — shrinks the import tail, never pays it off (finale-boss economics, not an exploit)", () => {
+    const spec = STRUCT_BY_ID.chip_fab;
+    const catalog = defaultCatalog();
+    const weeklyValue = (spec.produces.chips ?? 0) * catalog.chips.earthPerKg;
+    expect(spec.capex / weeklyValue).toBeGreaterThan(10_000); // "payback" in windows — absurd, by design
   });
 });

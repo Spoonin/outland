@@ -381,7 +381,7 @@ describe('no win state — collapse or finish only (D-064)', () => {
     store.commit();
     store.finish();
     const d = store.debrief()!;
-    expect(d.milestones.length).toBe(17); // D-089/D-090/D-091 added 4, D-095 (P6) added 5 more
+    expect(d.milestones.length).toBe(18); // D-089/D-090/D-091 added 4, D-095 (P6) added 5, D-096 (P7) added 1
     expect(d.milestones.find((m) => m.id === 'pop_100')?.window).toBe(1);
     expect(d.populationSeries.length).toBe(2);
     expect(d.autonomySeries.length).toBe(2);

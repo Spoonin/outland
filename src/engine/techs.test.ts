@@ -7,9 +7,9 @@
 import { describe, it, expect } from 'vitest';
 import { TECHS, TECH_BY_ID, techMods, techBuyable } from './techs';
 
-describe('V8 tech tree — P1/P2/P3/P5/P6 content (D-089/D-090/D-091/D-093/D-095)', () => {
-  it('the eleven techs are loaded — ten pure `techGate` ("none"), plus robotics (opsCrewMult, D-092)', () => {
-    expect(TECHS).toHaveLength(11);
+describe('V8 tech tree — P1/P2/P3/P5/P6/P7 content (D-089/D-090/D-091/D-093/D-095/D-096)', () => {
+  it('the fourteen techs are loaded — thirteen pure `techGate` ("none"), plus robotics (opsCrewMult, D-092)', () => {
+    expect(TECHS).toHaveLength(14);
     expect(Object.keys(TECH_BY_ID).sort()).toEqual([
       'closed_loop',
       'demographics',
@@ -19,9 +19,12 @@ describe('V8 tech tree — P1/P2/P3/P5/P6 content (D-089/D-090/D-091/D-093/D-095
       'fusion',
       'higher_education',
       'isru_extraction',
+      'pgm_extraction',
+      'pharma_synthesis',
       'regolith_construction',
       'regolith_metallurgy',
       'robotics',
+      'semiconductors',
     ]);
     const gateOnly = TECHS.filter((t) => t.id !== 'robotics');
     expect(gateOnly.every((t) => t.effect === 'none')).toBe(true);
