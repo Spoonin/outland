@@ -17,6 +17,7 @@ import {
   lockReason,
   techGateMet,
   type EarthOrder,
+  type ColonyState,
 } from './colony';
 import { rollEvent } from './events';
 import { makeRng } from './rng';
@@ -1715,11 +1716,12 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090/D-091 tech-tree structures are gated', () => {
+  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090/D-091/D-092 tech-tree structures are gated', () => {
     const gated = [
       'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
       'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
       'fab_shop', 'machine_shop', // D-091 (P3 core)
+      'robotics_bay', // D-092 (P4)
     ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
@@ -2026,5 +2028,39 @@ describe('D-091 P3 core: means of production (fab_shop/machine_shop)', () => {
     expect(r2.milestones).not.toEqual(
       expect.arrayContaining(['local_metals', 'local_construction', 'local_fabrication', 'local_spares']),
     );
+  });
+});
+
+// D-092 (P4): automation — a single tech (`robotics`, effect `opsCrewMult`) reusing the roadmap-2
+// scaffold's ALREADY-WIRED hook in `laborNeed` (colony.ts) — no new engine code, only content.
+// `robotics_bay` is the physical/costly manifestation (draws chips ongoing); the −30% itself comes
+// from OWNING the tech, not from the structure being built (see D-092 "Альтернативы").
+describe('D-092 P4: automation (robotics_bay, opsCrewMult)', () => {
+  it('robotics_bay is gated by robotics (prereqStructure rnd_lab, not a tech-tree prereqTech)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    expect(prereqMet(s, 'robotics_bay')).toBe(false);
+
+    s.built.rnd_lab = 1; // robotics' own prereqStructure — needed to BUY the tech, not to build the bay
+    s.techs.push('robotics');
+    expect(prereqMet(s, 'robotics_bay')).toBe(true);
+  });
+
+  it('owning robotics eases D-075 understaffing on ALL structures — same workforce, higher runFrac, via the pre-existing opsCrewMult hook', () => {
+    const build = (): ColonyState => {
+      const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 5, eventChanceCap: 0 }));
+      s.built = { solar_plant: 10, steel_plant: 2 }; // opsCrew demand (40) well past a 20-person colony's workforce
+      s.condition = { solar_plant: 1, steel_plant: 1 };
+      s.stocks.metals = 1_000_000;
+      s.stocks.spares = 100_000; // isolate from wear, same fix as D-090/D-091's chain tests
+      return s;
+    };
+    const without = build();
+    const withRobotics = build();
+    withRobotics.techs = ['robotics'];
+
+    const r1 = commitWindow(without, emptyOrder());
+    const r2 = commitWindow(withRobotics, emptyOrder());
+    expect(r1.structDiag.steel_plant!.runFrac).toBeLessThan(1); // baseline actually IS understaffed
+    expect(r2.structDiag.steel_plant!.runFrac).toBeGreaterThan(r1.structDiag.steel_plant!.runFrac);
   });
 });
