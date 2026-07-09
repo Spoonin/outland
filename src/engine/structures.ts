@@ -59,6 +59,10 @@ export interface Structure {
   // (learning curve); paired with rampScale. Absent → no ramp (full yield from unit #1).
   rampScale?: number; // D-089 (P1): kg of cumulative output at which yield ramps up to 1.0, linear
   // from rampStart. Only mre_plant for now — the tree's first true localizing process.
+  minSpecialists?: number; // D-093 (P5): pool gate parallel to minPop (D-074), but reads
+  // s.stocks.specialists instead of s.pop — a hi-tech object needs trained crew, not just bodies.
+  // Absent/0 → no gate. Pure machinery today: no P5 structure sets it, future P8 consumers
+  // (chip_fab/api_plant) will, same "fundament before content" pattern as techGate in P0.
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -104,6 +108,7 @@ function loadStructures(): Structure[] {
     if (row.depletionScale) s.depletionScale = num(row.depletionScale);
     if (row.rampStart) s.rampStart = num(row.rampStart);
     if (row.rampScale) s.rampScale = num(row.rampScale);
+    if (row.minSpecialists) s.minSpecialists = num(row.minSpecialists);
     return s;
   });
 }

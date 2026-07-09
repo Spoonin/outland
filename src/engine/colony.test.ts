@@ -1716,12 +1716,13 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090/D-091/D-092 tech-tree structures are gated', () => {
+  it('every PRE-P1 structure ships techGate-free — only the D-089/D-090/D-091/D-092/D-093 tech-tree structures are gated', () => {
     const gated = [
       'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
       'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
       'fab_shop', 'machine_shop', // D-091 (P3 core)
       'robotics_bay', // D-092 (P4)
+      'school', 'university', // D-093 (P5)
     ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
@@ -2062,5 +2063,59 @@ describe('D-092 P4: automation (robotics_bay, opsCrewMult)', () => {
     const r2 = commitWindow(withRobotics, emptyOrder());
     expect(r1.structDiag.steel_plant!.runFrac).toBeLessThan(1); // baseline actually IS understaffed
     expect(r2.structDiag.steel_plant!.runFrac).toBeGreaterThan(r1.structDiag.steel_plant!.runFrac);
+  });
+});
+
+// D-093 (P5): cadres/education — `specialists` as a resource POOL (not a `Colonist` attribute; see
+// D-093 "Альтернативы" for why the richer alternative was deliberately not taken this PR). `school`/
+// `university` produce it; a new `minSpecialists` gate (parallel to `minPop`, D-074) has ZERO
+// consumers yet — pure machinery, same "fundament before content" shape as `techGate` in P0.
+describe('D-093 P5: cadres/education (specialists pool)', () => {
+  it('specialists is localOnly — previewOrder ignores any stray qty, same as the P1 trio (D-089)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    const clean = previewOrder(s, emptyOrder());
+    const withStrayQty = previewOrder(s, ord({ resources: { specialists: 500 } }));
+    expect(withStrayQty.goodsCost).toBe(clean.goodsCost);
+    expect(withStrayQty.mass).toBe(clean.mass);
+  });
+
+  it('school/university are gated by education/higher_education (higher_education itself requires education owned first)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+    expect(prereqMet(s, 'school')).toBe(false);
+    expect(prereqMet(s, 'university')).toBe(false);
+
+    s.techs.push('education');
+    expect(prereqMet(s, 'school')).toBe(true);
+    expect(prereqMet(s, 'university')).toBe(false); // still missing higher_education
+
+    s.techs.push('higher_education');
+    expect(prereqMet(s, 'university')).toBe(true);
+  });
+
+  it('school/university produce specialists — stock grows with zero Earth import', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { school: 1, university: 1, solar_plant: 2 };
+    s.condition = { school: 1, university: 1, solar_plant: 1 };
+    s.stocks.spares = 100_000; // isolate from wear (same fix as D-090/D-091/D-092's chain tests)
+    commitWindow(s, emptyOrder());
+    expect(s.stocks.specialists).toBeGreaterThan(0);
+  });
+
+  it('minSpecialists (D-093): a new pool gate, structurally identical to minPop but reading s.stocks.specialists — pure machinery, no current consumer', () => {
+    const original = STRUCT_BY_ID.rnd_lab.minSpecialists;
+    STRUCT_BY_ID.rnd_lab.minSpecialists = 100;
+    try {
+      const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5 }));
+      expect(prereqMet(s, 'rnd_lab')).toBe(false);
+      expect(importPrereqMet(s, 'rnd_lab')).toBe(false); // unlike minPop, minSpecialists DOES apply to imports (D-093)
+      expect(lockReason(s, 'rnd_lab')?.minSpecialistsNeeded).toBe(100);
+
+      s.stocks.specialists = 100;
+      expect(prereqMet(s, 'rnd_lab')).toBe(true);
+      expect(importPrereqMet(s, 'rnd_lab')).toBe(true);
+      expect(lockReason(s, 'rnd_lab')).toBeUndefined();
+    } finally {
+      STRUCT_BY_ID.rnd_lab.minSpecialists = original;
+    }
   });
 });

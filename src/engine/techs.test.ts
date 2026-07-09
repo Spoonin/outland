@@ -1,17 +1,20 @@
 // Roadmap-2 Block C — V8 advanced-tech tree. Content: D-089 (P1, three techs) + D-090 (P2 core,
 // one more) + D-091 (P3 core, one more) — all `effect: 'none'`, gating structures.csv rows purely
 // via `techGate` (D-088); techMods() itself stays neutral for every one of them. D-092 (P4) adds
-// the tree's first REAL techMods() hook: `robotics` (`effect: 'opsCrewMult'`).
+// the tree's first REAL techMods() hook: `robotics` (`effect: 'opsCrewMult'`). D-093 (P5) adds two
+// more pure-gate ("none") techs (`education`/`higher_education`).
 
 import { describe, it, expect } from 'vitest';
 import { TECHS, TECH_BY_ID, techMods, techBuyable } from './techs';
 
-describe('V8 tech tree — P1/P2/P3 content (D-089/D-090/D-091)', () => {
-  it('the six techs are loaded — five pure `techGate` ("none"), plus robotics (opsCrewMult, D-092)', () => {
-    expect(TECHS).toHaveLength(6);
+describe('V8 tech tree — P1/P2/P3/P5 content (D-089/D-090/D-091/D-093)', () => {
+  it('the eight techs are loaded — seven pure `techGate` ("none"), plus robotics (opsCrewMult, D-092)', () => {
+    expect(TECHS).toHaveLength(8);
     expect(Object.keys(TECH_BY_ID).sort()).toEqual([
+      'education',
       'electrolysis',
       'fabrication',
+      'higher_education',
       'isru_extraction',
       'regolith_construction',
       'regolith_metallurgy',

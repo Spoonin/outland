@@ -54,7 +54,7 @@ describe('ColonyStore (v2 Earth ordering)', () => {
   it('status exposes all resource stocks with per-window net & cover', () => {
     const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 2 }), memKV());
     const res = store.status().resources;
-    expect(res.length).toBe(18); // all resources shown in the dashboard (incl. fuel D-074, regolith/hydrogen/co2 D-089, composite/components D-090)
+    expect(res.length).toBe(19); // all resources shown in the dashboard (incl. fuel D-074, regolith/hydrogen/co2 D-089, composite/components D-090, specialists D-093)
     const food = res.find((c) => c.kind === 'food')!;
     expect(food.windows).toBeCloseTo(2, 1); // ~2 windows of food at start (draining, no farm)
     expect(food.net).toBeLessThan(0);

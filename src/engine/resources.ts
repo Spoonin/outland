@@ -34,6 +34,9 @@ export const RESOURCES = [
   // until fab_shop (P3/4) localizes it (D-057 "smooth start" pattern, same as pre-built structures).
   'composite',
   'components',
+  // D-093 (P5, tech-tree): trained-up population, not a physical good — localOnly like the P1
+  // trio (can't ship a specialist as cargo), gates future hi-tech structures (Structure.minSpecialists).
+  'specialists',
 ] as const;
 export type ResourceKind = (typeof RESOURCES)[number];
 export type Stocks = Record<ResourceKind, number>;

@@ -357,28 +357,33 @@ export function prereqMet(s: ColonyState, id: string): boolean {
   if (!st) return false;
   const prereqOk = !st.prereq || (s.built[st.prereq] ?? 0) > 0;
   const popOk = !st.minPop || s.pop >= st.minPop;
-  return prereqOk && popOk && techGateMet(st.techGate, s.techs);
+  const specialistsOk = !st.minSpecialists || s.stocks.specialists >= st.minSpecialists;
+  return prereqOk && popOk && specialistsOk && techGateMet(st.techGate, s.techs);
 }
 
-/** Can a structure be IMPORTED (pre-built from Earth, D-057) right now? Only the structure prereq
- * and tech gate apply — it ships ready-to-run with no local assembly step, so minPop (a LOCAL
- * build-labor gate) doesn't apply: nobody on Mars needs to erect a turnkey unit from raw materials
- * (D-075). Its ongoing opsCrew still counts once it lands, same as anything built locally. The tech
- * gate DOES apply to imports too (D-088) — a `techGate`'d design is proprietary/unbuilt tech, not
- * something Earth can just ship you around the gate. */
+/** Can a structure be IMPORTED (pre-built from Earth, D-057) right now? The structure prereq, tech
+ * gate, AND minSpecialists all apply — but NOT minPop: it ships ready-to-run with no local assembly
+ * step, so minPop (a LOCAL build-labor gate) doesn't apply — nobody on Mars needs to erect a
+ * turnkey unit from raw materials (D-075). Its ongoing opsCrew still counts once it lands, same as
+ * anything built locally. The tech gate DOES apply to imports too (D-088) — a `techGate`'d design
+ * is proprietary/unbuilt tech, not something Earth can just ship you around the gate. `minSpecialists`
+ * (D-093) applies too, unlike `minPop` — a turnkey unit still needs trained crew to OPERATE it,
+ * regardless of who assembled it. */
 export function importPrereqMet(s: ColonyState, id: string): boolean {
   const st = STRUCT_BY_ID[id];
   if (!st) return false;
-  return (!st.prereq || (s.built[st.prereq] ?? 0) > 0) && techGateMet(st.techGate, s.techs);
+  const specialistsOk = !st.minSpecialists || s.stocks.specialists >= st.minSpecialists;
+  return (!st.prereq || (s.built[st.prereq] ?? 0) > 0) && specialistsOk && techGateMet(st.techGate, s.techs);
 }
 
 /** Why a structure is locked right now, if it is (D-074) — prereqMet only answers yes/no; the
  * UI needs to tell "build the prereq first" apart from "grow the colony first" apart from "buy the
- * tech first" (D-088). */
+ * tech first" (D-088) apart from "train specialists first" (D-093). */
 export interface LockReason {
   missingStructure?: string; // s.prereq, if that structure isn't standing yet
   minPopNeeded?: number; // st.minPop, if current pop falls short
   missingTech?: string; // st.techGate, if that tech isn't owned yet (D-088)
+  minSpecialistsNeeded?: number; // st.minSpecialists, if the pool falls short (D-093)
 }
 export function lockReason(s: ColonyState, id: string): LockReason | undefined {
   const st = STRUCT_BY_ID[id];
@@ -386,7 +391,11 @@ export function lockReason(s: ColonyState, id: string): LockReason | undefined {
   const missingStructure = st.prereq && (s.built[st.prereq] ?? 0) <= 0 ? st.prereq : undefined;
   const minPopNeeded = st.minPop && s.pop < st.minPop ? st.minPop : undefined;
   const missingTech = st.techGate && !techGateMet(st.techGate, s.techs) ? st.techGate : undefined;
-  return missingStructure || minPopNeeded || missingTech ? { missingStructure, minPopNeeded, missingTech } : undefined;
+  const minSpecialistsNeeded =
+    st.minSpecialists && s.stocks.specialists < st.minSpecialists ? st.minSpecialists : undefined;
+  return missingStructure || minPopNeeded || missingTech || minSpecialistsNeeded
+    ? { missingStructure, minPopNeeded, missingTech, minSpecialistsNeeded }
+    : undefined;
 }
 
 // ---- order preview (for the UI manifest) --------------------------------

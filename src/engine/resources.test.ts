@@ -107,6 +107,7 @@ describe('resource set (dробный набор, D-042)', () => {
     expect(RESOURCES).toContain('co2');
     expect(RESOURCES).toContain('composite'); // D-090 (P2): regolith construction
     expect(RESOURCES).toContain('components');
-    expect(RESOURCES.length).toBe(18);
+    expect(RESOURCES).toContain('specialists'); // D-093 (P5): trained population pool
+    expect(RESOURCES.length).toBe(19);
   });
 });
