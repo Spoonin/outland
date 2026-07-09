@@ -144,6 +144,11 @@ export class MarsTab extends LitElement {
         <br />${s.energy > 0
           ? html`⚡ средняя мощность: <span class="gen">+${s.energy}</span> <span class="hint">(за окно, среднегодовая — без пиков день/ночь)</span>`
           : html`энергия: ${s.energy < 0 ? html`<span class="draw">${s.energy}</span>` : '0'}`}
+        ${s.energy > 0
+          ? s.stormVulnerable
+            ? html`<span class="hint">· уязвима к пылевым бурям</span>`
+            : html`<span class="hint">· не зависит от бурь</span>`
+          : nothing}
         ${prod ? html`· выпуск: ${prod}` : nothing} ${cons ? html`· потр.: ${cons}` : nothing}
         · ЗИП ${kg(s.upkeepSpares)}/окно
         ${s.opsCrew ? html`· экипаж ${s.opsCrew}/шт` : nothing}

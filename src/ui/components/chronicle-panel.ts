@@ -125,7 +125,7 @@ export class ChroniclePanel extends LitElement {
     const cat = ev.category?.map((r) => ICON[r] ?? r).join('') ?? '';
     switch (ev.effect) {
       case 'energy':
-        return `${ev.icon} ${ev.name}: генерация −${pct(ev.mag)} на ${ev.windows} ок`;
+        return `${ev.icon} ${ev.name}: солнечная генерация −${pct(ev.mag)} на ${ev.windows} ок`;
       case 'subsidy':
         return `${ev.icon} ${ev.name}: субсидия −${pct(ev.mag)} на ${ev.windows} ок`;
       case 'delay':

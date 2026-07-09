@@ -752,10 +752,18 @@ export function commitWindow(
   // the event_survived milestone, and excluded from the zero_import finale-boss
   const skipGapWindow = excludeId === 'skip_window';
   const roll = rollEvent(s.window, s.pop, p, excludeId, rng);
-  let genMult = effectMultiplier(s.activeEffects, 'energy');
+  // dust_storm (D-086): addressable — only `stormVulnerable` generation (solar) takes the hit;
+  // a reactor is a shielded, storm-immune baseload. Both the active roll and any lingering
+  // remainder from a multi-window storm go through this SAME multiplier (else window 2 of a
+  // 2-window storm would "release" the reactor that was never gated to begin with).
+  let stormMult = effectMultiplier(s.activeEffects, 'energy');
   let farmMult = effectMultiplier(s.activeEffects, 'farm');
-  if (roll?.spec.effect === 'energy') genMult *= 1 - roll.mag;
+  if (roll?.spec.effect === 'energy') stormMult *= 1 - roll.mag;
   if (roll?.spec.effect === 'farm') farmMult *= 1 - roll.mag;
+
+  // genMult stays a UNIFORM generation multiplier — radiation (SPE, everyone shelters) and D-075
+  // understaffing (laborRatio, below) hit every power plant alike, storm-vulnerable or not.
+  let genMult = 1;
 
   // solar_flare (D-072): SPE — the colony shelters under regolith for the window: ALL structure
   // output and generation take the hit at once (the "cascade" disaster class), same-window like
@@ -918,7 +926,10 @@ export function commitWindow(
   for (const s2 of Object.keys(s.built)) {
     if ((s.built[s2] ?? 0) <= 0) continue;
     const c = s.condition[s2] ?? 1;
-    s.condition[s2] = Math.max(0, Math.min(1, c - p.wearRate * (1 - sparesCoverage)));
+    // D-086: wearRateMult (dust abrasion on solar panels) scales the WEAR side only — repairRate
+    // below stays uniform, an asymmetry that makes keeping panels in shape cost more spares.
+    const wearMult = STRUCT_BY_ID[s2]?.wearRateMult ?? 1;
+    s.condition[s2] = Math.max(0, Math.min(1, c - p.wearRate * wearMult * (1 - sparesCoverage)));
   }
 
   // repair (D-084): spares ordered BEYOND upkeep are a real repair budget — up to one extra
@@ -985,12 +996,13 @@ export function commitWindow(
   allMult *= laborRatio;
 
   // energy (priority brownout) + input availability (hi-tech) + condition (wear) → structure output;
-  // dust_storm/blight (D-063) throttle generation/food-producers via genMult/farmMult above;
-  // struct_outage/solar_flare (D-072) via outMult/allMult; a reactor out of fuel (D-074) via genGate;
-  // understaffed colony (D-075) via genMult/allMult too (laborRatio folded in just above)
+  // dust_storm (D-086) throttles only stormVulnerable generation via stormMult; blight (D-063)
+  // throttles food-producers via farmMult; struct_outage/solar_flare (D-072) via outMult/allMult;
+  // a reactor out of fuel (D-074) via genGate; understaffed colony (D-075) via genMult/allMult too
+  // (laborRatio folded in just above)
   const lifeSupportDemand = p.popEnergyPerCapita * s.pop;
   const genGate = generationInputGate(s.built, s.condition, avail);
-  const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult, genGate);
+  const energy = resolveColonyEnergy(s.built, lifeSupportDemand, s.condition, genMult, genGate, stormMult);
   const sf = structureFlows(s.built, energy.served, avail, s.condition, farmMult, outMult, allMult);
 
   // life-support + structure consumption + spares upkeep; arrivals + structure production
@@ -1240,6 +1252,7 @@ export function commitWindow(
   // Economic events (subsidy/price) can't kill in their own window — surviving them is no feat.
   const deadlyApplied =
     genMult < 1 ||
+    stormMult < 1 ||
     farmMult < 1 ||
     allMult < 1 ||
     Object.keys(outMult).length > 0 ||

@@ -42,6 +42,12 @@ export interface Structure {
   spoilRateMult?: number; // D-085: per-unit multiplier on food's spoilRate, stacking as mult^count
   // with a floor at ColonyParams.minSpoilRate (D-052-style — spoilage pressure never fully zeroes
   // out); absent → 1 (no effect). Only food_silo sets this; water doesn't spoil at all.
+  stormVulnerable: boolean; // D-086: dust_storm's `energy` effect only throttles generation from
+  // types with this flag (currently solar_plant only) — a reactor's output doesn't care that the
+  // sky is dark. Other uniform multipliers (radiation, understaffing) still hit everyone.
+  wearRateMult: number; // D-086: per-type multiplier on ColonyParams.wearRate (dust abrasion wears
+  // exposed panels faster than a sealed reactor); absent/blank → 1. repairRate is NOT scaled —
+  // only the wear side of the D-052 condition system is asymmetric.
 }
 
 /** Loads the structure catalog from data/structures.csv (D-058) — a balance spreadsheet, not code. */
@@ -69,6 +75,8 @@ function loadStructures(): Structure[] {
       produces,
       consumes,
       upkeepSpares: num(row.upkeepSpares),
+      stormVulnerable: num(row.stormVulnerable) === 1,
+      wearRateMult: row.wearRateMult ? num(row.wearRateMult) : 1,
     };
     if (row.housing) s.housing = num(row.housing);
     if (row.n2Leak) s.n2Leak = num(row.n2Leak);
@@ -102,12 +110,23 @@ const condOf = (c: Condition | undefined, id: string): number => {
 
 /** Total energy generation from built power plants, scaled by condition (V6) and, per-structure,
  * by how much of its OWN inputs it actually got (D-074, `genGate`) — a reactor out of fuel doesn't
- * generate rated power just because the panels-side of the grid is fine. */
-export function energyGeneration(built: BuiltCounts, condition?: Condition, genGate?: Record<string, number>): number {
+ * generate rated power just because the panels-side of the grid is fine. `stormMult` (D-086) hits
+ * only `stormVulnerable` types — dust storms dim panels, not a shielded reactor. */
+export function energyGeneration(
+  built: BuiltCounts,
+  condition?: Condition,
+  genGate?: Record<string, number>,
+  stormMult = 1,
+): number {
   let g = 0;
   for (const s of STRUCTURES) {
     if (s.energy <= 0) continue;
-    g += s.energy * (built[s.id] ?? 0) * condOf(condition, s.id) * (genGate?.[s.id] ?? 1);
+    g +=
+      s.energy *
+      (built[s.id] ?? 0) *
+      condOf(condition, s.id) *
+      (genGate?.[s.id] ?? 1) *
+      (s.stormVulnerable ? stormMult : 1);
   }
   return g;
 }
@@ -145,20 +164,22 @@ export interface EnergyResolution {
 }
 
 /** Resolve colony energy: life-support (priority 0) + each drawing structure (demand scaled by condition).
- * `genMult` (D-063, dust storms) additionally scales generation before allocation. */
+ * `genMult` (radiation, D-075 understaffing) scales ALL generation uniformly; `stormMult` (D-086,
+ * dust storms) scales only `stormVulnerable` generation — a reactor doesn't care that the sky is dark. */
 export function resolveColonyEnergy(
   built: BuiltCounts,
   lifeSupportDemand: number,
   condition?: Condition,
   genMult = 1,
   genGate?: Record<string, number>,
+  stormMult = 1,
 ): EnergyResolution {
   const demands: EnergyDemand[] = [{ name: 'lifesupport', priority: 0, demand: lifeSupportDemand }];
   for (const s of STRUCTURES) {
     const n = built[s.id] ?? 0;
     if (n > 0 && s.energy < 0) demands.push({ name: s.id, priority: s.energyPriority, demand: -s.energy * n * condOf(condition, s.id) });
   }
-  const r = resolveEnergy(energyGeneration(built, condition, genGate) * genMult, demands);
+  const r = resolveEnergy(energyGeneration(built, condition, genGate, stormMult) * genMult, demands);
   return { generation: r.generation, served: r.served, deficit: r.deficit };
 }
 

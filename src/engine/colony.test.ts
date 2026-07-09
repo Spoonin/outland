@@ -17,6 +17,7 @@ import {
 import { rollEvent } from './events';
 import { makeRng } from './rng';
 import { serializeColony, loadColony } from './colony-save';
+import { laborDemand } from './structures';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
@@ -33,6 +34,18 @@ function seedForEvent(targetId: string, window = 1): number {
   throw new Error(`no seed found for event ${targetId}`);
 }
 const ALWAYS_FIRE = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1 };
+
+/** Same as seedForEvent, but also pins the rolled duration — needed to deterministically test a
+ * lingering (dur=2) storm's second window rather than whatever dur the first matching seed happens
+ * to draw. */
+function seedForEventDur(targetId: string, dur: number, window = 1): number {
+  const cfg = { eventStartWindow: 0, eventRampPerWindow: 1, eventChanceCap: 1, eventPopRef: 500 };
+  for (let seed = 1; seed < 20000; seed++) {
+    const roll = rollEvent(window, 0, cfg, undefined, makeRng(seed));
+    if (roll?.spec.id === targetId && roll.dur === dur) return seed;
+  }
+  throw new Error(`no seed found for event ${targetId} dur ${dur}`);
+}
 
 /** D-085: zeroes pharma's spoilage only — pharma has NO local production in this game (D-045/050,
  * hi-tech Earth-only forever), so a one-time stockpile can never survive an indefinite zero-import
@@ -299,15 +312,15 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
       withDemolition.condition = { waste_pad: 1, nuclear_plant: 1, solar_plant: 1 };
       withDemolition.stocks.spares = 1_000_000;
       const rDemolished = commitWindow(withDemolition, emptyOrder(), [], ['nuclear_plant']);
-      // laborNeed = ongoing (waste_pad 1 + solar_plant 1 = 2) + one-time demolishCrew 50 = 52; pop 10
-      expect(rDemolished.energyGen).toBeCloseTo(100 * (10 / 52), 0); // solar's rated 100 × laborRatio
+      // laborNeed = ongoing (waste_pad 1 + solar_plant 3, D-086 opsCrew = 4) + one-time demolishCrew 50 = 54; pop 10
+      expect(rDemolished.energyGen).toBeCloseTo(100 * (10 / 54), 0); // solar's rated 100 × laborRatio
 
       const noDemolition = newColony(defaultColonyParams({ pop0: 10, startStockWindows: 5 }));
       noDemolition.built = { waste_pad: 1, solar_plant: 1 }; // same ongoing crew, no reactor to tear down
       noDemolition.condition = { waste_pad: 1, solar_plant: 1 };
       noDemolition.stocks.spares = 1_000_000;
       const rControl = commitWindow(noDemolition, emptyOrder());
-      expect(rControl.energyGen).toBeCloseTo(100, 0); // ongoing demand (2) ≪ pop 10 → no throttle at all
+      expect(rControl.energyGen).toBeCloseTo(100, 0); // ongoing demand (4) ≪ pop 10 → no throttle at all
       expect(rDemolished.energyGen).toBeLessThan(rControl.energyGen); // the demolition surge is the difference
     });
 
@@ -372,9 +385,9 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
   });
 
   it('an understaffed colony throttles EVERY structure proportionally, not just the short-handed one (D-075)', () => {
-    // 1 solar_plant (opsCrew 1) + 1 nuclear_plant (opsCrew 10) = 11 needed; pop 11 → full staffing
+    // 1 solar_plant (opsCrew 3, D-086) + 1 nuclear_plant (opsCrew 10) = 13 needed; pop 13 → full staffing
     // (illnessProb 0: one unlucky sick colonist would silently thin the able-bodied pool, D-083)
-    const staffed = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5, illnessProb: 0 }));
+    const staffed = newColony(defaultColonyParams({ pop0: 13, startStockWindows: 5, illnessProb: 0 }));
     staffed.built = { solar_plant: 1, nuclear_plant: 1 };
     staffed.condition = { solar_plant: 1, nuclear_plant: 1 };
     staffed.stocks.spares = 1_000_000;
@@ -382,17 +395,17 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     const rFull = commitWindow(staffed, emptyOrder());
     expect(rFull.energyGen).toBeCloseTo(600, 0); // solar 100 + nuclear 500, fully staffed
 
-    // a mass-casualty event thins pop to 5 mid-game — labor demand (11) now exceeds headcount,
+    // a mass-casualty event thins pop to 5 mid-game — labor demand (13) now exceeds headcount,
     // and BOTH structures lose the same fraction of output (a colony-wide pinch, not "who gets fired")
-    const thinned = newColony(defaultColonyParams({ pop0: 11, startStockWindows: 5, illnessProb: 0 }));
+    const thinned = newColony(defaultColonyParams({ pop0: 13, startStockWindows: 5, illnessProb: 0 }));
     thinned.built = { solar_plant: 1, nuclear_plant: 1 };
     thinned.condition = { solar_plant: 1, nuclear_plant: 1 };
     thinned.stocks.spares = 1_000_000;
     thinned.stocks.fuel = 1_000_000;
     thinned.colonists = thinned.colonists.slice(0, 5); // individuals now (D-083), not a scalar
-    thinned.pop = thinned.colonists.length; // 5 of the 11 needed → laborRatio 5/11
+    thinned.pop = thinned.colonists.length; // 5 of the 13 needed → laborRatio 5/13
     const rThin = commitWindow(thinned, emptyOrder());
-    expect(rThin.energyGen).toBeCloseTo(600 * (5 / 11), 0); // BOTH plants' share cut equally
+    expect(rThin.energyGen).toBeCloseTo(600 * (5 / 13), 0); // BOTH plants' share cut equally
   });
 
   it('pop===0 with structures already built is "not colonized yet", not a labor collapse (D-075)', () => {
@@ -400,7 +413,7 @@ describe('Mars structures — build, energy, local production (V4, D-044)', () =
     // lag) — a robotically pre-deployed solar_plant sitting at pop 0 must not read as understaffed
     // just because 0/anything(>0) would otherwise divide out to a full blackout.
     const s = newColony(defaultColonyParams({ pop0: 0, startStockWindows: 5 }));
-    s.built = { solar_plant: 1 }; // opsCrew 1, but nobody has landed yet
+    s.built = { solar_plant: 1 }; // opsCrew 3 (D-086), but nobody has landed yet
     s.condition = { solar_plant: 1 };
     s.stocks.spares = 1_000_000; // full ЗИП coverage — isolate from wear, not what this checks
     const r = commitWindow(s, emptyOrder());
@@ -1312,6 +1325,124 @@ describe('disaster events — breach / radiation / outage / crash (D-072)', () =
     expect(s.pop).toBeLessThan(10); // survivors only
     expect(r.milestones).toContain('first_landing'); // someone DID land alive
     expect(r.milestones).not.toContain('zero_import'); // a crashed convoy is not independence
+  });
+});
+
+// D-086: dust_storm's `energy` effect becomes ADDRESSABLE — it only dims stormVulnerable generation
+// (solar_plant), never a shielded reactor. Radiation (solar_flare) and understaffing (D-075) stay
+// UNIFORM multipliers, hitting every power plant alike (regression coverage below). Solar's
+// wearRateMult (dust abrasion) and opsCrew bump (panel upkeep needs more hands) round out the
+// decision — repairRate stays symmetric, only the wear side is asymmetric.
+describe('D-086 energy realism', () => {
+  it('a storm at a solar-only colony cuts generation by the rolled magnitude, as before', () => {
+    const seed = seedForEvent('dust_storm');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, illnessProb: 0, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2 };
+    s.condition = { solar_plant: 1 };
+    s.stocks.spares = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('dust_storm');
+    expect(r.energyGen).toBeCloseTo(200 * (1 - r.event!.mag), 0);
+  });
+
+  it('a storm at a nuclear-only colony leaves generation untouched — the reactor is storm-immune', () => {
+    const seed = seedForEvent('dust_storm');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, illnessProb: 0, ...ALWAYS_FIRE }));
+    s.built = { nuclear_plant: 1 };
+    s.condition = { nuclear_plant: 1 };
+    s.stocks.spares = 1_000_000;
+    s.stocks.fuel = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('dust_storm');
+    expect(r.energyGen).toBeCloseTo(500, 0); // full rated output, storm doesn't touch it
+  });
+
+  it('mixed generation: a storm cuts only the solar share, the reactor\'s share holds', () => {
+    const seed = seedForEvent('dust_storm');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, illnessProb: 0, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2, nuclear_plant: 1 };
+    s.condition = { solar_plant: 1, nuclear_plant: 1 };
+    s.stocks.spares = 1_000_000;
+    s.stocks.fuel = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('dust_storm');
+    expect(r.energyGen).toBeCloseTo(200 * (1 - r.event!.mag) + 500, 0);
+  });
+
+  it('a lingering 2-window storm keeps the reactor immune in its second window too', () => {
+    const seed = seedForEventDur('dust_storm', 2);
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, illnessProb: 0, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 2, nuclear_plant: 1 };
+    s.condition = { solar_plant: 1, nuclear_plant: 1 };
+    s.stocks.spares = 1_000_000;
+    s.stocks.fuel = 1_000_000;
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.event?.id).toBe('dust_storm');
+    expect(r1.event?.windows).toBe(2);
+    const mag = r1.event!.mag;
+    s.p.eventChanceCap = 0; // no fresh rolls — isolate the storm's lingering tail
+    const r2 = commitWindow(s, emptyOrder());
+    expect(r2.energyGen).toBeCloseTo(200 * (1 - mag) + 500, 0); // same split, second window
+  });
+
+  it('solar_flare (radiation) still throttles ALL generation, including the reactor — regression', () => {
+    const seed = seedForEvent('solar_flare');
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, seed, illnessProb: 0, ...ALWAYS_FIRE }));
+    s.built = { solar_plant: 1, nuclear_plant: 1 };
+    s.condition = { solar_plant: 1, nuclear_plant: 1 };
+    s.stocks.spares = 1_000_000;
+    s.stocks.fuel = 1_000_000;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.event?.id).toBe('solar_flare');
+    expect(r.energyGen).toBeLessThanOrEqual(300); // 600 rated × mag≥0.5 — reactor bitten too, unlike dust_storm
+  });
+
+  it('solar panels wear 1.5× faster than a default-wear-rate type under identical neglect', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1, steel_plant: 1 };
+    s.condition = { solar_plant: 1, steel_plant: 1 };
+    s.stocks.spares = 0; // zero ЗИП coverage — full wear bites both types
+    commitWindow(s, emptyOrder());
+    expect(s.condition.steel_plant).toBeCloseTo(1 - s.p.wearRate, 10);
+    expect(s.condition.solar_plant).toBeCloseTo(1 - s.p.wearRate * 1.5, 10);
+  });
+
+  it('repair (D-084) restores both types by the SAME amount — only wear, not repair, is asymmetric', () => {
+    const s = newColony(defaultColonyParams({ pop0: 0 }));
+    s.built = { solar_plant: 1, steel_plant: 1 }; // upkeep 300 + 600 = 900
+    s.condition = { solar_plant: 0.4, steel_plant: 0.4 };
+    s.stocks.spares = 1800; // upkeep (900) + one more upkeep's worth of surplus (900)
+    const r = commitWindow(s, emptyOrder());
+    expect(r.repairSpentKg).toBe(900);
+    const gain = s.p.repairRate; // spend/upkeep == 1 → full rate, same for both types
+    expect(s.condition.solar_plant).toBeCloseTo(0.4 + gain, 10);
+    expect(s.condition.steel_plant).toBeCloseTo(0.4 + gain, 10);
+  });
+
+  it('laborDemand reflects the catalog\'s opsCrew=3 for solar_plant (up from 1 — panel upkeep needs hands)', () => {
+    expect(laborDemand({ solar_plant: 1 })).toBe(3);
+    expect(laborDemand({ solar_plant: 2, nuclear_plant: 1 })).toBe(2 * 3 + 10);
+  });
+
+  it('smoke: a reactor-backed colony rides out a storm without an energy deficit where solar-only does not', () => {
+    const seed = seedForEvent('dust_storm');
+    const pop0 = 6000; // popEnergyPerCapita 0.05 × 6000 = 300 life-support demand
+    const solarOnly = newColony(defaultColonyParams({ pop0, startStockWindows: 5, seed, illnessProb: 0, ...ALWAYS_FIRE }));
+    solarOnly.built = { solar_plant: 3 }; // 300 rated — exact break-even against demand, no margin
+    solarOnly.condition = { solar_plant: 1 };
+    solarOnly.stocks.spares = 1_000_000;
+    const rSolar = commitWindow(solarOnly, emptyOrder());
+    expect(rSolar.event?.id).toBe('dust_storm');
+    expect(rSolar.energyDeficit).toBeGreaterThan(0); // the storm eats the margin-free supply
+
+    const withReactor = newColony(defaultColonyParams({ pop0, startStockWindows: 5, seed, illnessProb: 0, ...ALWAYS_FIRE }));
+    withReactor.built = { solar_plant: 3, nuclear_plant: 1 }; // reactor alone (500) already clears demand (300)
+    withReactor.condition = { solar_plant: 1, nuclear_plant: 1 };
+    withReactor.stocks.spares = 1_000_000;
+    withReactor.stocks.fuel = 1_000_000;
+    const rReactor = commitWindow(withReactor, emptyOrder());
+    expect(rReactor.event?.id).toBe('dust_storm');
+    expect(rReactor.energyDeficit).toBe(0); // storm-immune reactor covers life-support alone
   });
 });
 
