@@ -1,9 +1,10 @@
 import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
-import { TECH_BY_ID, type Structure } from '../../engine';
+import { STRUCT_BY_ID, TECH_BY_ID, type Structure } from '../../engine';
 import { tokens } from '../theme';
 import { i18n, t } from '../i18n';
+import { structName, techName } from '../names';
 
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
 
@@ -164,10 +165,11 @@ export class MarsTab extends LitElement {
     const why = this.store.lockReason(s.id);
     if (!why) return nothing;
     const parts: string[] = [];
-    if (why.missingStructure) parts.push(t('mars.needFirst', { v: why.missingStructure }));
+    if (why.missingStructure)
+      parts.push(t('mars.needFirst', { v: structName(why.missingStructure, STRUCT_BY_ID[why.missingStructure]?.name ?? why.missingStructure) }));
     if (why.minPopNeeded) parts.push(t('mars.needPop', { v: why.minPopNeeded.toLocaleString('ru-RU') }));
-    if (why.missingTech) parts.push(t('mars.needTech', { v: TECH_BY_ID[why.missingTech]?.name ?? why.missingTech }));
-    return html`<div class="lock">🔒 ${parts.join(' · ')}</div>`;
+    if (why.missingTech) parts.push(t('mars.needTech', { v: techName(why.missingTech, TECH_BY_ID[why.missingTech]?.name ?? why.missingTech) }));
+    return html`<div class="lock">${parts.join(' · ')}</div>`;
   }
 
   /** D-089 (P1): depletion (mined deposit running down) / ramp-up (new process still learning) —
@@ -194,7 +196,7 @@ export class MarsTab extends LitElement {
     const status = structStatus(store, s.id);
     return html`<div class="card ${locked ? 'locked' : ''}">
       <div class="h">
-        <span class="name"><span class="dot" style="background:${status.color}"></span>${s.icon} ${s.name}</span>
+        <span class="name"><span class="dot" style="background:${status.color}"></span>${structName(s.id, s.name)}</span>
         <span class="counts">${t('mars.builtCount', { n: built })}${queued ? ` · +${queued}` : ''}</span>
       </div>
       <div class="spec">
@@ -240,7 +242,7 @@ export class MarsTab extends LitElement {
     const queued = store.queuedDemolishCount(s.id);
     return html`<div class="ctrl demolish">
       <button ?disabled=${queued === 0} @click=${() => store.removeDemolish(s.id)}>−</button>
-      <span class="q">🔧 ${queued}</span>
+      <span class="q">${queued}</span>
       <button ?disabled=${store.demolishable(s.id) <= 0} @click=${() => store.addDemolish(s.id)}>+</button>
       <span class="hint">${t('mars.demolishLabel')}</span>
     </div>`;

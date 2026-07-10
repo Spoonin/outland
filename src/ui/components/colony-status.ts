@@ -4,14 +4,8 @@ import type { ColonyStatus, ResourceLine, DemographySnapshot } from '../colonySt
 import { STRUCT_BY_ID, type Stocks, type ColonyReport } from '../../engine';
 import { tokens } from '../theme';
 import { t } from '../i18n';
+import { structName } from '../names';
 
-const ICON: Record<string, string> = {
-  food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
-  steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
-  pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
-  regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
-  composite: '🧱', components: '🛠️', // D-090 (P2): regolith construction — importable, not localOnly
-};
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
 /** Net flow rate — rounding a SMALL rate (e.g. n2 leak barely offset by production, ~1.6 kg/ок)
  * to the nearest whole kg used to read as "−2/ок" next to a "28125.7 ок" cover computed from the
@@ -78,6 +72,14 @@ export class ColonyStatusPanel extends LitElement {
         font-size: 1.6rem;
         font-weight: 700;
         color: var(--c-text-bright);
+      }
+      .pop small {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        font-weight: 400;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--c-text-dim);
       }
       .dim {
         color: var(--c-text-dim);
@@ -159,10 +161,10 @@ export class ColonyStatusPanel extends LitElement {
     const inTransit = this.inTransit;
     if (!inTransit) return nothing;
     const parts: string[] = [];
-    if (inTransit.colonists > 0) parts.push(`🧑‍🚀 ${inTransit.colonists}`);
-    for (const [k, v] of Object.entries(inTransit.stocks)) if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? k} ${kg(v!)}`);
+    if (inTransit.colonists > 0) parts.push(`${t('status.pop')} +${inTransit.colonists}`);
+    for (const [k, v] of Object.entries(inTransit.stocks)) if ((v ?? 0) > 0) parts.push(`${k} ${kg(v!)}`);
     for (const [id, n] of Object.entries(inTransit.structures))
-      if ((n ?? 0) > 0) parts.push(`${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id}×${n}`);
+      if ((n ?? 0) > 0) parts.push(`${structName(id, STRUCT_BY_ID[id]?.name ?? id)}×${n}`);
     return html`<div class="dim">${t('status.transit')} ${parts.length ? parts.join(' · ') : t('status.empty')}</div>`;
   }
 
@@ -207,7 +209,7 @@ export class ColonyStatusPanel extends LitElement {
     return html`<div class="cell">
       <div class="row1">
         <span class="dot" style="background:${dotColor}"></span>
-        <span class="name">${ICON[r.kind] ?? ''} ${r.kind}</span>
+        <span class="name">${r.kind}</span>
       </div>
       <span class="stock">${kg(r.stock)} ${t('status.kg')}</span>
       <div class="flow ${flowCls}">${dkg(r.net)}/${t('status.wnd')}${draining ? cover : ''}</div>
@@ -234,17 +236,17 @@ export class ColonyStatusPanel extends LitElement {
       <div class="panel">
         <div class="panel-label">${t('status.title')}</div>
         <div class="top">
-          <div class="pop">👥 ${s.pop.toLocaleString('ru-RU')}</div>
+          <div class="pop">${s.pop.toLocaleString('ru-RU')} <small>${t('status.pop')}</small></div>
           ${s.pop > 0 ? html`<div class="dim">
-            💪 ${t('status.labor')} ${s.workforce.toLocaleString('ru-RU')}${s.kids > 0 ? ` · 🧒 ${s.kids}` : ''}${s.sick > 0
-              ? html` · 🤒 <b style="color:${s.sick <= s.sickBeds ? 'var(--c-amber)' : 'var(--c-red)'}">${s.sick}</b>` : ''}
-            · 🛏 ${t('status.beds')} ${s.sickBeds}
+            ${t('status.labor')} ${s.workforce.toLocaleString('ru-RU')}${s.kids > 0 ? ` · ${t('status.kids')} ${s.kids}` : ''}${s.sick > 0
+              ? html` · ${t('status.sick')} <b style="color:${s.sick <= s.sickBeds ? 'var(--c-amber)' : 'var(--c-red)'}">${s.sick}</b>` : ''}
+            · ${t('status.beds')} ${s.sickBeds}
           </div>` : ''}
           <div class="dim">
-            🛫 classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (${t('status.stage')} ${s.refuelStage})` : ''}
+            ${t('status.pads')} classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (${t('status.stage')} ${s.refuelStage})` : ''}
           </div>
           <div class="dim">
-            🛠 ${t('status.wear')}
+            ${t('status.wear')}
             <b style="color:${s.avgCondition >= 0.8 ? 'var(--c-green)' : s.avgCondition >= 0.5 ? 'var(--c-amber)' : 'var(--c-red)'}"
               >${(s.avgCondition * 100).toFixed(0)}%</b
             >
@@ -252,25 +254,25 @@ export class ColonyStatusPanel extends LitElement {
             <b style="color:${s.sparesCoverage >= 1 ? 'var(--c-green)' : 'var(--c-red)'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
             ${this.lastReport && this.lastReport.repairSpentKg > 0 && this.repairInfo && this.repairInfo.upkeep > 0
               ? html`· <b style="color:var(--c-green)"
-                  >🔧 ${t('status.repair')} +${(this.repairInfo.rate * (this.lastReport.repairSpentKg / this.repairInfo.upkeep) * 100).toFixed(1)}%</b
+                  >${t('status.repair')} +${(this.repairInfo.rate * (this.lastReport.repairSpentKg / this.repairInfo.upkeep) * 100).toFixed(1)}%</b
                 >`
               : nothing}
             ${s.crewCoverage < 1 ? html`· ${t('status.crew')}
             <b style="color:var(--c-red)">${(s.crewCoverage * 100).toFixed(0)}%</b>` : nothing}
-            ${s.shieldCoverage < 1 ? html`· 🛡 ${t('status.radShield')}
+            ${s.shieldCoverage < 1 ? html`· ${t('status.radShield')}
             <b style="color:var(--c-red)">${(s.shieldCoverage * 100).toFixed(0)}%</b>` : nothing}
           </div>
           ${s.housingCapacity > 0 ? html`<div class="dim">
-            🏠 ${t('status.housing')}
+            ${t('status.housing')}
             <b style="color:${s.pop <= s.housingCapacity * 0.9 ? 'var(--c-green)' : s.pop <= s.housingCapacity ? 'var(--c-amber)' : 'var(--c-red)'}"
               >${s.pop.toLocaleString('ru-RU')} / ${s.housingCapacity.toLocaleString('ru-RU')}</b
             >
             ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} ${t('status.kgPerWnd')}` : ''}
           </div>` : ''}
           <div class="dim">
-            🍞 ${t('status.stock')}
+            food ${t('status.stock')}
             <b style="color:var(--c-text)">${kg(s.resources.find((r) => r.kind === 'food')?.stock ?? 0)} / ${kg(s.foodCapacityTotal)}</b>
-            · 💧 ${t('status.stock')}
+            · water ${t('status.stock')}
             <b style="color:var(--c-text)">${kg(s.resources.find((r) => r.kind === 'water')?.stock ?? 0)} / ${kg(s.waterCapacityTotal)}</b>
           </div>
         </div>

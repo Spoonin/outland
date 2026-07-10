@@ -4,14 +4,8 @@ import type { ColonyStore } from '../colonyStore';
 import { padClassFor, type ResourceKind, type TechSpec } from '../../engine';
 import { tokens } from '../theme';
 import { i18n, t } from '../i18n';
+import { structName, techName, techNotes, refuelStageName } from '../names';
 
-const ICON: Record<string, string> = {
-  food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
-  steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
-  pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
-  regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
-  composite: '🧱', components: '🛠️', // D-090 (P2): regolith construction — importable, not localOnly
-};
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US') + ' ' + t('status.kg');
 
@@ -166,7 +160,7 @@ export class EarthTab extends LitElement {
     const auto = (r === 'spares' && store.autoSparesEnabled) || (r === 'pharma' && store.autoPharmaEnabled);
     return html`<div class="card">
       <div class="h">
-        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)}${auto ? t('earth.auto') : ''}</span>
+        <span>${r}</span><span class="v">${kg(qty)}${auto ? t('earth.auto') : ''}</span>
       </div>
       <input
         type="range"
@@ -192,12 +186,7 @@ export class EarthTab extends LitElement {
             <input type="checkbox" .checked=${store.autoSparesEnabled} @change=${() => store.toggleAutoSpares()} />
             ${t('earth.autoSparesLabel')}
           </label>
-          <div class="sub">
-            ${t('earth.autoSparesNote', {
-              v: kg(store.repairInfo().upkeep),
-              r: (store.repairInfo().rate * 100).toFixed(0),
-            })}
-          </div>`
+          <div class="sub">${t('earth.autoSparesNote')}</div>`
         : nothing}
       ${r === 'pharma'
         ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">
@@ -256,7 +245,7 @@ export class EarthTab extends LitElement {
     const prereqOk = store.importPrereqMet(id); // D-075: imports skip the minPop labor gate
     return html`<div class="card">
       <div class="h">
-        <span>${struct.icon} ${struct.name}</span><span class="v">${t('earth.have', { n: store.builtCount(id), m: qty })}</span>
+        <span>${structName(struct.id, struct.name)}</span><span class="v">${t('earth.have', { n: store.builtCount(id), m: qty })}</span>
       </div>
       <input type="range" min="0" max="10" step="1" .value=${String(qty)}
         ?disabled=${!prereqOk}
@@ -267,8 +256,8 @@ export class EarthTab extends LitElement {
         ${struct.housing ? t('earth.housingPlus', { v: struct.housing }) : ''}${
           !prereqOk
             ? struct.techGate && !store.techOwned(struct.techGate)
-              ? t('earth.needTech', { v: struct.techGate })
-              : t('earth.needFirst', { v: struct.prereq ?? '' })
+              ? t('earth.needTech', { v: techName(struct.techGate, struct.techGate) })
+              : t('earth.needFirst', { v: structName(struct.prereq ?? '', struct.prereq ?? '') })
             : ''
         }
       </div>
@@ -311,8 +300,8 @@ export class EarthTab extends LitElement {
     const locked = store.rndLocked; // D-077: campaigns need somebody on Mars to run them
     return html`<div class="card">
       <div class="h">
-        <span>${t('earth.rndTitle', { i: rnd.next.index, n: rnd.total, name: rnd.next.name })}</span>
-        <span class="v">${rnd.stage === 0 ? '🔒' : t('earth.rndStage', { v: rnd.stage })}</span>
+        <span>${t('earth.rndTitle', { i: rnd.next.index, n: rnd.total, name: refuelStageName(rnd.next.index, rnd.next.name) })}</span>
+        <span class="v">${rnd.stage === 0 ? t('mars.locked') : t('earth.rndStage', { v: rnd.stage })}</span>
       </div>
       <div class="sub">
         ${money(rnd.next.cost)} — ${rnd.next.index === 1 ? t('earth.rndDesc1') : t('earth.rndDesc2')}
@@ -334,10 +323,10 @@ export class EarthTab extends LitElement {
     const selected = store.unlockTechDraft() === spec.id;
     return html`<div class="card">
       <div class="h">
-        <span>${spec.icon} ${spec.name}</span>
-        <span class="v">${owned ? t('earth.techOwned') : buyable ? money(store.techPriceNow(spec.id)) : '🔒'}</span>
+        <span>${techName(spec.id, spec.name)}</span>
+        <span class="v">${owned ? t('earth.techOwned') : buyable ? money(store.techPriceNow(spec.id)) : t('mars.locked')}</span>
       </div>
-      ${spec.notes ? html`<div class="sub">${spec.notes}</div>` : nothing}
+      ${spec.notes ? html`<div class="sub">${techNotes(spec.id, spec.notes)}</div>` : nothing}
       ${owned
         ? nothing
         : buyable

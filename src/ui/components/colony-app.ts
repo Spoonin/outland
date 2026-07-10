@@ -608,6 +608,7 @@ export class ColonyApp extends LitElement {
     const st = this.store.status();
     return html`
       ${this.header()}
+      ${!st.ended ? this.gauges() : nothing}
       <colony-status
         .status=${st}
         .inTransit=${this.store.inTransit()}
@@ -628,7 +629,6 @@ export class ColonyApp extends LitElement {
               </div>
             </div>`
         : html`
-            ${this.gauges()}
             ${this.ledger()}
             ${this.alertChips()}
             <chronicle-panel .store=${this.store}></chronicle-panel>

@@ -4,16 +4,10 @@ import type { ColonyStore } from '../colonyStore';
 import { STRUCT_BY_ID, MILESTONES, type ColonyReport, type MilestoneId, type MortalityCause, type WindowEvent } from '../../engine';
 import { tokens } from '../theme';
 import { i18n, t } from '../i18n';
+import { structName, milestoneName } from '../names';
 
 const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 
-const ICON: Record<string, string> = {
-  food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
-  steel: '🔩', metals: '⚙️', polymers: '🧪', glass: '🪟', spares: '🔧',
-  pharma: '💊', chips: '🔌', catalyst: '⚗️', fuel: '⚛️',
-  regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
-  composite: '🧱', components: '🛠️', // D-090 (P2): regolith construction — importable, not localOnly
-};
 /** Shared with the debrief (D-064) — bilingual label per named mortality cause (D-061/D-063). */
 export function causeLabel(c: MortalityCause): string {
   return t(`cause.${c}` as Parameters<typeof t>[0]);
@@ -23,10 +17,10 @@ const pct = (v: number) => Math.round(v * 100) + '%';
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 
 /** D-076: milestone name, plus the subsidy bump if this one carries one — stated as a dry economic
- * fact ("субсидия +$3B"), not a congratulatory reward banner (D-036/D-064 tone). Milestone NAMES
- * stay Russian (CSV/engine data, see i18n.ts) — only the surrounding subsidy phrase translates. */
+ * fact ("субсидия +$3B"), not a congratulatory reward banner (D-036/D-064 tone). */
 function milestoneLabel(id: MilestoneId): string {
   const m = MILESTONE_BY_ID.get(id);
+  const name = milestoneName(id, m?.name ?? id);
   const bonus = m?.subsidyBonus;
   // D-097 #5: percentage milestones don't know their $ amount until they actually fire (it's a
   // fraction of the budget AT THAT MOMENT) — so the checklist names the rate, not a dollar figure
@@ -37,7 +31,7 @@ function milestoneLabel(id: MilestoneId): string {
     : bonusPct
       ? t('chronicle.subsidyBonusPct', { v: Math.round(bonusPct * 100) })
       : '';
-  return `${m?.name ?? id}${bonusText}`;
+  return `${name}${bonusText}`;
 }
 
 /** Per-window causality report + history (D-061): last window expanded, past windows a
@@ -143,68 +137,80 @@ export class ChroniclePanel extends LitElement {
   private landedLine(r: ColonyReport): string {
     const parts: string[] = [];
     for (const [k, v] of Object.entries(r.landed.stocks)) {
-      if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? ''} ${k} +${kg(v!)} ${t('status.kg')}`);
+      if ((v ?? 0) > 0) parts.push(`${k} +${kg(v!)} ${t('status.kg')}`);
     }
     if (r.landed.colonists > 0) parts.push(t('chronicle.colonistsLanded', { n: r.landed.colonists }));
     for (const [id, n] of Object.entries(r.landed.structures)) {
-      if ((n ?? 0) > 0) parts.push(`${STRUCT_BY_ID[id]?.icon ?? ''} +${n} ${STRUCT_BY_ID[id]?.name ?? id}`);
+      if ((n ?? 0) > 0) parts.push(`+${n} ${structName(id, STRUCT_BY_ID[id]?.name ?? id)}`);
     }
     return parts.length ? t('chronicle.fromEarth', { list: parts.join(' · ') }) : t('chronicle.fromEarthEmpty');
   }
 
-  /** Storyteller event (D-063), stated as a dry fact — no forecast, this is what already happened. */
+  /** Storyteller event (D-063), stated as a dry fact — no forecast, this is what already happened.
+   * Event NAMES stay Russian (engine-generated narrative, see i18n.ts's scope note) — only the icon
+   * is dropped (no decorative icons anywhere in this UI, documents/ui/README.md). */
   private eventLabel(ev: WindowEvent): string {
-    const cat = ev.category?.map((r) => ICON[r] ?? r).join('') ?? '';
+    const cat = ev.category?.join('/') ?? '';
     switch (ev.effect) {
       case 'energy':
-        return `${ev.icon} ${ev.name}: солнечная генерация −${pct(ev.mag)} на ${ev.windows} ок`;
+        return `${ev.name}: солнечная генерация −${pct(ev.mag)} на ${ev.windows} ок`;
       case 'subsidy':
-        return `${ev.icon} ${ev.name}: субсидия −${pct(ev.mag)} на ${ev.windows} ок`;
+        return `${ev.name}: субсидия −${pct(ev.mag)} на ${ev.windows} ок`;
       case 'delay':
-        return `${ev.icon} ${ev.name}: конвой этого окна задержан на окно`;
+        return `${ev.name}: конвой этого окна задержан на окно`;
       case 'price':
-        return `${ev.icon} ${ev.name}: цены ${cat} ×${ev.mag.toFixed(1)} на ${ev.windows} ок`;
+        return `${ev.name}: цены ${cat} ×${ev.mag.toFixed(1)} на ${ev.windows} ок`;
       case 'farm':
-        return `${ev.icon} ${ev.name}: выпуск ферм −${pct(ev.mag)} на ${ev.windows} ок`;
+        return `${ev.name}: выпуск ферм −${pct(ev.mag)} на ${ev.windows} ок`;
       case 'epidemic':
         // D-083: the toll is decided by bed capacity — the doomed die at the start of NEXT window
-        return `${ev.icon} ${ev.name}: заболело ${ev.sickened ?? 0}, коек хватило на ${ev.treated ?? 0}${ev.deaths ? ` · обречено ${ev.deaths}` : ' · все выздоравливают'}`;
+        return `${ev.name}: заболело ${ev.sickened ?? 0}, коек хватило на ${ev.treated ?? 0}${ev.deaths ? ` · обречено ${ev.deaths}` : ' · все выздоравливают'}`;
       case 'breach':
-        return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса N₂ · покрытие ЗИП ${pct(ev.coverage ?? 0)}${ev.deaths ? ` · † ${ev.deaths}` : ' · заделана без потерь'}`;
+        return `${ev.name}: −${pct(ev.mag)} запаса N₂ · покрытие ЗИП ${pct(ev.coverage ?? 0)}${ev.deaths ? ` · † ${ev.deaths}` : ' · заделана без потерь'}`;
       case 'radiation':
-        return `${ev.icon} ${ev.name}: все в укрытии, выпуск −${pct(ev.mag)}${ev.covered ? ' — медблок прикрыл' : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+        return `${ev.name}: все в укрытии, выпуск −${pct(ev.mag)}${ev.covered ? ' — медблок прикрыл' : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
       case 'outage':
-        return `${ev.icon} ${ev.name}: ${ev.target ? `${STRUCT_BY_ID[ev.target]?.name ?? ev.target} — стоит ${ev.windows} ок` : 'отказывать нечему — обошлось'}`;
+        return `${ev.name}: ${ev.target ? `${structName(ev.target, STRUCT_BY_ID[ev.target]?.name ?? ev.target)} — стоит ${ev.windows} ок` : 'отказывать нечему — обошлось'}`;
       case 'crash':
-        return `${ev.icon} ${ev.name}: потеряно ${pct(ev.mag)} конвоя${ev.lostKg ? ` (~${kg(ev.lostKg)} кг)` : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
+        return `${ev.name}: потеряно ${pct(ev.mag)} конвоя${ev.lostKg ? ` (~${kg(ev.lostKg)} кг)` : ''}${ev.deaths ? ` · † ${ev.deaths}` : ''}`;
       case 'harvest':
-        return `${ev.icon} ${ev.name}: −${pct(ev.mag)} запаса еды${ev.covered ? ' — склад смягчил' : ''}`;
+        return `${ev.name}: −${pct(ev.mag)} запаса еды${ev.covered ? ' — склад смягчил' : ''}`;
     }
   }
 
-  private eventTags(r: ColonyReport): string[] {
-    const ev: string[] = [];
-    if (r.event) ev.push(this.eventLabel(r.event));
-    if (r.explosions.classic) ev.push(t('chronicle.explosion', { n: r.explosions.classic, tech: 'classic' }));
-    if (r.explosions.refuel) ev.push(t('chronicle.explosion', { n: r.explosions.refuel, tech: 'refuel' }));
-    if (r.capped) ev.push(t('chronicle.capped'));
-    if (r.built.length) ev.push(t('chronicle.built', { list: r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') }));
+  /** `ok` marks the positive/neutral tags (built/demolished/repaired/births/milestone) that
+   * `detail()` shows in its own "ok"-styled block — everything else is warn-worthy. Used to replace
+   * a fragile emoji-prefix filter now that these strings carry no icon to key off of. */
+  private eventTags(r: ColonyReport): { text: string; ok: boolean }[] {
+    const ev: { text: string; ok: boolean }[] = [];
+    if (r.event) ev.push({ text: this.eventLabel(r.event), ok: false });
+    if (r.explosions.classic) ev.push({ text: t('chronicle.explosion', { n: r.explosions.classic, tech: 'classic' }), ok: false });
+    if (r.explosions.refuel) ev.push({ text: t('chronicle.explosion', { n: r.explosions.refuel, tech: 'refuel' }), ok: false });
+    if (r.capped) ev.push({ text: t('chronicle.capped'), ok: false });
+    if (r.built.length)
+      ev.push({
+        text: t('chronicle.built', { list: r.built.map((id) => structName(id, STRUCT_BY_ID[id]?.name ?? id)).join(', ') }),
+        ok: true,
+      });
     if (r.demolished.length)
-      ev.push(t('chronicle.demolished', { list: r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') }));
-    if (r.repairSpentKg > 0) ev.push(t('chronicle.repairSpentD084', { v: kg(r.repairSpentKg) }));
+      ev.push({
+        text: t('chronicle.demolished', { list: r.demolished.map((id) => structName(id, STRUCT_BY_ID[id]?.name ?? id)).join(', ') }),
+        ok: true,
+      });
+    if (r.repairSpentKg > 0) ev.push({ text: t('chronicle.repairSpentD084', { v: kg(r.repairSpentKg) }), ok: true });
     if (r.foodSpoiledKg > 0 || r.pharmaSpoiledKg > 0) {
       const parts: string[] = [];
       if (r.foodSpoiledKg > 0) parts.push(t('chronicle.spoiledFood', { v: kg(r.foodSpoiledKg) }));
       if (r.pharmaSpoiledKg > 0) parts.push(t('chronicle.spoiledPharma', { v: kg(r.pharmaSpoiledKg) }));
-      ev.push(t('chronicle.spoiled', { list: parts.join(', ') }));
+      ev.push({ text: t('chronicle.spoiled', { list: parts.join(', ') }), ok: false });
     }
-    if (r.births > 0) ev.push(t('chronicle.births', { n: r.births }));
+    if (r.births > 0) ev.push({ text: t('chronicle.births', { n: r.births }), ok: true });
     // D-097 #2: fires ONCE, the window the colony's mean chronic dose first crosses the alarm
     // threshold — a fact the medical service reports about the past, not a telegraphed fate (D-063)
     if (r.radiationAlarmNew) {
-      ev.push(t('chronicle.radiationAlarm', { v: r.avgRadiationDose.toFixed(2) }));
+      ev.push({ text: t('chronicle.radiationAlarm', { v: r.avgRadiationDose.toFixed(2) }), ok: false });
     }
-    for (const id of r.milestones) ev.push(t('chronicle.milestone', { v: milestoneLabel(id) }));
+    for (const id of r.milestones) ev.push({ text: t('chronicle.milestone', { v: milestoneLabel(id) }), ok: true });
     return ev;
   }
 
@@ -230,7 +236,7 @@ export class ChroniclePanel extends LitElement {
     if (this.isQuiet(r)) return html`<span class="oneline">${t('chronicle.quiet')}</span>`;
     const bits: string[] = [];
     if (r.mortality > 0) bits.push(t('chronicle.died', { n: r.mortality }));
-    bits.push(...this.eventTags(r));
+    bits.push(...this.eventTags(r).map((e) => e.text));
     return html`<span class=${r.mortality > 0 ? 'neg' : 'warn'}>${bits.join(' · ')}</span>`;
   }
 
@@ -248,24 +254,24 @@ export class ChroniclePanel extends LitElement {
           </div>`
         : nothing}
       ${this.eventTags(r)
-        .filter((tag) => !tag.startsWith('🏗') && !tag.startsWith('🔧') && !tag.startsWith('🐣') && !tag.startsWith('★'))
-        .map((tag) => html`<div class="section warn">${tag}</div>`)}
+        .filter((tag) => !tag.ok)
+        .map((tag) => html`<div class="section warn">${tag.text}</div>`)}
       ${r.built.length || r.demolished.length || r.repairSpentKg > 0 || r.births > 0 || r.milestones.length
         ? html`<div class="section ok">
-            ${r.built.length ? t('chronicle.built', { list: r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') }) : ''}
+            ${r.built.length ? t('chronicle.built', { list: r.built.map((id) => structName(id, STRUCT_BY_ID[id]?.name ?? id)).join(', ') }) : ''}
             ${r.demolished.length
-              ? ` ${t('chronicle.demolished', { list: r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') })}`
+              ? ` ${t('chronicle.demolished', { list: r.demolished.map((id) => structName(id, STRUCT_BY_ID[id]?.name ?? id)).join(', ') })}`
               : ''}
             ${r.repairSpentKg > 0 ? ` ${t('chronicle.repairSpent', { v: kg(r.repairSpentKg) })}` : ''}
             ${r.births > 0 ? ` ${t('chronicle.births', { n: r.births })}` : ''}
-            ${r.milestones.map((id) => ` ★ ${milestoneLabel(id)}`).join(' ·')}
+            ${r.milestones.map((id) => ` ${t('chronicle.milestone', { v: milestoneLabel(id) })}`).join(' ·')}
           </div>`
         : nothing}
       ${structs.length
         ? html`<div class="section struct">
             ${structs.map(
               ([id, d]) => html`<div>
-                ${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id} — ${t('chronicle.structOutput')}
+                ${structName(id, STRUCT_BY_ID[id]?.name ?? id)} — ${t('chronicle.structOutput')}
                 <b>${pct(d.runFrac)}</b>
                 <span class="frac"
                   >${t('chronicle.structFrac', { cond: pct(d.condition), energy: pct(d.energyFrac), input: pct(d.inputFrac) })}</span

@@ -5,6 +5,7 @@ import type { MortalityCause } from '../../engine';
 import { causeLabel } from './chronicle-panel';
 import { tokens } from '../theme';
 import { t } from '../i18n';
+import { milestoneName } from '../names';
 
 const BLOCKS = '▁▂▃▄▅▆▇█';
 function spark(vals: number[]): string {
@@ -182,7 +183,7 @@ export class ColonyDebriefPanel extends LitElement {
 
   private milestone(m: MilestoneLine): TemplateResult {
     return html`<div class="milestone ${m.window !== undefined ? 'done' : ''}">
-      <span>${m.icon} ${m.name}</span>
+      <span>${milestoneName(m.id, m.name)}</span>
       <span class="w">${m.window !== undefined ? t('debrief.windowN', { v: m.window }) : '—'}</span>
     </div>`;
   }
