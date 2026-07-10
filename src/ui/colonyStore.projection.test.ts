@@ -40,7 +40,7 @@ describe('projectOrder (engine, roadmap-1)', () => {
     // slight SURPLUS at exactly 20) but the ADDED 30 exhaust it within the single `after` window;
     // food is given a huge separate stock since base_block never produces any (isolates the O₂/
     // water ceiling this test is actually about from an unrelated, permanent food shortfall).
-    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 0.3, illnessProb: 0 }));
+    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 0.3, illnessProb: 0, eventChanceCap: 0 }));
     s.built = { base_block: 1 };
     s.condition = { base_block: 1 };
     s.everHadPop = true; // presence already established — D-078 doesn't block this order

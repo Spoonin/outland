@@ -238,8 +238,8 @@ describe('commit window — transit lag, consumption, runway, mortality', () => 
   });
 
   it('colonists arrive after the lag and grow population', () => {
-    const s = newColony(defaultColonyParams({ pop0: 1000,  startStockWindows: 5 })); // well-fed: isolate colonist mechanic
-    s.built.solar_plant = 1; // powered: isolate colonist-lag from unrelated energy mortality (D-060)
+    const s = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, eventChanceCap: 0 })); // well-fed: isolate colonist mechanic
+    s.built.solar_plant = 2; // powered: isolate colonist-lag from unrelated energy mortality (D-060)
     s.condition.solar_plant = 1;
     const p0 = s.pop;
     commitWindow(s, ord({ colonists: 30 })); // 60t of people ≤ 75t throughput (D-067)
@@ -954,7 +954,7 @@ describe('import finished structures from Earth (V8, D-057)', () => {
   });
 
   it('base_block is a self-sufficient 20-person bootstrap unit (own water/O₂/N₂ production)', () => {
-    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 0 }));
+    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 0, eventChanceCap: 0 }));
     s.built = { base_block: 1 };
     s.condition = { base_block: 1 };
     s.stocks.food = 1_000_000; // isolate the check to water/O₂/N₂ (base_block doesn't grow food)
@@ -2413,7 +2413,7 @@ describe('D-097 #6: energyDemand reports TRUE draw, not generation+deficit', () 
     const r = commitWindow(s, emptyOrder());
     expect(r.energyDeficit).toBe(0); // fully covered
     expect(r.energyDemand).toBeLessThan(r.energyGen); // the old formula would have asserted equality here
-    expect(r.energyDemand).toBeCloseTo(0.25 * 10, 1); // popEnergyPerCapita × pop — the true draw
+    expect(r.energyDemand).toBeCloseTo(0.1 * 10, 1); // popEnergyPerCapita × pop — the true draw
   });
 
   it('a colony genuinely undersupplied still reports demand correctly (deficit>0 branch unaffected)', () => {
