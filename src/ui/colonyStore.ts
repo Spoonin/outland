@@ -920,6 +920,19 @@ export class ColonyStore {
     return this.state.chronicle;
   }
 
+  /** Recent stock history (last 8 windows) per life-support kind, oldest first — feeds the status
+   * panel's sparklines. Same shape as debrief()'s stockSeries but live mid-run (chronicle is
+   * already populated window-by-window, not just at the end of a run). */
+  stockSeries(): Record<'food' | 'water' | 'o2' | 'n2', number[]> {
+    const recent = this.state.chronicle.slice(-8);
+    return {
+      food: recent.map((r) => r.stocks.food),
+      water: recent.map((r) => r.stocks.water),
+      o2: recent.map((r) => r.stocks.o2),
+      n2: recent.map((r) => r.stocks.n2),
+    };
+  }
+
   /** Debrief (D-064) — undefined until the run has actually ended. Reads only the chronicle and
    * engine state; computes nothing that feeds back into gameplay. */
   debrief(): ColonyDebrief | undefined {

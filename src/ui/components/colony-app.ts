@@ -648,6 +648,7 @@ export class ColonyApp extends LitElement {
       ${!st.ended ? this.gauges() : nothing}
       <colony-status
         .status=${st}
+        .series=${this.store.stockSeries()}
         .inTransit=${this.store.inTransit()}
         .lastReport=${this.store.lastReport()}
         .repairInfo=${this.store.repairInfo()}

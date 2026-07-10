@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #070d0b; }
+</style>
+</helmet>
+
+<div style="width:100%; min-height:100vh; box-sizing:border-box; background:#070d0b; color:#dfeee7; font-family:'IBM Plex Mono', monospace; padding:clamp(14px,3vw,32px);" data-screen-label="Colony Status">
+
+  <div style="background:#0d1a16; border:1px solid #1e352d; border-radius:6px; padding:18px;">
+
+    <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600; margin-bottom:14px;">{{ labels.title }}</div>
+
+    <!-- Top: population + health gauges -->
+    <div style="display:flex; flex-wrap:wrap; gap:26px; align-items:center; padding-bottom:16px; border-bottom:1px solid #14241f;">
+      <div style="display:flex; flex-direction:column; gap:1px;">
+        <div style="font-family:'Space Grotesk',sans-serif; font-size:34px; font-weight:700; color:#eafaf1; line-height:1;">{{ data.popStr }}</div>
+        <div style="font-size:9.5px; letter-spacing:0.09em; color:#5f8272; text-transform:uppercase;">{{ labels.population }}</div>
+        <sc-if value="{{ data.hasWorkforce }}">
+          <div style="font-size:10.5px; color:#5f8272; margin-top:4px;">{{ labels.labor }} {{ data.workforceStr }} &middot; {{ labels.beds }} {{ data.sickBeds }}</div>
+        </sc-if>
+      </div>
+
+      <div style="display:flex; gap:16px; flex-wrap:wrap; flex:1 1 auto;">
+        <sc-for list="{{ gauges }}" as="g" hint-placeholder-count="5">
+          <div style="display:flex; flex-direction:column; gap:5px; min-width:82px;">
+            <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
+              <span style="font-size:9.5px; letter-spacing:0.05em; color:#7fa596; text-transform:uppercase;">{{ g.label }}</span>
+              <span style="font-size:12px; font-weight:600; color:{{ g.color }};">{{ g.valStr }}</span>
+            </div>
+            <div style="height:5px; background:#182a24; border-radius:3px; overflow:hidden;">
+              <div style="height:100%; width:{{ g.pct }}%; background:{{ g.color }}; border-radius:3px;"></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- Transit -->
+    <div style="font-size:11.5px; color:#5f8272; margin:12px 0;">{{ labels.transit }} <span style="color:{{ data.transitColor }};">{{ data.transitText }}</span></div>
+
+    <!-- LIFE SUPPORT -->
+    <div style="display:flex; align-items:baseline; gap:10px; margin:16px 0 10px;">
+      <div style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:12.5px; letter-spacing:0.08em; color:#bfe6d6; text-transform:uppercase;">{{ labels.lifeSupport }}</div>
+      <div style="flex:1; height:1px; background:#14241f;"></div>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:10px;">
+      <sc-for list="{{ lifeSupport }}" as="r" hint-placeholder-count="4">
+        <div style="padding:12px; background:#0b1512; border:1px solid {{ r.border }}; border-radius:4px; display:flex; flex-direction:column; gap:8px; opacity:{{ r.opacity }};">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+              <span style="width:9px; height:9px; border-radius:50%; background:{{ r.dot }}; flex:none;"></span>
+              <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14px; color:#eafaf1;">{{ r.name }}</span>
+            </div>
+            <span style="font-size:10px; color:{{ r.coverColor }}; white-space:nowrap;">{{ r.coverText }}</span>
+          </div>
+
+          <div style="display:flex; align-items:baseline; gap:6px;">
+            <span style="font-size:19px; font-weight:600; color:#eafaf1; line-height:1;">{{ r.stockStr }}</span>
+            <span style="font-size:10px; color:#4d6a5e;">{{ r.capText }}</span>
+          </div>
+
+          <sc-if value="{{ r.hasCap }}">
+            <div style="height:6px; background:#182a24; border-radius:3px; overflow:hidden;">
+              <div style="height:100%; width:{{ r.fillPct }}%; background:{{ r.fillColor }}; border-radius:3px;"></div>
+            </div>
+          </sc-if>
+
+          <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:8px;">
+            <span style="font-size:12px; color:{{ r.flowColor }};">{{ r.flowArrow }} {{ r.flowStr }}/{{ labels.wnd }}</span>
+            <svg width="60" height="18" viewBox="0 0 60 18" style="flex:none;">
+              <polyline points="{{ r.spark }}" fill="none" stroke="{{ r.flowColor }}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"></polyline>
+            </svg>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- STOCKPILE -->
+    <div style="display:flex; align-items:baseline; gap:10px; margin:20px 0 10px;">
+      <div style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:12.5px; letter-spacing:0.08em; color:#bfe6d6; text-transform:uppercase;">{{ labels.stockpile }}</div>
+      <div style="flex:1; height:1px; background:#14241f;"></div>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px;">
+      <sc-for list="{{ stockpile }}" as="r" hint-placeholder-count="11">
+        <div style="padding:10px; background:#0b1512; border:1px solid {{ r.border }}; border-radius:4px; display:flex; flex-direction:column; gap:4px; opacity:{{ r.opacity }};">
+          <div style="display:flex; align-items:center; gap:7px;">
+            <span style="width:8px; height:8px; border-radius:50%; background:{{ r.dot }}; flex:none;"></span>
+            <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; color:#dfeee7;">{{ r.name }}</span>
+          </div>
+          <span style="font-size:14px; font-weight:600; color:#eafaf1;">{{ r.stockStr }}</span>
+          <span style="font-size:10.5px; color:{{ r.flowColor }};">{{ r.flowArrow }} {{ r.flowStr }}/{{ labels.wnd }}{{ r.coverInline }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- ISRU collapsed -->
+    <div onClick="{{ onToggleIsru }}" style="display:flex; align-items:center; gap:8px; margin-top:16px; cursor:pointer; font-size:11.5px; color:#5f8272;">
+      <span>{{ isruCaret }}</span>
+      <span style="letter-spacing:0.04em;">{{ labels.industrial }} ({{ isruCount }})</span>
+    </div>
+    <sc-if value="{{ isruOpen }}">
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px; margin-top:10px;">
+        <sc-for list="{{ isru }}" as="r" hint-placeholder-count="3">
+          <div style="padding:10px; background:#0b1512; border:1px solid {{ r.border }}; border-radius:4px; display:flex; flex-direction:column; gap:4px; opacity:{{ r.opacity }};">
+            <div style="display:flex; align-items:center; gap:7px;">
+              <span style="width:8px; height:8px; border-radius:50%; background:{{ r.dot }}; flex:none;"></span>
+              <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; color:#dfeee7;">{{ r.name }}</span>
+            </div>
+            <span style="font-size:14px; font-weight:600; color:#eafaf1;">{{ r.stockStr }}</span>
+            <span style="font-size:10.5px; color:{{ r.flowColor }};">{{ r.flowArrow }} {{ r.flowStr }}/{{ labels.wnd }}{{ r.coverInline }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- Cold-start hint -->
+    <sc-if value="{{ isColdStart }}">
+      <div style="margin-top:16px; padding:14px 16px; background:#0b1512; border:1px dashed #2a4038; border-radius:4px; display:flex; align-items:center; gap:12px;">
+        <span style="width:10px; height:10px; border-radius:50%; background:#7fa596;"></span>
+        <span style="font-size:12.5px; color:#8fb3a5;">{{ labels.coldStart }}</span>
+      </div>
+    </sc-if>
+
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: {&quot;width&quot;: 1080, &quot;height&quot;: 900},
+  &quot;mode&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;populated&quot;, &quot;options&quot;: [&quot;populated&quot;, &quot;cold_start&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Data&quot;},
+  &quot;language&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;en&quot;, &quot;options&quot;: [&quot;en&quot;, &quot;ru&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Display&quot;},
+  &quot;showSparklines&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Display&quot;}
+}">
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+const GREEN = '#2fd68a', AMBER = '#ffb020', RED = '#ff5a3c', BLUE = '#4a9fd8', DIM = '#3a4f47';
+
+// series helper -> svg polyline points across 60x18
+function spark(series) {
+  if (!series || series.length < 2) return '0,9 60,9';
+  const min = Math.min(...series), max = Math.max(...series);
+  const span = max - min || 1;
+  const n = series.length;
+  return series.map((v, i) => {
+    const x = (i / (n - 1)) * 58 + 1;
+    const y = 16 - ((v - min) / span) * 14;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+const NAMES = {
+  food: { en: 'Food', ru: 'Еда' }, water: { en: 'Water', ru: 'Вода' },
+  o2: { en: 'O\u2082', ru: 'O\u2082' }, n2: { en: 'N\u2082', ru: 'N\u2082' },
+  steel: { en: 'Steel', ru: 'Сталь' }, metals: { en: 'Metals', ru: 'Металлы' },
+  polymers: { en: 'Polymers', ru: 'Полимеры' }, glass: { en: 'Glass', ru: 'Стекло' },
+  spares: { en: 'Spares', ru: 'ЗИП' }, pharma: { en: 'Pharma', ru: 'Фарма' },
+  chips: { en: 'Chips', ru: 'Чипы' }, catalyst: { en: 'Catalyst', ru: 'Катализатор' },
+  fuel: { en: 'Fuel', ru: 'Топливо' }, composite: { en: 'Composite', ru: 'Композит' },
+  components: { en: 'Components', ru: 'Компоненты' },
+  regolith: { en: 'Regolith', ru: 'Реголит' }, hydrogen: { en: 'Hydrogen', ru: 'Водород' },
+  co2: { en: 'CO\u2082', ru: 'CO\u2082' },
+};
+
+// Populated colony (window 14). cap only where a store exists. series = last ~8 windows.
+const POPULATED = {
+  pop: 386, workforce: 271, sickBeds: 14,
+  gauges: { wear: 0.84, spares: 1.0, crew: 0.92, shield: 0.88, housing: 386 / 420 },
+  transit: 'Colonists +6 · steel 40,000 · Habitat Ring B×1',
+  life: [
+    { k: 'food', stock: 6200000, cap: 10000000, net: 42000, series: [5.1, 5.3, 5.5, 5.6, 5.8, 5.9, 6.1, 6.2] },
+    { k: 'water', stock: 18500000, cap: 30000000, net: 120000, series: [17.2, 17.5, 17.7, 18.0, 18.1, 18.3, 18.4, 18.5] },
+    { k: 'o2', stock: 240000, cap: null, net: -8000, series: [3.0, 2.9, 2.8, 2.7, 2.6, 2.5, 2.5, 2.4] },
+    { k: 'n2', stock: 95000, cap: null, net: -1600, series: [1.05, 1.03, 1.01, 1.0, 0.99, 0.97, 0.96, 0.95] },
+  ],
+  stock: [
+    { k: 'steel', stock: 420000, net: 12000 }, { k: 'metals', stock: 88000, net: 2000 },
+    { k: 'polymers', stock: 34000, net: -800 }, { k: 'glass', stock: 51000, net: 3000 },
+    { k: 'spares', stock: 210000, net: -3400 }, { k: 'pharma', stock: 4200, net: -120 },
+    { k: 'chips', stock: 1800, net: 0 }, { k: 'catalyst', stock: 9600, net: -300 },
+    { k: 'fuel', stock: 62000, net: -3000 }, { k: 'composite', stock: 12000, net: 500 },
+    { k: 'components', stock: 3400, net: 80 },
+  ],
+  isru: [
+    { k: 'regolith', stock: 880000, net: 60000 }, { k: 'hydrogen', stock: 14000, net: -400 },
+    { k: 'co2', stock: 320000, net: 18000 },
+  ],
+};
+
+const RES_KEYS = ['food','water','o2','n2','steel','metals','polymers','glass','spares','pharma','chips','catalyst','fuel','composite','components'];
+const ISRU_KEYS = ['regolith','hydrogen','co2'];
+
+class Component extends DCLogic {
+  state = { isruOpen: false };
+
+  renderVals() {
+    const lang = this.props.language ?? 'en';
+    const ru = lang === 'ru';
+    const mode = this.props.mode ?? 'populated';
+    const showSpark = this.props.showSparklines ?? true;
+    const cold = mode === 'cold_start';
+    const nm = (k) => (ru ? NAMES[k].ru : NAMES[k].en);
+
+    const labels = {
+      title: ru ? 'СТАТУС КОЛОНИИ' : 'Colony Status',
+      population: ru ? 'Население' : 'Population',
+      labor: ru ? 'Рабочие' : 'Workforce',
+      beds: ru ? 'койки' : 'beds',
+      transit: ru ? 'В пути (прибудет в след. окно):' : 'In transit (arrives next window):',
+      lifeSupport: ru ? 'Жизнеобеспечение' : 'Life Support',
+      stockpile: ru ? 'Склад' : 'Stockpile',
+      industrial: ru ? 'Промышленные запасы (ISRU)' : 'Industrial stocks (ISRU)',
+      wnd: ru ? 'окно' : 'wnd',
+      coldStart: ru ? 'Ожидание первой высадки — запасы и производство появятся после прибытия колонистов.' : 'Awaiting first landing — stocks and production begin once colonists arrive.',
+    };
+
+    // GAUGES
+    const gaugeColor = (v) => (v >= 0.85 ? GREEN : v >= 0.5 ? AMBER : RED);
+    const g = POPULATED.gauges;
+    const gauges = cold ? [] : [
+      { label: ru ? 'Износ' : 'Wear', v: g.wear },
+      { label: ru ? 'ЗИП' : 'Spares', v: g.spares },
+      { label: ru ? 'Экипаж' : 'Crew', v: g.crew },
+      { label: ru ? 'Защита' : 'Shield', v: g.shield },
+      { label: ru ? 'Жильё' : 'Housing', v: g.housing },
+    ].map((x) => ({
+      label: x.label, valStr: Math.round(x.v * 100) + '%',
+      pct: Math.min(100, x.v * 100), color: gaugeColor(x.v),
+    }));
+
+    const buildRow = (d, isLife) => {
+      const stock = cold ? 0 : d.stock;
+      const net = cold ? 0 : d.net;
+      const cap = d.cap ?? null;
+      const draining = net < 0;
+      const growing = net > 0;
+      const fill = cap ? stock / cap : null;
+      const atCap = fill != null && fill > 0.95 && growing;
+      const windows = draining ? stock / Math.abs(net) : Infinity;
+      const critical = draining && windows < 4;
+
+      let dot, flowColor;
+      if (cold || (net === 0 && stock === 0)) { dot = DIM; flowColor = '#4d6a5e'; }
+      else if (atCap) { dot = BLUE; flowColor = BLUE; }
+      else if (critical) { dot = RED; flowColor = RED; }
+      else if (draining) { dot = AMBER; flowColor = AMBER; }
+      else { dot = GREEN; flowColor = GREEN; }
+
+      const isDim = cold || (net === 0 && stock === 0);
+      const flowArrow = net > 0 ? '\u25b2' : net < 0 ? '\u25bc' : '\u2013';
+
+      let coverText = '', coverColor = '#5f8272', coverInline = '';
+      if (!isDim) {
+        if (draining && Number.isFinite(windows)) {
+          coverText = `\u2248 ${windows < 10 ? windows.toFixed(1) : Math.round(windows)} ${labels.wnd}`;
+          coverColor = critical ? RED : AMBER;
+          coverInline = ` \u00b7 \u2248${windows < 10 ? windows.toFixed(1) : Math.round(windows)} ${labels.wnd}`;
+        } else if (atCap) {
+          coverText = ru ? 'у предела' : 'at cap';
+          coverColor = BLUE;
+        }
+      }
+
+      const seriesScaled = d.series && !cold ? d.series : null;
+
+      return {
+        name: nm(d.k),
+        stockStr: fmt(stock) + ' ' + (ru ? 'кг' : 'kg'),
+        hasCap: cap != null && !cold,
+        capText: cap ? '/ ' + fmt(cap) : '',
+        fillPct: fill != null ? Math.min(100, fill * 100) : 0,
+        fillColor: atCap ? BLUE : GREEN,
+        net, flowStr: (net === 0 ? '' : (net > 0 ? '+' : '\u2212')) + fmt(Math.abs(net)),
+        flowArrow, flowColor,
+        dot, border: isDim ? '#12201b' : (critical ? '#3a1f18' : '#14241f'),
+        opacity: isDim ? 0.5 : 1,
+        coverText, coverColor, coverInline,
+        spark: showSpark && seriesScaled ? spark(seriesScaled) : '1,9 59,9',
+      };
+    };
+
+    const lifeSupport = POPULATED.life.map((d) => buildRow(d, true));
+    const stockpile = POPULATED.stock.map((d) => buildRow(d, false));
+    const isru = POPULATED.isru.map((d) => buildRow(d, false));
+
+    return {
+      labels,
+      isColdStart: cold,
+      data: {
+        popStr: cold ? '0' : POPULATED.pop.toLocaleString('en-US'),
+        hasWorkforce: !cold,
+        workforceStr: POPULATED.workforce.toLocaleString('en-US'),
+        sickBeds: POPULATED.sickBeds,
+        transitColor: cold ? '#4d6a5e' : '#a8c4b8',
+        transitText: cold ? (ru ? 'пусто' : 'empty') : POPULATED.transit,
+      },
+      gauges,
+      lifeSupport,
+      stockpile,
+      isru,
+      isruCount: POPULATED.isru.length,
+      isruOpen: this.state.isruOpen,
+      isruCaret: this.state.isruOpen ? '\u25be' : '\u25b8',
+      onToggleIsru: () => this.setState((s) => ({ isruOpen: !s.isruOpen })),
+    };
+  }
+}
+</script>
+</body>
+</html>

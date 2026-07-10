@@ -27,6 +27,7 @@ export const tokens = css`
     --c-amber: #ffb020;
     --c-red: #ff5a3c;
     --c-violet: #8b8296;
+    --c-blue: #4a9fd8;
 
     --c-alert-bg: rgba(255, 90, 60, 0.1);
     --c-alert-bg-strong: rgba(255, 90, 60, 0.12);
