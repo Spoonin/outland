@@ -212,6 +212,7 @@ export class EarthTab extends LitElement {
               : `${money(perHead)}/чел (без учёта доставки) · прибудут через окно (лаг) · вес + вечный шлейф потребления`}
           </div>
           ${store.colonists > 0 ? html`<div class="sub">≈ ${money(perHead * store.colonists)} за позицию (без доставки)</div>` : nothing}
+          ${store.cohortWaveWarning() ? html`<div class="sub" style="color:#d1b65a">${store.cohortWaveWarning()}</div>` : nothing}
         </div>
       </div>`;
     }

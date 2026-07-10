@@ -22,6 +22,7 @@ import {
   sickBedCapacity,
   foodCapacity,
   waterCapacity,
+  foodSpoilRateMult,
   workforceCount,
   structuralN2Leak,
   serializeColony,
@@ -37,6 +38,8 @@ import {
   projectOrder,
   pharmaNeed,
   expectedOldAgeDeaths as computeExpectedOldAgeDeaths,
+  avgRadiationDose,
+  cohortAgingForecast,
   YEARS_PER_WINDOW,
   STRUCTURES,
   STRUCT_BY_ID,
@@ -111,6 +114,8 @@ export interface DemographySnapshot {
   avgAge: number;
   expectedOldAgeDeaths: number; // statistical forecast over DEMOGRAPHY_FORECAST_WINDOWS
   maturingSoon: number; // children crossing adultAge within DEMOGRAPHY_FORECAST_WINDOWS — deterministic
+  avgRadiationDose: number; // D-097 #2: mean chronic dose (Sv) right now — a fact about the past
+  // (same as avgAge), not a telegraph of anyone's fate (D-063; same reasoning as D-094 p.10-11)
 }
 
 /** A milestone as shown in the debrief checklist (D-064) — `window` is undefined if not yet achieved. */
@@ -471,6 +476,16 @@ export class ColonyStore {
     const housing = housingCapacity(this.state.built) + inTransitHousing + queuedHousing + importHousing;
     return Math.max(0, housing - this.state.pop - this.state.inTransit.colonists);
   }
+  /** D-097 #3: a big single-window colonist batch arrives at nearly the same age but each gets an
+   * INDEPENDENTLY rolled deathAge — quietly seeds a synchronized old-age wave decades out. Tells the
+   * player the COHORT's statistical shape at order time (not any individual's fate, D-063 still
+   * holds — same reasoning as expectedOldAgeDeaths/avgRadiationDose). undefined below a batch-size
+   * threshold: ordering 1-2 colonists is normal trickle growth, not a cohort worth flagging. */
+  cohortWaveWarning(): string | undefined {
+    if (this.draftColonists < 10) return undefined;
+    const { peakWindows, spreadWindows } = cohortAgingForecast(this.state.p);
+    return `⚠ партия из ${this.draftColonists} колонистов состарится синхронно — пик смертности от старости ожидается через ~${peakWindows} ок (±${spreadWindows})`;
+  }
   setColonists(n: number): void {
     this.draftColonists = Math.max(0, Math.min(this.maxColonists(), Math.floor(n || 0)));
     this.emit();
@@ -529,11 +544,13 @@ export class ColonyStore {
     return this.projectionCache.value;
   }
 
-  /** Human-readable projection warnings for both UIs (web footer + CLI) — at most 3 lines, derived
+  /** Human-readable projection warnings for both UIs (web footer + CLI) — at most 4 lines, derived
    * from the SAME projection() the gauge uses, never a parallel analytic formula (D-062 already
    * burned once on an analytic runway estimate that couldn't see cascades). Empty = nothing to warn
    * about. Background demography (illness/old age, D-083) is deliberately excluded — supplyDeaths
-   * mirrors the buffer gauge's own definition of what's worth a warning. */
+   * mirrors the buffer gauge's own definition of what's worth a warning. The spoilage line (D-097
+   * #4) is the one exception — not a death risk, pure efficiency advice, so it's independent of the
+   * death/deficit lines above rather than gated behind `lines.length === 0`. */
   projectionWarnings(): string[] {
     const { next, after } = this.projection();
     const lines: string[] = [];
@@ -564,6 +581,25 @@ export class ColonyStore {
       }
       if (worstR) {
         lines.push(`⚠ прогноз: дефицит ${worstR} ~${Math.round(worstV)} кг/окно после посадки конвоя`);
+      }
+    }
+    // D-097 #4 (playtest-7 finding): food spoilage is a silent tax that scales with the stockpile —
+    // a city-sized insurance buffer loses real tonnage every window and nothing ever names it. Only
+    // suggests a silo when one would ACTUALLY help (not already floored at minSpoilRate) and the
+    // savings are non-trivial (not bootstrap noise).
+    if (next.foodSpoiledKg > 0) {
+      const currentMult = foodSpoilRateMult(this.state.built);
+      const currentRate = Math.max(this.state.p.minSpoilRate, this.state.p.catalog.food.spoilRate * currentMult);
+      const nextMult = currentMult * 0.5; // food_silo/silo_regolith both halve it (D-085)
+      const nextRate = Math.max(this.state.p.minSpoilRate, this.state.p.catalog.food.spoilRate * nextMult);
+      if (nextRate < currentRate) {
+        const foodBeforeSpoil = next.stocks.food + next.foodSpoiledKg;
+        const savings = next.foodSpoiledKg - foodBeforeSpoil * nextRate;
+        if (savings >= 1000) {
+          lines.push(
+            `🦠 порча еды в это окно: ~${Math.round(next.foodSpoiledKg).toLocaleString('ru-RU')} кг — ещё один продсклад сократил бы потери примерно на ${Math.round(savings).toLocaleString('ru-RU')} кг/окно`,
+          );
+        }
       }
     }
     return lines;
@@ -814,7 +850,7 @@ export class ColonyStore {
       bufferSaturated: buf >= BUFFER_LOOKAHEAD,
       resources,
       energyGen: energy.generation,
-      energyDemand: energy.generation + energy.deficit,
+      energyDemand: energy.totalDemand, // D-097: true draw — see colony.ts's ColonyReport.energyDemand
       energyDeficit: energy.deficit,
       avgCondition,
       sparesCoverage: upkeep > 0 ? Math.min(1, s.stocks.spares / upkeep) : 1,
@@ -852,6 +888,7 @@ export class ColonyStore {
       avgAge,
       expectedOldAgeDeaths: computeExpectedOldAgeDeaths(s.colonists, s.p, DEMOGRAPHY_FORECAST_WINDOWS),
       maturingSoon,
+      avgRadiationDose: avgRadiationDose(s.colonists), // D-097 #2
     };
   }
 

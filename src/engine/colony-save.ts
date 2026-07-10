@@ -8,7 +8,7 @@ import { RESOURCES, type Stocks } from './resources';
 import { type LaunchTech } from './logistics';
 import { type ActiveEffect } from './events';
 
-export const SAVE_VERSION = 10; // D-094: Colonist gained `radiationDose` — old saves lack it (→ NaN math), must discard
+export const SAVE_VERSION = 11; // D-097: ColonyState gained `radiationAlarmed` — old saves lack it, must discard
 
 /** The persisted shape — dynamic state only (config is rebuilt from defaults on load). */
 export interface ColonySave {
@@ -31,6 +31,7 @@ export interface ColonySave {
   subsidyBonus: number;
   techs: string[]; // roadmap-2/V8 scaffold — ids of bought techs (data/techs.csv), [] while empty
   industryOutput: Record<string, number>; // D-089 (P1): cumulative kg by structure type (depletion/ramp)
+  radiationAlarmed: boolean; // D-097 #2: one-shot flag — the chronicle's "medical service" note
 }
 
 export function serializeColony(s: ColonyState): ColonySave {
@@ -54,6 +55,7 @@ export function serializeColony(s: ColonyState): ColonySave {
     subsidyBonus: s.subsidyBonus,
     techs: [...s.techs],
     industryOutput: { ...s.industryOutput },
+    radiationAlarmed: s.radiationAlarmed,
   };
 }
 
@@ -84,6 +86,7 @@ export function hydrateColony(save: ColonySave, p: ColonyParams): ColonyState {
     subsidyBonus: save.subsidyBonus,
     techs: [...save.techs],
     industryOutput: { ...save.industryOutput },
+    radiationAlarmed: save.radiationAlarmed,
     p,
   };
 }

@@ -193,6 +193,9 @@ export interface EnergyResolution {
   generation: number;
   served: Record<string, number>;
   deficit: number;
+  totalDemand: number; // D-097: true total draw (life-support + every drawing structure) — NOT
+  // generation+deficit, which collapses to `generation` (reads as "100% loaded") whenever supply
+  // already covers demand with room to spare (deficit=0 hides the real, lower, demand number)
 }
 
 /** Resolve colony energy: life-support (priority 0) + each drawing structure (demand scaled by condition).
@@ -212,7 +215,7 @@ export function resolveColonyEnergy(
     if (n > 0 && s.energy < 0) demands.push({ name: s.id, priority: s.energyPriority, demand: -s.energy * n * condOf(condition, s.id) });
   }
   const r = resolveEnergy(energyGeneration(built, condition, genGate, stormMult) * genMult, demands);
-  return { generation: r.generation, served: r.served, deficit: r.deficit };
+  return { generation: r.generation, served: r.served, deficit: r.deficit, totalDemand: r.totalDemand };
 }
 
 /** Per-structure-type output breakdown for the chronicle (D-061): runFrac = condition × energy × inputs. */

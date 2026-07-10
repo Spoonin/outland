@@ -37,6 +37,7 @@ import {
   YEARS_PER_WINDOW,
   shieldAttenuation,
   effectiveDeathAge,
+  avgRadiationDose,
   type Colonist,
   type DemographicParams,
 } from './colonists';
@@ -120,6 +121,8 @@ export interface ColonyParams extends DemographicParams {
   // coverage (coverage=1) — combines with the base resources.csv recycle, capped at recycleCeiling
   recycleCeiling: number; // D-095: hard ceiling on combined recycle η for any resource — never a
   // literal 1.0 (D-052-style: some loss always survives, same philosophy as shieldFloor/minSpoilRate)
+  chronicDoseAlarmSv: number; // D-097 #2: mean chronic dose (avgRadiationDose) at which the
+  // chronicle's diegetic "medical service" note fires once (ColonyState.radiationAlarmed)
 }
 
 export interface Transit {
@@ -153,6 +156,9 @@ export interface ColonyState {
   industryOutput: Record<string, number>; // D-089 (P1): cumulative kg EVER produced, by structure
   // type (all built units of that type share one counter — one deposit, one learning curve) — read
   // by industryMult() for depletion/ramp-up; {} for every type without depletionScale/rampScale
+  radiationAlarmed: boolean; // D-097 #2: true once the colony's mean chronic dose has EVER crossed
+  // ColonyParams.chronicDoseAlarmSv — a one-shot flag (like everHadPop), so the diegetic "medical
+  // service" chronicle note fires once, not every quiet window after the threshold.
   p: ColonyParams;
 }
 
@@ -252,6 +258,10 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     chronicDoseSvPerWindow: 0.5,
     shieldFloor: 0.15, // GCR barely attenuates even through regolith — coverage never zeroes it
     radiationLifespanPerSv: 3, // TOY order-of-magnitude on real chronic-exposure life-shortening estimates
+    // D-097 #2: mean dose at which the chronicle's diegetic "medical service" note fires once — at
+    // 2 Sv the radiationLifespanPerSv=3 penalty has already shaved ~6 years off a ~60-year
+    // lifeExpectancy (~10%), a real, noticeable bite, not the earliest trace of exposure.
+    chronicDoseAlarmSv: 2.0, // D-097 #2
     // D-095 (P6): blss_module raises water/o2's recycle η toward the ceiling as coverage grows —
     // 0.6 added at full coverage takes water/o2 from their 0.3 base to 0.9, short of the 0.95 ceiling.
     recycleBonusMax: 0.6,
@@ -347,6 +357,7 @@ export function newColony(p: ColonyParams): ColonyState {
     subsidyBonus: 0,
     techs: [],
     industryOutput: {},
+    radiationAlarmed: false,
     p,
   };
 }
@@ -645,6 +656,9 @@ export interface ColonyReport {
   foodSpoiledKg: number; // D-085: food lost to passive spoilage this window — 0 if none
   pharmaSpoiledKg: number; // D-085: pharma lost to passive spoilage this window — 0 if none
   housingCapacity: number; // total colonist slots from habitat structures (V7); 0 = unconstrained
+  avgRadiationDose: number; // D-097 #2: mean chronic dose (Sv) across the living population, this window
+  radiationAlarmNew: boolean; // D-097 #2: true only the ONE window the colony's mean dose first
+  // crossed ColonyParams.chronicDoseAlarmSv — the chronicle's one-shot "medical service" note
   n2LeakKg: number; // kg N₂ leaked from hull this window (V7)
   structDiag: Record<string, StructureDiag>; // per-structure-type output breakdown (D-061)
   autonomyByMass: number; // 0..1: local production mass ÷ (local production + landed import mass) this window
@@ -1399,6 +1413,14 @@ export function commitWindow(
   const anythingBuilt = Object.keys(s.built).some((id) => (s.built[id] ?? 0) > 0);
   if (s.pop > 0 && anythingBuilt && noNewImports && emptyManifest && !skipGapWindow) mark('zero_import');
 
+  // D-097 #2: diegetic "medical service" note — fires ONCE, the window the colony's mean chronic
+  // dose first crosses chronicDoseAlarmSv (one-shot flag, same shape as everHadPop). Dose is a fact
+  // about the past, same as age — reading it here doesn't telegraph any individual's fate (D-063,
+  // same reasoning as D-094 p.10-11).
+  const avgDose = avgRadiationDose(s.colonists);
+  const radiationAlarmNew = !s.radiationAlarmed && avgDose >= p.chronicDoseAlarmSv;
+  if (radiationAlarmNew) s.radiationAlarmed = true;
+
   const report: ColonyReport = {
     window: s.window,
     pop: Math.round(s.pop),
@@ -1418,7 +1440,8 @@ export function commitWindow(
     demolished: demolishedThis,
     explosions,
     energyGen: energy.generation,
-    energyDemand: energy.generation + energy.deficit,
+    energyDemand: energy.totalDemand, // D-097: true draw, not generation+deficit (that collapses to
+    // `generation` — reads as "100% loaded" — whenever supply already covers demand with room to spare)
     energyDeficit: energy.deficit,
     avgCondition: avgCondition(s),
     sparesCoverage,
@@ -1426,6 +1449,8 @@ export function commitWindow(
     foodSpoiledKg,
     pharmaSpoiledKg,
     housingCapacity: housing,
+    avgRadiationDose: avgDose, // D-097 #2
+    radiationAlarmNew, // D-097 #2
     n2LeakKg,
     structDiag: sf.diag,
     autonomyByMass,

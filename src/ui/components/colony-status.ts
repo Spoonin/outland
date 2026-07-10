@@ -120,6 +120,8 @@ export class ColonyStatusPanel extends LitElement {
     if (!d || !this.status || this.status.pop <= 0) return nothing;
     const maxCount = Math.max(1, ...d.buckets.map((b) => b.count));
     const showForecast = d.expectedOldAgeDeaths >= 0.5 || d.maturingSoon > 0;
+    // D-097 #2: dose is a fact about the past (like avgAge), never a per-colonist telegraph (D-063)
+    const doseColor = d.avgRadiationDose >= 2 ? '#d96a6a' : d.avgRadiationDose >= 1 ? '#d1b65a' : '#5ad17a';
     return html`
       <div class="agebars">
         ${d.buckets.map(
@@ -133,6 +135,11 @@ export class ColonyStatusPanel extends LitElement {
       ${showForecast
         ? html`<div class="dim">
             ⏳ ~${d.expectedOldAgeDeaths.toFixed(1)} смертей от старости за 3 ок · 🎓 +${d.maturingSoon} в труд
+          </div>`
+        : nothing}
+      ${d.avgRadiationDose >= 0.1
+        ? html`<div class="dim">
+            ☢ средняя накопленная доза: <b style="color:${doseColor}">${d.avgRadiationDose.toFixed(2)} Зв</b>
           </div>`
         : nothing}
     `;

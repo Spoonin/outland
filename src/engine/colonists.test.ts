@@ -20,6 +20,7 @@ import {
   expectedOldAgeDeaths,
   shieldAttenuation,
   effectiveDeathAge,
+  cohortAgingForecast,
 } from './colonists';
 import { serializeColony, loadColony } from './colony-save';
 
@@ -272,5 +273,37 @@ describe('D-094: chronic dose (GCR) — shieldAttenuation / effectiveDeathAge', 
     const c = { ...s.colonists[0]!, radiationDose: 2 };
     expect(effectiveDeathAge(c, s.p)).toBeCloseTo(original - s.p.radiationLifespanPerSv * 2, 10);
     expect(c.deathAge).toBe(original); // the field itself is untouched — D-094's whole point
+  });
+});
+
+// D-097 #3 (playtest-7 finding): a batch of colonists ordered together arrives at nearly the same
+// age but each gets an INDEPENDENTLY rolled deathAge — quietly seeds a synchronized old-age wave
+// decades out. Pure function of the distribution parameters (default params: arrivalAgeMean 30,
+// lifeExpectancy 60, arrivalAgeSd 2.5, lifeExpectancySd 5) — matches the playtest's own empirical
+// finding of "~14 windows, σ≈2" almost exactly.
+describe('D-097 #3: cohortAgingForecast — statistical cohort-wave forecast (parameters only, no colonists)', () => {
+  it('matches the playtest-7 empirical finding (~14 windows peak, σ≈2) for default demographic params', () => {
+    const { peakWindows, spreadWindows } = cohortAgingForecast(defaultColonyParams());
+    expect(peakWindows).toBeCloseTo(13.8, 1); // (60-30) / YEARS_PER_WINDOW
+    expect(spreadWindows).toBeGreaterThan(2);
+    expect(spreadWindows).toBeLessThan(3);
+  });
+
+  it('a narrower lifeExpectancySd tightens the spread — a more predictable, synchronized wave', () => {
+    const wide = cohortAgingForecast(defaultColonyParams({ lifeExpectancySd: 10 }));
+    const narrow = cohortAgingForecast(defaultColonyParams({ lifeExpectancySd: 1 }));
+    expect(narrow.spreadWindows).toBeLessThan(wide.spreadWindows);
+  });
+
+  it('a shorter lifeExpectancy (relative to arrival age) pulls the peak earlier', () => {
+    const soon = cohortAgingForecast(defaultColonyParams({ lifeExpectancy: 40 }));
+    const later = cohortAgingForecast(defaultColonyParams({ lifeExpectancy: 80 }));
+    expect(soon.peakWindows).toBeLessThan(later.peakWindows);
+  });
+
+  it('depends only on distribution params — identical for any two colonies sharing the same params', () => {
+    const a = cohortAgingForecast(defaultColonyParams({ pop0: 5 }));
+    const b = cohortAgingForecast(defaultColonyParams({ pop0: 5000 }));
+    expect(a).toEqual(b); // pop0 doesn't touch the arrival/lifespan distributions at all
   });
 });

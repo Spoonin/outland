@@ -86,6 +86,8 @@ export {
   phi,
   shieldAttenuation,
   effectiveDeathAge,
+  avgRadiationDose,
+  cohortAgingForecast,
 } from './colonists';
 export type { Colonist, DemographicParams } from './colonists';
 // roadmap-2/V8 scaffold — TECHS aliased to ADVANCED_TECHS: `TECHS` already names logistics.ts's

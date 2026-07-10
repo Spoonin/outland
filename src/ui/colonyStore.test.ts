@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ColonyStore, type KV } from './colonyStore';
-import { defaultColonyParams, defaultCatalog } from '../engine';
+import { defaultColonyParams, defaultCatalog, cohortAgingForecast } from '../engine';
 
 function memKV(): KV {
   const m = new Map<string, string>();
@@ -228,6 +228,28 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     expect(store.maxColonists()).toBe(200); // habitat's 200 — base_block's 20 already filled
     store.setColonists(500); // over the cap
     expect(store.colonists).toBe(200); // clamped
+  });
+
+  // D-097 #3: a big single-window colonist batch quietly seeds a synchronized old-age wave decades
+  // out (each colonist's deathAge is rolled independently, but they all arrive at nearly the same
+  // age) — this warns the player at ORDER time, using the same cohortAgingForecast the engine test
+  // suite already pins numerically.
+  it('cohortWaveWarning is undefined for a small/no draft, and names the forecast numbers once the draft crosses the batch threshold', () => {
+    const p = defaultColonyParams();
+    const store = new ColonyStore(p, memKV());
+    store.setImportQty('habitat', 1);
+    store.setImportQty('solar_plant', 1);
+    expect(store.cohortWaveWarning()).toBeUndefined(); // draft is 0
+
+    store.setColonists(5);
+    expect(store.cohortWaveWarning()).toBeUndefined(); // below the batch threshold
+
+    store.setColonists(30);
+    const warning = store.cohortWaveWarning();
+    const { peakWindows, spreadWindows } = cohortAgingForecast(p);
+    expect(warning).toContain('30');
+    expect(warning).toContain(String(peakWindows));
+    expect(warning).toContain(String(spreadWindows));
   });
 
   it('import a structure fully built from Earth — lands built, and unblocks colonist ordering same manifest (V8)', () => {
@@ -487,5 +509,52 @@ describe('inTransit — visible cargo already shipped (playtest bug — this was
     expect(store.inTransit().stocks.food).toBe(40_000);
     store.commit(); // lands
     expect(store.inTransit().stocks.food).toBe(0);
+  });
+});
+
+// D-097 #4 (playtest-7 finding): food spoilage on a large stockpile is a silent tax — a city-sized
+// insurance buffer loses real tonnage every window and nothing names it. projectionWarnings() now
+// names it, but only when a silo would ACTUALLY help (not already floored at minSpoilRate) and the
+// savings clear a noise floor (bootstrap-scale losses shouldn't nag the player every window).
+describe('projectionWarnings — food spoilage hint (D-097 #4)', () => {
+  it('no spoilage line when nothing has spoiled yet', () => {
+    const store = new ColonyStore(defaultColonyParams(), memKV());
+    expect(store.projectionWarnings().some((l) => l.includes('порча'))).toBe(false);
+  });
+
+  it('names the loss and the silo savings once a real stockpile is sitting there decaying', () => {
+    const store = new ColonyStore(defaultColonyParams(), memKV());
+    // BOOTSTRAP GUARANTEE recipe (D-057/D-060/D-067): base_block covers water/O₂/N₂ itself, only
+    // food + spares needed — matches the canonical first-move fixture elsewhere in this file
+    store.setImportQty('base_block', 1);
+    store.setColonists(20);
+    store.setRes('food', 20_000);
+    store.setRes('spares', 500);
+    store.commit(); // ships
+    store.commit(); // lands — pop 20, food buffer in stock
+
+    // a big surplus food order, well beyond what 20 people eat in a window — the kind of insurance
+    // stockpile a growing colony keeps, and exactly what quietly rots without a silo
+    store.setRes('food', 60_000);
+    store.commit(); // ships
+    store.commit(); // lands — large food stock now sitting in the store, no food_silo built
+
+    const warnings = store.projectionWarnings();
+    const spoilLine = warnings.find((l) => l.includes('порча'));
+    expect(spoilLine).toBeDefined();
+    expect(spoilLine).toContain('продсклад');
+  });
+
+  it('no spoilage line once already floored at minSpoilRate — a silo genuinely would not help further', () => {
+    // spoilRate 0 + minSpoilRate 0 means foodSpoiledKg is always 0 — the cheapest way to pin the
+    // "already at floor, nothing to suggest" branch without constructing several real food_silo units
+    const store = new ColonyStore(defaultColonyParams({ minSpoilRate: 0, catalog: noSpoilCatalog() }), memKV());
+    store.setImportQty('base_block', 1);
+    store.setColonists(20);
+    store.setRes('food', 20_000);
+    store.setRes('spares', 500);
+    store.commit();
+    store.commit();
+    expect(store.projectionWarnings().some((l) => l.includes('порча'))).toBe(false);
   });
 });

@@ -100,6 +100,17 @@ export function effectiveDeathAge(c: Colonist, p: DemographicParams): number {
   return c.deathAge - p.radiationLifespanPerSv * c.radiationDose;
 }
 
+/** D-097 #2: mean accumulated chronic dose across the living population — a fact about the past
+ * (same as average age), not a telegraph of anyone's fate (D-063 still holds, same reasoning as
+ * D-094 p.10-11). Shared by colony.ts's per-window alarm check and colonyStore's live demography
+ * panel so both read the identical number. */
+export function avgRadiationDose(colonists: readonly Colonist[]): number {
+  if (colonists.length === 0) return 0;
+  let sum = 0;
+  for (const c of colonists) sum += c.radiationDose;
+  return sum / colonists.length;
+}
+
 /** Able-bodied count for the D-075 labor pool: adults not in the active stage of an illness. */
 export function workforceCount(colonists: readonly Colonist[], adultAge: number): number {
   let n = 0;
@@ -161,4 +172,19 @@ export function expectedOldAgeDeaths(
     total += diesWithin / aliveNow;
   }
   return Math.round(total * 10) / 10;
+}
+
+/** D-097 #3 (playtest-7 finding): a batch of colonists ordered together arrives at nearly the same
+ * age (arrivalAgeMean/Sd), but each gets an INDEPENDENTLY rolled `deathAge` ~N(lifeExpectancy, sd)
+ * — so a big single-window batch quietly seeds a synchronized wave of old-age deaths, decades out.
+ * Pure function of the DISTRIBUTION parameters alone (never a specific colonist's own roll) — same
+ * D-063 boundary as expectedOldAgeDeaths: this describes what a cohort's shape statistically implies,
+ * not any one person's pre-decided fate. */
+export function cohortAgingForecast(p: DemographicParams): { peakWindows: number; spreadWindows: number } {
+  const peakYears = p.lifeExpectancy - p.arrivalAgeMean;
+  const spreadYears = Math.sqrt(p.lifeExpectancySd ** 2 + p.arrivalAgeSd ** 2);
+  return {
+    peakWindows: Math.round((peakYears / YEARS_PER_WINDOW) * 10) / 10,
+    spreadWindows: Math.round((spreadYears / YEARS_PER_WINDOW) * 10) / 10,
+  };
 }

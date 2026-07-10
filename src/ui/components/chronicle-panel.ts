@@ -168,6 +168,11 @@ export class ChroniclePanel extends LitElement {
       ev.push(`🦠 порча: ${parts.join(', ')}`);
     }
     if (r.births > 0) ev.push(`🐣 рождения: +${r.births}`);
+    // D-097 #2: fires ONCE, the window the colony's mean chronic dose first crosses the alarm
+    // threshold — a fact the medical service reports about the past, not a telegraphed fate (D-063)
+    if (r.radiationAlarmNew) {
+      ev.push(`🩺 медслужба: устойчивый рост случаев раннего старения — накопленная доза персонала (${r.avgRadiationDose.toFixed(2)} Зв) требует внимания`);
+    }
     for (const id of r.milestones) ev.push(`★ майлстоун: ${milestoneLabel(id)}`);
     return ev;
   }
@@ -185,7 +190,8 @@ export class ChroniclePanel extends LitElement {
       r.pharmaSpoiledKg === 0 &&
       r.births === 0 &&
       !r.event &&
-      !r.milestones.length
+      !r.milestones.length &&
+      !r.radiationAlarmNew
     );
   }
 

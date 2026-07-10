@@ -2393,3 +2393,89 @@ describe('D-096 P7: hi-tech wall (chip_fab, api_plant, pgm_refinery)', () => {
     expect(spec.capex / weeklyValue).toBeGreaterThan(10_000); // "payback" in windows — absurd, by design
   });
 });
+
+// D-097 #6 (playtest-7 finding): `energyDemand` used to be `generation + deficit`, which collapses
+// to exactly `generation` whenever supply already covers demand (deficit=0 hides the real, lower,
+// demand) — a lightly-loaded colony misread its own status line as "100% loaded." Now sourced from
+// EnergyResolution.totalDemand (the true sum of life-support + every drawing structure's draw).
+describe('D-097 #6: energyDemand reports TRUE draw, not generation+deficit', () => {
+  it('a colony with generation far exceeding its draw reports demand well BELOW generation, not equal to it', () => {
+    const s = newColony(defaultColonyParams({ pop0: 10, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { solar_plant: 5 }; // 500 rated generation vs. a tiny pop-10 life-support draw
+    s.condition = { solar_plant: 1 };
+    const r = commitWindow(s, emptyOrder());
+    expect(r.energyDeficit).toBe(0); // fully covered
+    expect(r.energyDemand).toBeLessThan(r.energyGen); // the old formula would have asserted equality here
+    expect(r.energyDemand).toBeCloseTo(0.05 * 10, 1); // popEnergyPerCapita × pop — the true draw
+  });
+
+  it('a colony genuinely undersupplied still reports demand correctly (deficit>0 branch unaffected)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+    s.built = { medbay: 1 }; // draws energy, zero generation built
+    s.condition = { medbay: 1 };
+    const r = commitWindow(s, emptyOrder());
+    expect(r.energyDeficit).toBeGreaterThan(0);
+    expect(r.energyDemand).toBeCloseTo(r.energyGen + r.energyDeficit, 1); // still holds in this branch
+  });
+});
+
+// D-097 #2 (playtest-7 finding): chronic dose is silent — a colony can age itself to death with no
+// distinguishable signal from natural old age. `avgRadiationDose` reports the honest mean every
+// window; `radiationAlarmNew` fires exactly once, the window the mean first crosses
+// chronicDoseAlarmSv, mirroring everHadPop's one-shot shape.
+describe('D-097 #2: chronic dose visibility — avgRadiationDose + one-shot radiationAlarmNew', () => {
+  it('avgRadiationDose matches the manual mean across living colonists, and is 0 for an empty colony', () => {
+    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 5, eventChanceCap: 0 }));
+    const r = commitWindow(s, emptyOrder());
+    const manual = s.colonists.reduce((a, c) => a + c.radiationDose, 0) / s.colonists.length;
+    expect(r.avgRadiationDose).toBeCloseTo(manual, 6);
+    expect(r.avgRadiationDose).toBeGreaterThan(0); // unshielded dose accrues every window (D-094)
+
+    const empty = newColony(defaultColonyParams({ pop0: 0, eventChanceCap: 0 }));
+    const rEmpty = commitWindow(empty, emptyOrder());
+    expect(rEmpty.avgRadiationDose).toBe(0);
+  });
+
+  it('radiationAlarmNew fires exactly once — the window mean dose first crosses chronicDoseAlarmSv, never again after', () => {
+    // threshold below a single window's unshielded dose (0.5 Sv) so it fires on window 0 itself —
+    // keeps this test to 2 windows, well inside any life-support buffer (isolates dose from survival)
+    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 5, eventChanceCap: 0, chronicDoseAlarmSv: 0.3 }));
+    expect(s.radiationAlarmed).toBe(false);
+    const r1 = commitWindow(s, emptyOrder());
+    expect(r1.radiationAlarmNew).toBe(true);
+    expect(s.radiationAlarmed).toBe(true);
+    // continuing past the threshold never re-fires, even though avgDose stays above it
+    const r2 = commitWindow(s, emptyOrder());
+    expect(r2.radiationAlarmNew).toBe(false);
+    expect(r2.avgRadiationDose).toBeGreaterThanOrEqual(0.3);
+  });
+
+  it('shield_berm coverage delays (or prevents, within a bounded run) the alarm vs. an unshielded colony', () => {
+    const seed = 1;
+    const unshielded = newColony(defaultColonyParams({ pop0: 50, startStockWindows: 5, eventChanceCap: 0, seed, chronicDoseAlarmSv: 2.0 }));
+    const shielded = newColony(defaultColonyParams({ pop0: 50, startStockWindows: 5, eventChanceCap: 0, seed, chronicDoseAlarmSv: 2.0 }));
+    shielded.built = { shield_berm: 1 }; // capacity 200 ≥ pop 50 → full coverage
+    shielded.condition = { shield_berm: 1 };
+    let unshieldedFired = -1;
+    let shieldedFired = -1;
+    for (let i = 0; i < 6; i++) {
+      const r1 = commitWindow(unshielded, emptyOrder());
+      const r2 = commitWindow(shielded, emptyOrder());
+      if (r1.radiationAlarmNew && unshieldedFired === -1) unshieldedFired = i;
+      if (r2.radiationAlarmNew && shieldedFired === -1) shieldedFired = i;
+    }
+    expect(unshieldedFired).toBeGreaterThanOrEqual(0); // unshielded crosses 2.0 Sv within 6 windows (0.5/window)
+    expect(shieldedFired === -1 || shieldedFired > unshieldedFired).toBe(true); // shielding delays or prevents it
+  });
+
+  it('radiationAlarmed round-trips through save/load (D-097, SAVE_VERSION bump) — a reload does not re-fire the note', () => {
+    const s = newColony(defaultColonyParams({ pop0: 20, startStockWindows: 5, eventChanceCap: 0, chronicDoseAlarmSv: 0.4 }));
+    commitWindow(s, emptyOrder()); // 0.5 Sv/window unshielded ≥ 0.4 → alarm fires this window
+    expect(s.radiationAlarmed).toBe(true);
+    const saved = serializeColony(s);
+    const loaded = hydrateColony(saved, s.p);
+    expect(loaded.radiationAlarmed).toBe(true);
+    const r = commitWindow(loaded, emptyOrder());
+    expect(r.radiationAlarmNew).toBe(false); // already alarmed before reload — no duplicate note
+  });
+});
