@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #070d0b; }
+  @keyframes blinkPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+</style>
+</helmet>
+
+<div style="width:100%; min-height:100vh; box-sizing:border-box; background:#070d0b; color:#dfeee7; font-family:'IBM Plex Mono', monospace; padding:clamp(14px,3vw,32px); background-image:radial-gradient(circle at 15% 0%, rgba(47,214,138,0.05), transparent 55%);" data-screen-label="Mars Construction">
+
+  <!-- Tab bar -->
+  <div style="display:flex; gap:10px; margin-bottom:20px;">
+    <div style="padding:9px 18px; border:1px solid #1e352d; border-radius:3px; font-size:12px; letter-spacing:0.06em; color:#5f8272; background:#0b1512;">{{ labels.tabEarth }}</div>
+    <div style="padding:9px 18px; border:1px solid #2fd68a; border-radius:3px; font-size:12px; letter-spacing:0.06em; color:#d8f5e2; background:#123d28; font-weight:600;">{{ labels.tabMars }}</div>
+  </div>
+
+  <!-- Live consequences summary bar -->
+  <div style="background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:14px 16px; margin-bottom:18px; display:flex; flex-wrap:wrap; gap:22px; align-items:center; justify-content:space-between;">
+    <div style="display:flex; flex-direction:column; gap:8px; flex:1 1 420px;">
+      <div style="font-size:10px; letter-spacing:0.09em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ labels.queued }}</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        <sc-for list="{{ summaryMaterials }}" as="s" hint-placeholder-count="4">
+          <div style="display:flex; align-items:center; gap:7px; padding:5px 10px; background:#0b1512; border:1px solid {{ s.border }}; border-radius:3px;">
+            <span style="font-size:11px; color:#a8c4b8;">{{ s.label }}</span>
+            <span style="font-size:12px; color:{{ s.color }}; font-weight:500;">{{ s.usedStr }}</span>
+            <span style="font-size:10px; color:#4d6a5e;">/ {{ s.stockStr }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex; gap:22px; flex-wrap:wrap;">
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:10px; letter-spacing:0.07em; color:#7fa596;">{{ labels.netPower }}</div>
+        <div style="font-size:19px; color:{{ powerColor }}; font-weight:500;">{{ netPowerStr }} <span style="font-size:11px; color:#5f8272;">kW</span></div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:10px; letter-spacing:0.07em; color:#7fa596;">{{ labels.crewReq }}</div>
+        <div style="font-size:19px; color:#eafaf1; font-weight:500;">{{ crewTotal }}</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:10px; letter-spacing:0.07em; color:#7fa596;">{{ labels.unitsQueued }}</div>
+        <div style="font-size:19px; color:#eafaf1; font-weight:500;">{{ unitsTotal }}</div>
+      </div>
+    </div>
+    <div style="display:flex; gap:10px;">
+      <button onClick="{{ onReset }}" style="font:inherit; background:#0d1a16; color:#dfeee7; border:1px solid #33544a; padding:9px 14px; border-radius:3px; cursor:pointer; letter-spacing:0.05em; font-size:12px;" style-hover="background:#132a25; border-color:#4d6a5e;">{{ labels.clear }}</button>
+      <button style="font:inherit; background:#123d28; color:#d8f5e2; border:1px solid #2fd68a; padding:9px 18px; border-radius:3px; cursor:pointer; letter-spacing:0.05em; font-size:12px; font-weight:600;" style-hover="background:#164a30;">{{ labels.commit }}</button>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div style="display:flex; gap:18px; flex-wrap:wrap; font-size:10px; color:#5f8272; margin-bottom:16px; letter-spacing:0.04em;">
+    <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#2fd68a; margin-right:6px;"></span>{{ labels.lgReady }}</span>
+    <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#ffb020; margin-right:6px;"></span>{{ labels.lgShort }}</span>
+    <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#8b8296; margin-right:6px;"></span>{{ labels.lgLocked }}</span>
+  </div>
+
+  <!-- Grouped buildable cards -->
+  <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+    <div style="margin-bottom:22px;">
+      <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #14241f;">
+        <div style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; letter-spacing:0.08em; color:#bfe6d6; text-transform:uppercase;">{{ g.label }}</div>
+        <div style="font-size:11px; color:#4d6a5e;">{{ g.countStr }}</div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(310px, 1fr)); gap:14px;">
+        <sc-for list="{{ g.buildings }}" as="b" hint-placeholder-count="3">
+          <div style="background:#0d1a16; border:1px solid {{ b.cardBorder }}; border-radius:4px; padding:15px; display:flex; flex-direction:column; gap:12px;">
+
+            <!-- Header zone -->
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+              <div style="display:flex; align-items:center; gap:9px;">
+                <div style="width:9px; height:9px; border-radius:50%; background:{{ b.statusColor }}; flex:none;"></div>
+                <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; color:#eafaf1; line-height:1.2;">{{ b.name }}</div>
+              </div>
+              <div style="font-size:10px; color:#5f8272; background:#0b1512; border:1px solid #14241f; border-radius:3px; padding:3px 8px; white-space:nowrap; flex:none;">{{ b.builtStr }}</div>
+            </div>
+
+            <!-- Hero zone -->
+            <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+              <div style="display:flex; flex-direction:column; gap:1px;">
+                <div style="font-size:24px; font-weight:600; color:{{ b.heroColor }}; line-height:1;">{{ b.heroMain }}</div>
+                <div style="font-size:10px; color:#5f8272; letter-spacing:0.04em;">{{ b.heroSub }}</div>
+              </div>
+              <sc-if value="{{ b.showPowerPill }}">
+                <div style="font-size:11px; color:{{ b.powerPillColor }}; border:1px solid {{ b.powerPillBorder }}; border-radius:3px; padding:3px 8px;">{{ b.powerPillText }}</div>
+              </sc-if>
+              <sc-for list="{{ b.consum }}" as="cs" hint-placeholder-count="1">
+                <div style="font-size:11px; color:#ff9b86; border:1px solid #5c2b22; border-radius:3px; padding:3px 8px;">{{ cs }}</div>
+              </sc-for>
+            </div>
+
+            <!-- Cost zone -->
+            <div style="display:flex; flex-wrap:wrap; gap:7px;">
+              <sc-for list="{{ b.materials }}" as="m" hint-placeholder-count="2">
+                <div style="display:flex; align-items:center; gap:7px; padding:5px 9px; background:#0b1512; border:1px solid {{ m.border }}; border-radius:3px;">
+                  <span style="font-size:11px; color:#c3ddd0;">{{ m.label }} {{ m.needStr }}</span>
+                  <span style="font-size:10px; color:{{ m.haveColor }};">{{ m.haveLabel }} {{ m.haveStr }}</span>
+                </div>
+              </sc-for>
+            </div>
+
+            <!-- Tag / caveat -->
+            <sc-if value="{{ b.hasTag }}">
+              <div style="font-size:11px; color:#d9a441; letter-spacing:0.02em;">{{ b.tagText }}</div>
+            </sc-if>
+
+            <!-- Specs strip (muted) -->
+            <sc-if value="{{ b.showSpecs }}">
+              <div style="font-size:10.5px; color:#4d6a5e; letter-spacing:0.02em; line-height:1.5; border-top:1px solid #14241f; padding-top:9px;">{{ b.specsText }}</div>
+            </sc-if>
+
+            <!-- Stepper zone -->
+            <div style="display:flex; align-items:center; gap:12px; margin-top:2px;">
+              <div style="display:flex; align-items:center; gap:2px;">
+                <button onClick="{{ b.onMinus }}" style="font:inherit; width:34px; height:34px; background:{{ b.minusBg }}; color:{{ b.minusColor }}; border:1px solid #33544a; border-radius:3px 0 0 3px; cursor:{{ b.minusCursor }}; font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center;">&minus;</button>
+                <div style="width:52px; height:34px; background:#0b1512; border-top:1px solid #33544a; border-bottom:1px solid #33544a; display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:600; color:#eafaf1;">{{ b.count }}</div>
+                <button onClick="{{ b.onPlus }}" style="font:inherit; width:34px; height:34px; background:{{ b.plusBg }}; color:{{ b.plusColor }}; border:1px solid {{ b.plusBorder }}; border-radius:0 3px 3px 0; cursor:{{ b.plusCursor }}; font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center;">+</button>
+              </div>
+              <div style="font-size:11px; color:{{ b.hintColor }};">{{ b.stepHint }}</div>
+            </div>
+
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+
+  <!-- Locked (collapsed) -->
+  <div style="background:#0b1512; border:1px solid #14241f; border-radius:4px; overflow:hidden;">
+    <div onClick="{{ onToggleLocked }}" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; cursor:pointer;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div style="font-size:13px; color:#8b8296;">{{ lockedCaret }}</div>
+        <div style="width:9px; height:9px; border-radius:50%; background:#8b8296;"></div>
+        <div style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; letter-spacing:0.08em; color:#9a93a3; text-transform:uppercase;">{{ labels.locked }}</div>
+        <div style="font-size:11px; color:#5f5866;">{{ lockedCountStr }}</div>
+      </div>
+      <div style="font-size:10px; color:#5f5866; letter-spacing:0.05em;">{{ lockedHint }}</div>
+    </div>
+
+    <sc-if value="{{ lockedOpen }}">
+      <div style="display:flex; flex-direction:column; border-top:1px solid #14241f;">
+        <sc-for list="{{ lockedBuildings }}" as="lb" hint-placeholder-count="6">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; padding:13px 16px; border-bottom:1px solid #10201b;">
+            <div style="display:flex; align-items:center; gap:11px; flex:1 1 220px; min-width:0;">
+              <div style="width:8px; height:8px; border-radius:50%; background:#8b8296; flex:none;"></div>
+              <div style="display:flex; flex-direction:column; gap:2px; min-width:0;">
+                <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px; color:#9a93a3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ lb.name }}</div>
+                <div style="font-size:10.5px; color:#5f5866;">{{ lb.heroPreview }}</div>
+              </div>
+            </div>
+            <div style="display:flex; gap:7px; flex-wrap:wrap;">
+              <sc-for list="{{ lb.reasons }}" as="r" hint-placeholder-count="1">
+                <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#b7aec2; background:#15121c; border:1px solid #2e2739; border-radius:3px; padding:4px 9px;">
+                  <span style="font-size:10px;">&#128274;</span>
+                  <span>{{ r }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 1200},
+  &quot;language&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;en&quot;, &quot;options&quot;: [&quot;en&quot;, &quot;ru&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Display&quot;},
+  &quot;population&quot;: {&quot;editor&quot;: &quot;int&quot;, &quot;default&quot;: 6, &quot;min&quot;: 0, &quot;max&quot;: 150, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Data&quot;},
+  &quot;showSpecs&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Display&quot;}
+}">
+const MAT = {
+  steel:    { en: 'Steel',    ru: 'Сталь' },
+  glass:    { en: 'Glass',    ru: 'Стекло' },
+  metals:   { en: 'Metals',   ru: 'Металлы' },
+  polymers: { en: 'Polymers', ru: 'Полимеры' },
+};
+const RES = {
+  food:     { en: 'food',     ru: 'еда' },
+  water:    { en: 'water',    ru: 'вода' },
+  o2:       { en: 'O\u2082', ru: 'O\u2082' },
+  steel:    { en: 'steel',    ru: 'сталь' },
+  glass:    { en: 'glass',    ru: 'стекло' },
+  polymers: { en: 'polymers', ru: 'полимеры' },
+  fuel:     { en: 'fuel',     ru: 'топливо' },
+  catalyst: { en: 'catalyst', ru: 'катализатор' },
+  pharma:   { en: 'pharma',   ru: 'фарма' },
+};
+
+// Colony materials currently on hand (build stock). Glass deliberately short to show the "short" state.
+const STOCK = { steel: 12000, glass: 1000, metals: 3000, polymers: 2000 };
+
+const BUILDINGS = [
+  { id: 'solar', group: 'power', name: { en: 'Solar Power Plant', ru: 'Солнечная электростанция' },
+    power: 100, output: null, materials: { steel: 5000, glass: 2000 },
+    crew: 3, spares: 300, demolish: 2, recycle: 60, consum: {},
+    tag: { en: '\u26a0 Vulnerable to dust storms', ru: '\u26a0 Уязвима к пыльным бурям' },
+    popReq: 0, needsBuilt: null },
+
+  { id: 'waste', group: 'infra', name: { en: 'Waste Pad', ru: 'Полигон отходов' },
+    power: 0, output: null, materials: { steel: 3000 },
+    crew: 1, spares: 50, demolish: 2, recycle: 60, consum: {},
+    tag: null, infraLabel: { en: 'Waste processing', ru: 'Переработка отходов' },
+    popReq: 0, needsBuilt: null },
+
+  { id: 'water', group: 'life', name: { en: 'Life Support: Water Recycling', ru: 'СЖО: Регенерация воды' },
+    power: -30, output: { res: 'water', val: 80000 }, materials: { steel: 2000, polymers: 1000 },
+    crew: 2, spares: 350, demolish: 4, recycle: 60, consum: {},
+    tag: null, popReq: 0, needsBuilt: null },
+
+  { id: 'o2', group: 'life', name: { en: 'Life Support: O\u2082 Generator (MOXIE)', ru: 'СЖО: Генератор O\u2082 (MOXIE)' },
+    power: -40, output: { res: 'o2', val: 15000 }, materials: { steel: 2000 },
+    crew: 2, spares: 350, demolish: 4, recycle: 60, consum: {},
+    tag: null, popReq: 0, needsBuilt: null },
+
+  { id: 'nuclear', group: 'power', name: { en: 'Nuclear Power Plant', ru: 'Атомная электростанция' },
+    power: 500, output: null, materials: { steel: 20000, metals: 5000 },
+    crew: 10, spares: 1500, demolish: 50, recycle: 10, consum: { fuel: 3000 },
+    tag: { en: 'Storm-independent baseload', ru: 'Базовая мощность, независим от бурь' },
+    popReq: 100, needsBuilt: 'waste' },
+
+  { id: 'farm', group: 'life', name: { en: 'Farm / Greenhouse', ru: 'Ферма / Оранжерея' },
+    power: -80, output: { res: 'food', val: 80000 }, materials: { steel: 4000, glass: 5000 },
+    crew: 4, spares: 400, demolish: 8, recycle: 60, consum: { water: 20000 },
+    tag: null, popReq: 10, needsBuilt: null },
+
+  { id: 'metallurgy', group: 'industry', name: { en: 'Metallurgy (Steel)', ru: 'Металлургия (Сталь)' },
+    power: -60, output: { res: 'steel', val: 40000 }, materials: { metals: 2000 },
+    crew: 5, spares: 600, demolish: 10, recycle: 60, consum: {},
+    tag: null, popReq: 15, needsBuilt: null },
+
+  { id: 'glassworks', group: 'industry', name: { en: 'Glass / Ceramics', ru: 'Стекло / Керамика' },
+    power: -40, output: { res: 'glass', val: 25000 }, materials: { steel: 2000 },
+    crew: 3, spares: 400, demolish: 6, recycle: 60, consum: {},
+    tag: null, popReq: 12, needsBuilt: null },
+
+  { id: 'polymers', group: 'industry', name: { en: 'Polymers (Fischer-Tropsch)', ru: 'Полимеры (Фишер-Тропш)' },
+    power: -50, output: { res: 'polymers', val: 18000 }, materials: { steel: 3000 },
+    crew: 5, spares: 500, demolish: 10, recycle: 60, consum: { catalyst: 300 },
+    tag: null, popReq: 15, needsBuilt: null },
+
+  { id: 'medbay', group: 'population', name: { en: 'Medbay (\u2192 births)', ru: 'Медотсек (\u2192 рождения)' },
+    power: -30, output: null, materials: { steel: 2000, glass: 2000 },
+    crew: 3, spares: 400, demolish: 6, recycle: 60, consum: { pharma: 120 },
+    tag: null, birthsLabel: { en: 'Enables population growth', ru: 'Открывает рост населения' },
+    popReq: 8, needsBuilt: null },
+];
+
+const GROUP_ORDER = ['power', 'life', 'infra', 'industry', 'population'];
+const GROUP_LABEL = {
+  power:      { en: 'Power',          ru: 'Энергетика' },
+  life:       { en: 'Life Support',   ru: 'Жизнеобеспечение' },
+  infra:      { en: 'Infrastructure', ru: 'Инфраструктура' },
+  industry:   { en: 'Industry',       ru: 'Промышленность' },
+  population: { en: 'Population',      ru: 'Население' },
+};
+
+const GREEN = '#2fd68a', AMBER = '#ffb020', GRAY = '#8b8296', RED = '#ff5a3c';
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+
+class Component extends DCLogic {
+  state = { counts: {}, built: {}, lockedOpen: false };
+
+  renderVals() {
+    const lang = this.props.language ?? 'en';
+    const ru = lang === 'ru';
+    const pop = this.props.population ?? 6;
+    const showSpecs = this.props.showSpecs ?? true;
+    const L = (o) => (ru ? o.ru : o.en);
+    const counts = this.state.counts;
+    const built = this.state.built;
+
+    const labels = {
+      tabEarth: ru ? 'ЗЕМЛЯ — СНАБЖЕНИЕ' : 'EARTH — RESUPPLY',
+      tabMars: ru ? 'МАРС — СТРОИТЕЛЬСТВО' : 'MARS — CONSTRUCTION',
+      queued: ru ? 'Материалы в плане (использовано / склад)' : 'Materials committed (used / stock)',
+      netPower: ru ? 'Чистая мощность' : 'Net power',
+      crewReq: ru ? 'Требуется экипаж' : 'Crew required',
+      unitsQueued: ru ? 'Единиц в плане' : 'Units queued',
+      clear: ru ? 'Очистить' : 'Clear',
+      commit: ru ? 'Коммит \u25b8 окно' : 'Commit \u25b8 Window',
+      lgReady: ru ? 'Готово к постройке' : 'Ready to build',
+      lgShort: ru ? 'Не хватает материалов' : 'Short on materials',
+      lgLocked: ru ? 'Заблокировано' : 'Locked',
+      locked: ru ? 'Заблокировано' : 'Locked',
+    };
+
+    // Total material use across queue
+    const used = { steel: 0, glass: 0, metals: 0, polymers: 0 };
+    BUILDINGS.forEach((b) => {
+      const c = counts[b.id] || 0;
+      Object.entries(b.materials).forEach(([k, v]) => { used[k] += v * c; });
+    });
+    const remaining = {};
+    Object.keys(STOCK).forEach((k) => { remaining[k] = STOCK[k] - used[k]; });
+
+    const buildOne = (b) => {
+      this.setState((s) => ({ counts: { ...s.counts, [b.id]: (s.counts[b.id] || 0) + 1 } }));
+    };
+    const removeOne = (b) => {
+      this.setState((s) => {
+        const n = Math.max(0, (s.counts[b.id] || 0) - 1);
+        return { counts: { ...s.counts, [b.id]: n } };
+      });
+    };
+
+    const isLocked = (b) => {
+      const reasons = [];
+      if (pop < b.popReq) reasons.push(ru ? `Население \u2265 ${b.popReq}` : `Population \u2265 ${b.popReq}`);
+      if (b.needsBuilt && !(counts[b.needsBuilt] > 0 || built[b.needsBuilt] > 0)) {
+        const dep = BUILDINGS.find((x) => x.id === b.needsBuilt);
+        reasons.push((ru ? 'Сначала: ' : 'Build first: ') + L(dep.name));
+      }
+      return reasons;
+    };
+
+    // affordability from full stock (stable regardless of queue)
+    const maxFromStock = (b) => {
+      let m = Infinity;
+      Object.entries(b.materials).forEach(([k, v]) => { m = Math.min(m, Math.floor(STOCK[k] / v)); });
+      return m === Infinity ? 999 : m;
+    };
+    const maxFromRemaining = (b) => {
+      let m = Infinity;
+      Object.entries(b.materials).forEach(([k, v]) => { m = Math.min(m, Math.floor(remaining[k] / v)); });
+      return m === Infinity ? 999 : m;
+    };
+
+    const heroFor = (b) => {
+      if (b.output) {
+        return { main: `+${fmt(b.output.val)} ${L(RES[b.output.res])}`, sub: ru ? 'выход / окно' : 'output / window', color: GREEN };
+      }
+      if (b.power > 0) {
+        return { main: `+${fmt(b.power)} kW`, sub: ru ? 'ср. мощность' : 'avg power', color: GREEN };
+      }
+      if (b.birthsLabel) return { main: ru ? '+ Рождения' : '+ Births', sub: L(b.birthsLabel), color: '#7fb0d8' };
+      if (b.infraLabel) return { main: ru ? 'Инфра' : 'Infra', sub: L(b.infraLabel), color: '#9fb8ad' };
+      return { main: '\u2014', sub: '', color: '#9fb8ad' };
+    };
+
+    const buildCard = (b) => {
+      const hero = heroFor(b);
+      const cnt = counts[b.id] || 0;
+      const affordStock = maxFromStock(b);
+      const affordNow = maxFromRemaining(b);
+      const isShort = affordStock < 1;
+      const statusColor = isShort ? AMBER : GREEN;
+      const plusOk = affordNow >= 1;
+
+      const materials = Object.entries(b.materials).map(([k, v]) => {
+        const have = STOCK[k];
+        const short = have < v;
+        return {
+          label: L(MAT[k]), needStr: fmt(v),
+          haveLabel: ru ? 'скл.' : 'have', haveStr: fmt(have),
+          haveColor: short ? AMBER : '#5f8272',
+          border: short ? '#5c4a1f' : '#14241f',
+        };
+      });
+
+      const consum = Object.entries(b.consum).map(([k, v]) => `\u2212${fmt(v)} ${L(RES[k])}/${ru ? 'окно' : 'wnd'}`);
+
+      // power pill shown only when power isn't the hero
+      const heroIsPower = !b.output && b.power > 0;
+      const showPowerPill = !heroIsPower;
+      const pPos = b.power >= 0;
+
+      const specsText = ru
+        ? `экипаж ${b.crew}/ед \u00b7 ЗИП ${fmt(b.spares)}/окно \u00b7 демонтаж ${b.demolish} \u00b7 возврат ${b.recycle}%`
+        : `crew ${b.crew}/unit \u00b7 spares ${fmt(b.spares)}/wnd \u00b7 demolish ${b.demolish} \u00b7 recycle ${b.recycle}%`;
+
+      let stepHint, hintColor;
+      if (!plusOk) {
+        const shortKey = Object.entries(b.materials).find(([k, v]) => remaining[k] < v);
+        stepHint = (ru ? 'не хватает: ' : 'short ') + (shortKey ? L(MAT[shortKey[0]]) : '');
+        hintColor = AMBER;
+      } else {
+        stepHint = (ru ? 'макс +' : 'max +') + affordNow;
+        hintColor = '#4d6a5e';
+      }
+
+      return {
+        id: b.id, name: L(b.name),
+        cardBorder: cnt > 0 ? statusColor : '#1e352d',
+        statusColor,
+        builtStr: (ru ? '\u00d7' : '\u00d7') + (built[b.id] || 0) + (ru ? ' постр.' : ' built'),
+        heroMain: hero.main, heroSub: hero.sub, heroColor: hero.color,
+        showPowerPill,
+        powerPillText: (pPos ? '+' : '\u2212') + fmt(Math.abs(b.power)) + ' kW',
+        powerPillColor: pPos ? '#9be3c2' : '#ff9b86',
+        powerPillBorder: pPos ? '#20423a' : '#5c2b22',
+        consum,
+        materials,
+        hasTag: !!b.tag, tagText: b.tag ? L(b.tag) : '',
+        showSpecs, specsText,
+        count: cnt,
+        onPlus: () => { if (plusOk) buildOne(b); },
+        onMinus: () => removeOne(b),
+        plusBg: plusOk ? '#123d28' : '#0b1512',
+        plusColor: plusOk ? '#d8f5e2' : '#33443d',
+        plusBorder: plusOk ? '#2fd68a' : '#22332c',
+        plusCursor: plusOk ? 'pointer' : 'not-allowed',
+        minusBg: cnt > 0 ? '#0d1a16' : '#0b1512',
+        minusColor: cnt > 0 ? '#dfeee7' : '#33443d',
+        minusCursor: cnt > 0 ? 'pointer' : 'not-allowed',
+        stepHint, hintColor,
+      };
+    };
+
+    // Split locked / unlocked
+    const unlocked = [];
+    const lockedBuildings = [];
+    BUILDINGS.forEach((b) => {
+      const reasons = isLocked(b);
+      if (reasons.length) {
+        const hero = heroFor(b);
+        lockedBuildings.push({
+          id: b.id, name: L(b.name),
+          heroPreview: hero.main + (hero.sub ? ' \u00b7 ' + hero.sub : ''),
+          reasons,
+        });
+      } else {
+        unlocked.push(b);
+      }
+    });
+
+    const groups = GROUP_ORDER.map((gk) => {
+      const inGroup = unlocked.filter((b) => b.group === gk);
+      if (!inGroup.length) return null;
+      return {
+        key: gk, label: L(GROUP_LABEL[gk]),
+        countStr: inGroup.length + (ru ? ' тип.' : ' types'),
+        buildings: inGroup.map(buildCard),
+      };
+    }).filter(Boolean);
+
+    const summaryMaterials = Object.keys(STOCK).map((k) => {
+      const over = used[k] > STOCK[k];
+      return {
+        label: L(MAT[k]),
+        usedStr: fmt(used[k]), stockStr: fmt(STOCK[k]),
+        color: over ? RED : (used[k] > 0 ? '#eafaf1' : '#5f8272'),
+        border: over ? '#5c2b22' : (used[k] > 0 ? '#20423a' : '#14241f'),
+      };
+    });
+
+    let crewTotal = 0, netPower = 0, unitsTotal = 0;
+    BUILDINGS.forEach((b) => {
+      const c = counts[b.id] || 0;
+      crewTotal += b.crew * c; netPower += b.power * c; unitsTotal += c;
+    });
+
+    return {
+      labels,
+      groups,
+      summaryMaterials,
+      netPowerStr: (netPower >= 0 ? '+' : '\u2212') + fmt(Math.abs(netPower)),
+      powerColor: netPower > 0 ? GREEN : (netPower < 0 ? '#ff9b86' : '#eafaf1'),
+      crewTotal: fmt(crewTotal),
+      unitsTotal,
+      onReset: () => this.setState({ counts: {} }),
+      lockedBuildings,
+      lockedOpen: this.state.lockedOpen,
+      lockedCaret: this.state.lockedOpen ? '\u25be' : '\u25b8',
+      lockedCountStr: '(' + lockedBuildings.length + ')',
+      lockedHint: this.state.lockedOpen
+        ? (ru ? 'скрыть' : 'collapse')
+        : (ru ? 'показать требования' : 'show requirements'),
+      onToggleLocked: () => this.setState((s) => ({ lockedOpen: !s.lockedOpen })),
+    };
+  }
+}
+</script>
+</body>
+</html>

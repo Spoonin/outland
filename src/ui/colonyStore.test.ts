@@ -247,9 +247,10 @@ describe('ColonyStore (v2 Earth ordering)', () => {
     store.setColonists(30);
     const warning = store.cohortWaveWarning();
     const { peakWindows, spreadWindows } = cohortAgingForecast(p);
-    expect(warning).toContain('30');
-    expect(warning).toContain(String(peakWindows));
-    expect(warning).toContain(String(spreadWindows));
+    expect(warning).toBeDefined();
+    expect(warning?.colonists).toBe(30);
+    expect(warning?.peakWindows).toBe(peakWindows);
+    expect(warning?.spreadWindows).toBe(spreadWindows);
   });
 
   it('import a structure fully built from Earth — lands built, and unblocks colonist ordering same manifest (V8)', () => {

@@ -480,11 +480,18 @@ export class ColonyStore {
    * INDEPENDENTLY rolled deathAge — quietly seeds a synchronized old-age wave decades out. Tells the
    * player the COHORT's statistical shape at order time (not any individual's fate, D-063 still
    * holds — same reasoning as expectedOldAgeDeaths/avgRadiationDose). undefined below a batch-size
-   * threshold: ordering 1-2 colonists is normal trickle growth, not a cohort worth flagging. */
-  cohortWaveWarning(): string | undefined {
+   * threshold: ordering 1-2 colonists is normal trickle growth, not a cohort worth flagging. Returns
+   * data for UI to localize. */
+  cohortWaveWarning():
+    | {
+        colonists: number;
+        peakWindows: number;
+        spreadWindows: number;
+      }
+    | undefined {
     if (this.draftColonists < 10) return undefined;
     const { peakWindows, spreadWindows } = cohortAgingForecast(this.state.p);
-    return `⚠ партия из ${this.draftColonists} колонистов состарится синхронно — пик смертности от старости ожидается через ~${peakWindows} ок (±${spreadWindows})`;
+    return { colonists: this.draftColonists, peakWindows, spreadWindows };
   }
   setColonists(n: number): void {
     this.draftColonists = Math.max(0, Math.min(this.maxColonists(), Math.floor(n || 0)));

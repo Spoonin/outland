@@ -220,7 +220,12 @@ export class EarthTab extends LitElement {
             ${max === 0 ? t('earth.noHousing') : t('earth.perHead', { v: money(perHead) })}
           </div>
           ${store.colonists > 0 ? html`<div class="sub">${t('earth.lineCostNoDelivery', { v: money(perHead * store.colonists) })}</div>` : nothing}
-          ${store.cohortWaveWarning() ? html`<div class="sub" style="color:var(--c-amber)">${store.cohortWaveWarning()}</div>` : nothing}
+          ${store.cohortWaveWarning()
+            ? (() => {
+                const w = store.cohortWaveWarning()!;
+                return html`<div class="sub" style="color:var(--c-amber)">${t('earth.cohortWave', { n: w.colonists, peak: w.peakWindows, spread: w.spreadWindows })}</div>`;
+              })()
+            : nothing}
         </div>
       </div>`;
     }

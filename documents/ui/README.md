@@ -1,83 +1,115 @@
-# Handoff: Outland Command — Control Center Dashboard
+# Handoff: Mars Construction tab redesign
 
-## Overview
-A redesigned main dashboard for the Mars colonization sim ("Outland"), styled as an industrial/space-mission control center. Replaces the current bare dev-harness look (plain monospace on `colony-app.ts` / `dashboard-panel.ts`) with a full visual system: gauges, LED-coded system grid, budget ledger, alerts, chronicle log.
+Applies the redesigned Construction tab to the real codebase. The target is the
+existing Lit component **`ui/components/mars-tab.ts`** — its render + styles get
+replaced; the `ColonyStore` API and the engine's `Structure` type are reused
+**as-is** (no engine changes required for the base version).
 
-## About the Design Files
-The file in this bundle (`Mars Control Center.dc.html`) is a **design reference built in HTML** — it shows the intended look, layout, and interaction, but is not production code. Your target environment is the existing **Lit + TypeScript** web-component codebase (`ui/components/*.ts`, `lit` + `lit/decorators.js`, `css`/`html` tagged templates). The task is to recreate this design inside that stack — most directly by restyling `dashboard-panel.ts` (and/or `colony-app.ts`'s shell) with the tokens and structure below, wired to the real `Snapshot`/`ColonyStore` data instead of the mock data used here.
+## Files in this bundle
+- **`mars-tab.proposed.ts`** — a drop-in replacement for `ui/components/mars-tab.ts`.
+  Compiles against the store API and `Structure` fields the current component
+  already uses. Copy it over `mars-tab.ts` (or diff it in).
+- **`Mars Construction.dc.html`** — the visual reference / prototype. Open in a
+  browser to see the intended look and interaction.
 
-## Fidelity
-**High-fidelity.** Colors, type, spacing, and component structure below are final — implement pixel-close using Lit's `css` templates. The mock data in the HTML file should be replaced with live bindings from `ColonyStore` (see Data Mapping below).
+## What the redesign changes (the UX brief)
+The old tab was a wall of run-on prose cards. The redesign:
+1. **Fixed card zones**, same order every card: header (LED + name + built count)
+   → **hero line** (the one decision number: `+80,000 water`, `+100 kW`) → cost
+   chips (need vs. stock) → muted specs strip (crew/spares/demolish/recycle on one
+   dim line) → **prominent stepper**.
+2. **Live consequences summary bar** at the top: materials committed vs. stock,
+   net power, crew required, units queued — updates as you step the queue.
+3. **Two failure states separated:** amber = unlocked but short on materials
+   (recoverable); violet = hard-locked behind a prereq.
+4. **Locked buildings collapsed** into their own `Locked (N)` section; expand to
+   see each one's unlock requirement as a badge (`🔒 Population ≥ 100`,
+   `🔒 Build first: Waste Pad`).
+5. **Grouped by function** — Power / Life Support / Infrastructure / Industry /
+   Population — instead of a flat card wall.
 
-## Screens / Views
-Single screen: **Main Dashboard**. (Earth/Mars planning tabs, chronicle, and debrief screens are unchanged for now — this pass only covers the dashboard.)
+## Store API used (all already on `ColonyStore`)
+`structures()`, `builtCount(id)`, `queuedCount(id)`, `addBuild(id)`,
+`removeBuild(id)`, `prereqMet(id)`, `lockReason(id)` (`{missingStructure,
+minPopNeeded, missingTech}`), `stocks()`, `industryMultNow(id)`,
+`queuedDemolishCount(id)`, `addDemolish/removeDemolish(id)`, `demolishable(id)`,
+`subscribe(fn)`.
 
-### Layout
-- Root container: full width, min-height 100vh, background `#070d0b`, padding `clamp(14px, 3vw, 32px)`, base font `IBM Plex Mono`.
-- All rows are `display:flex; flex-wrap:wrap; gap:16px` (or CSS grid with `auto-fill, minmax(150px,1fr)` for the system tiles) — this is what makes it reflow to a single column on mobile with zero breakpoints. Keep that pattern; don't introduce `@media` rules, use `clamp()` and flex-wrap instead.
+`Structure` fields used: `id`, `name`, `energy`, `produces`, `consumes`,
+`buildMaterials`, `stormVulnerable`, `upkeepSpares`, `opsCrew`, `housing`,
+`demolishCrew`, `recycleFrac`, `depletionScale`. (Exactly the set the current card
+reads — nothing new.)
 
-1. **Header bar** — flex row, `justify-content:space-between`, wraps on narrow widths.
-   - Left: title "OUTLAND COMMAND" (Space Grotesk 700, `clamp(20px,2.6vw,30px)`, `#eafaf1`) + version tag ("v2.3.1", IBM Plex Mono 11px, `#4d6a5e`) inline; subtitle line below in `#7fa596` 11px uppercase; a dim scenario/feed line in `#4d6a5e` 10.5px.
-   - Right: Window/Year readout (mono, 18px), an uplink status chip (green LED dot + "UPLINK NOMINAL", bg `#0d1a16`, border `#1e352d`), and — only when there are alerts — a pulsing red alert-count chip (bg `rgba(255,90,60,.12)`, border `#7a3326`).
-2. **Gauge row** (3 cards, `flex:1 1 260px` each, bg `#0d1a16`, border `1px solid #1e352d`, radius 4px, padding 16px):
-   - **Autonomy**: 140×140px donut built from `conic-gradient(#2fd68a {pct}%, #182a24 0)` with an inset circle punched out, big centered `%` number (26px, `#eafaf1`) + population subtext.
-   - **Energy Balance**: gen/demand numbers (20px) + a 14px bar gauge (`#182a24` track, fill = green `#2fd68a` if surplus / red `#ff5a3c` if deficit, blinking via `blinkPulse` keyframe when in deficit) + status text.
-   - **Import Throughput**: mass used/cap numbers + same bar-gauge pattern (red when mass is capped/over-throughput) + $/kg and launch-capacity readout.
-3. **Budget ledger** (full-width card): spend bar (green/red fill = planned spend vs a virtual "1.3× budget" scale) with an amber `2px` tick marker showing the *real* (inflation-eroded) subsidy value overlaid on it; readouts for planned spend, nominal subsidy, real subsidy w/ erosion %, import cost F, F/M ratio, inflation %/window, and colonists-in-transit if any.
-4. **Alert chips row** (only rendered when alerts exist): each chip is a horizontal pill, bg `rgba(255,90,60,.1)`, border `#7a3326`, small red dot, 12px text `#ffb8a8`, pulses via `blinkPulse` when the "alert pulse" toggle is on.
-5. **Colony Systems grid**: section header + inline legend (LED dot + label ×4: Local/Buildable/Import/Black). Grid: `repeat(auto-fill, minmax(150px,1fr))`, gap 8px. Each tile: bg `#0d1a16` (or `#132a25` when selected), border `#1e352d` (or the status LED color when selected), radius 3px, padding 10px; shows LED dot + tier badge ("T0"–"T2"), system name (Space Grotesk 600 12.5px), and uppercase status word colored to match the LED. Click selects a tile (state, not navigation).
-6. **Selected System inspector**: bordered card (`1px solid #2fd68a`) with small corner-bracket accents (4 absolutely-positioned L-shaped corner marks, 10×10px, 2px border) — a mission-console framing motif. Shows system name, tier, status, import mass draw (if any), and a note line.
-7. **Chronicle log**: scrollable list (`max-height:190px`), each row `[W{n}]` in dim green-gray + event text in `#c3ddd0`.
-8. **Footer bar**: left = dim note ("Window N closes in ~2.2 years shiptime"); right = two buttons — outline "Reset Simulation" and filled green "Commit ▸ Next Window" (bg `#123d28`, border `#2fd68a`, text `#d8f5e2`, hover bg `#164a30`).
+## The two derived pieces (no engine change needed)
+1. **Functional grouping.** `Structure` has no `category`, so `groupOf(s)` derives
+   one heuristically (`energy>0`→power; produces food/water/o2/n2→life;
+   `housing`→population; produces anything else→industry; else→infra), with a
+   `GROUP_OVERRIDE` map keyed by structure id for exceptions (e.g. `waste_pad`→
+   infra, `medbay`→population). **Recommended cleanup:** add a `category` field to
+   `Structure` in the engine and replace `groupOf` with `s.category`.
+2. **Queue aggregates** (summary bar): `queueTotals()` sums
+   `queuedCount × {buildMaterials, energy, opsCrew}` across structures — fully
+   self-contained. If `store.plan()` / `CommitPlan` already exposes committed
+   materials or a projected net-energy, prefer wiring those in instead.
 
-## Interactions & Behavior
-- Clicking a system tile sets it as "selected" (local component state) and updates the inspector card — no page navigation.
-- Alert chips and out-of-range bar-gauge fills use a shared `blinkPulse` keyframe (`opacity 1 → 0.28 → 1`, 2.2s ease-in-out infinite) — gate this behind a settings/tweak toggle so it can be turned off.
-- No page transitions; this is a single persistent dashboard view.
-- Responsive: pure fluid layout (flex-wrap + grid auto-fill + `clamp()` type). No breakpoints needed — verify by resizing rather than adding `@media`.
+## Behavior notes to preserve
+- **`+` is NOT hard-disabled on materials.** Your model treats material shortfall
+  as a soft warning (`plan().materialsShort`), enforced at commit — so the stepper
+  keeps `+` enabled and only shows the amber "short" state. (The HTML prototype
+  hard-gates `+`; the real component intentionally does not, to match your commit
+  flow. Keep the soft behavior.)
+- **Commit** stays in the shared footer (`colony-app.ts`) — the summary bar's
+  action area only carries "Clear" here, matching how commit is global.
+- Demolish row, industry ramp/depletion hint, storm-vulnerable caveat, and the
+  i18n/store subscriptions are all carried over unchanged.
 
-## State Management
-- `selectedSystemIndex` (or name) — which system tile is focused in the inspector. Local UI state, doesn't need to live in `ColonyStore`.
-- Everything else (energy, autonomy, budget, node statuses, events) should read directly from `ColonyStore`'s existing `status()`, `plan()`, `demography()`, node/snapshot getters — see Data Mapping.
-- Optional settings: language (en/ru) and alert-pulse on/off, if you want to keep those as user-facing toggles; otherwise hardcode.
+## New i18n keys to add
+The component references these `t()` keys that don't exist yet — add them to your
+i18n tables (EN + RU), reusing existing wording where you have it:
 
-## Design Tokens
+```
+mars.short                "Short"              / "Не хватает"
+mars.readyToBuild         "Ready to build"     / "Готово к постройке"
+mars.shortMaterials       "Short on materials" / "Не хватает материалов"
+mars.queuedMaterials      "Materials committed (used / stock)" / "Материалы в плане (использовано / склад)"
+mars.netPower             "Net power"          / "Чистая мощность"
+mars.crewReq              "Crew required"      / "Требуется экипаж"
+mars.unitsQueued          "Units queued"       / "Единиц в плане"
+mars.clear                "Clear"              / "Очистить"
+mars.have                 "have"               / "скл."
+mars.outputPerWindow      "output / window"    / "выход / окно"
+mars.avgPower             "avg power"          / "ср. мощность"
+mars.perWindowShort       "wnd"                / "окно"
+mars.infra                "infrastructure"     / "инфраструктура"
+mars.housingHero          "+ Housing"          / "+ Жильё"
+mars.housingHeroSub       "adds habitat"       / "добавляет жильё"
+mars.typesCount           "{n} types"          / "{n} тип."
+mars.showRequirements     "show requirements"  / "показать требования"
+mars.collapse             "collapse"           / "скрыть"
+mars.group.power          "Power"              / "Энергетика"
+mars.group.life           "Life Support"       / "Жизнеобеспечение"
+mars.group.infra          "Infrastructure"     / "Инфраструктура"
+mars.group.industry       "Industry"           / "Промышленность"
+mars.group.population      "Population"         / "Население"
+```
+(Reused existing keys: `mars.built`, `mars.buildable`, `mars.locked`,
+`mars.builtCount`, `mars.needFirst/needPop/needTech`, `mars.sparesPerWnd`,
+`mars.crewPerUnit`, `mars.demolish`, `mars.demolishLabel`, `mars.stormVulnerable`,
+`mars.industryOutput`, `mars.depletion`, `mars.rampup`.)
 
-**Colors**
-- Background: `#070d0b` (page), `#0d1a16` (panels), `#132a25` (selected/hover panel), `#182a24` (track/inset)
-- Borders: `#1e352d` (default), `#33544a` (hover)
-- Text: `#eafaf1` (primary/bright), `#dfeee7` (base), `#c3ddd0` (log text), `#a8c4b8` (notes), `#7fa596` (labels/dim), `#5f8272` (secondary dim), `#4d6a5e` (faint), `#3d5a4d` (log timestamp)
-- Status LEDs: local `#2fd68a` (green), buildable `#ffb020` (amber), import `#ff5a3c` (red/orange), black/unlocalizable `#8b8296` (violet-gray)
-- Alert surfaces: bg `rgba(255,90,60,0.10–0.12)`, border `#7a3326`, text `#ffb8a8`
+## Theme tokens
+Uses your existing `tokens` CSS vars (`--c-green/amber/violet/red`, `--c-panel`,
+`--c-bg`, `--c-border`, `--c-border-hover`, `--c-text*`, `--font-mono`,
+`--font-head`, `--radius`, `--radius-sm`). A few optional extras are referenced
+with fallbacks so it compiles without them — promote them to real tokens for
+consistency: `--c-green-border`, `--c-green-fill`, `--c-green-text`,
+`--c-red-border`, `--c-amber-border`, `--c-text-bright`, `--c-violet-text`,
+`--c-violet-text2`, `--c-violet-fill`, `--c-violet-border`.
 
-**Typography**
-- Headings/labels: `Space Grotesk`, 500–700 weight, letter-spacing 0.05–0.08em, uppercase for section labels
-- Data/numbers/body: `IBM Plex Mono`, 400–600 weight
-- Scale used: 30px (title) / 20–26px (big numbers) / 16px (inspector name) / 12–13px (body/tile text) / 9–11px (labels, meta)
-
-**Spacing / Radius**
-- Panel padding: 16px; tile padding: 10px
-- Border radius: 3–4px everywhere (sharp/industrial, not rounded)
-- Gaps: 8px (tiles/chips), 16px (panel rows), 20–22px (major sections)
-
-**Motion**
-- `@keyframes blinkPulse { 0%,100% { opacity:1 } 50% { opacity:.28 } }` — 2.2s ease-in-out infinite, used only on active alerts/deficits, never decorative.
-
-## Data Mapping (design mock → real store)
-| Design element | Suggested source in `ColonyStore` / `Snapshot` |
-|---|---|
-| Autonomy %, population, window, year | `store.status()` |
-| Energy gen/demand | `store.status().energyGen/energyDemand` |
-| Budget M / real M / erosion / inflation | `store.status()` (`M`, `realM`, `erosionPct`, `inflationPct` per `dashboard-panel.ts`) |
-| Import cost F, F/M, $/kg, launch K | `store.plan()` / `store.status()` (`F`, `fm`, `effPerKg`, `launchK`) |
-| Mass used/cap | `store.plan().earth.mass` / `.throughput` |
-| Node grid (name, tier, status) | `snapshot.nodes` (`NodeView[]`, `NodeStatus` local/buildable/import/black — see `dashboard-panel.ts`) |
-| Alerts | `plan.overBudget`, `plan.earth.capped`, `plan.materialsShort`, energy deficit, etc. (same checks already in `colony-app.ts`'s `footer()`) |
-| Chronicle events | `store` event/chronicle log (see `chronicle-panel.ts`) |
-| Colonists in transit | `store.inTransit().colonists` |
-
-## Assets
-No external images/icons — everything is CSS (conic-gradient donut, bar gauges, corner-bracket frame). Fonts loaded from Google Fonts: `Space Grotesk` (500/600/700) and `IBM Plex Mono` (400/500/600) — add these via your existing font-loading approach (e.g. self-host or `@font-face` in a shared stylesheet) rather than a runtime Google Fonts `<link>`, to match how the rest of the app loads assets.
-
-## Files
-- `Mars Control Center.dc.html` — the full design reference (open directly in a browser).
+## Suggested order of work
+1. Copy `mars-tab.proposed.ts` → `ui/components/mars-tab.ts`.
+2. Add the new i18n keys (EN + RU).
+3. Add the optional theme tokens (or leave the inline fallbacks).
+4. Adjust `GROUP_OVERRIDE` for any structure ids the heuristic mis-buckets
+   (check the console/visual against your real `STRUCTURES` list).
+5. Optional cleanup: add `category` to `Structure` in the engine; drop `groupOf`.
