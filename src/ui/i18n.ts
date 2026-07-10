@@ -624,9 +624,11 @@ const EN: Record<keyof typeof RU, string> = {
   'intro.return': '‹ Back to the console',
 };
 
-const DICTS: Record<Lang, Record<keyof typeof RU, string>> = { en: EN, ru: RU };
+export type I18nKey = keyof typeof RU;
 
-export function t(key: keyof typeof RU, vars?: Record<string, string | number>): string {
+const DICTS: Record<Lang, Record<I18nKey, string>> = { en: EN, ru: RU };
+
+export function t(key: I18nKey, vars?: Record<string, string | number>): string {
   let s = DICTS[i18n.get()][key];
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
   return s;

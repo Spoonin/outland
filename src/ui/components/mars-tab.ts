@@ -3,7 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
 import { STRUCT_BY_ID, TECH_BY_ID, type Structure } from '../../engine';
 import { tokens } from '../theme';
-import { i18n, t } from '../i18n';
+import { i18n, t, type I18nKey } from '../i18n';
 import { structName, techName } from '../names';
 
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
@@ -21,6 +21,13 @@ const kg = (v: number) => Math.round(v).toLocaleString('en-US');
 type Group = 'power' | 'life' | 'infra' | 'industry' | 'population';
 const GROUP_ORDER: Group[] = ['population', 'power', 'life', 'infra', 'industry'];
 const LIFE_RES = new Set(['food', 'water', 'o2', 'n2']);
+const GROUP_LABEL_KEYS: Record<Group, I18nKey> = {
+  power: 'mars.group.power',
+  life: 'mars.group.life',
+  infra: 'mars.group.infra',
+  industry: 'mars.group.industry',
+  population: 'mars.group.population',
+};
 
 const GROUP_OVERRIDE: Record<string, Group> = {
   // e.g. medbay: 'population', waste_pad: 'infra',
@@ -740,7 +747,7 @@ export class MarsTab extends LitElement {
             <div class="group-head" @click=${() => this.toggleGroup(g)}>
               <div class="left">
                 <span class="caret">${collapsed ? '▸' : '▾'}</span>
-                <span class="g-name">${t('mars.group.' + g)}</span>
+                <span class="g-name">${t(GROUP_LABEL_KEYS[g])}</span>
               </div>
               <span class="g-count">${t('mars.typesCount', { n: list.length })}</span>
             </div>
