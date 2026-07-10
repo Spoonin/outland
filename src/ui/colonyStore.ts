@@ -63,6 +63,7 @@ import {
   type LockReason,
   type TechSpec,
 } from '../engine';
+import { i18n, t } from './i18n';
 
 export interface ResourceLine {
   kind: ResourceKind;
@@ -186,12 +187,8 @@ function defaultStorage(): KV {
 const LIFE: ResourceKind[] = ['food', 'water', 'o2'];
 const LIFE_R: ResourceKind[] = ['food', 'water', 'o2', 'n2'];
 
-/** Russian labels for supply-death causes (roadmap-1 projection warnings) — a LOCAL copy of
- * chronicle-panel.ts's CAUSE_LABEL, deliberately not imported: the store must stay lit-free (the
- * CLI drives it with no browser, see scripts/play.ts) and CAUSE_LABEL lives in a Lit component. */
-const CAUSE_RU: Partial<Record<MortalityCause, string>> = {
-  food: 'голод', water: 'жажда', o2: 'нехватка O₂', n2: 'удушье (N₂)', energy: 'браунаут ЖО',
-};
+/** Mortality-cause labels for projection warnings — resolved through the shared i18n layer so the
+ * strings track the active UI language. */
 
 /** Fixed age-bucket edges for the demography UI (roadmap-2) — deliberately literal numbers, not
  * derived from adultAge (16 by default, D-083): these are display buckets, not a labor-pool rule. */
@@ -561,18 +558,22 @@ export class ColonyStore {
   projectionWarnings(): string[] {
     const { next, after } = this.projection();
     const lines: string[] = [];
+    const locale = i18n.get() === 'en' ? 'en-US' : 'ru-RU';
+    const fmt = (n: number) => n.toLocaleString(locale);
     const causesOf = (r: ColonyReport): string =>
       (Object.entries(r.mortalityBreakdown) as [MortalityCause, number][])
-        .filter(([c, n]) => (n ?? 0) > 0 && CAUSE_RU[c])
-        .map(([c, n]) => `${CAUSE_RU[c]} (${n})`)
+        .filter(([, n]) => (n ?? 0) > 0)
+        .map(([c, n]) => `${t(
+          `cause.${c}` as Parameters<typeof t>[0],
+        )} (${n})`)
         .join(', ');
     const nextDeaths = supplyDeaths(next);
     if (nextDeaths > 0) {
-      lines.push(`⚠ прогноз на это окно: † ${nextDeaths} — ${causesOf(next)}`);
+      lines.push(t('app.projectionWarningWindow', { n: nextDeaths, causes: causesOf(next) }));
     }
     const afterDeaths = supplyDeaths(after);
     if (afterDeaths > 0) {
-      lines.push(`⚠ после посадки этого конвоя, при пустом следующем заказе: † ${afterDeaths} — ${causesOf(after)}`);
+      lines.push(t('app.projectionWarningAfter', { n: afterDeaths, causes: causesOf(after) }));
     }
     if (lines.length === 0) {
       // no deaths projected either window — check for a brewing deficit on the AFTER window
@@ -587,7 +588,7 @@ export class ColonyStore {
         }
       }
       if (worstR) {
-        lines.push(`⚠ прогноз: дефицит ${worstR} ~${Math.round(worstV)} кг/окно после посадки конвоя`);
+        lines.push(t('app.projectionWarningDeficit', { resource: worstR, v: Math.round(worstV), unit: t('app.projectionWindowUnit') }));
       }
     }
     // D-097 #4 (playtest-7 finding): food spoilage is a silent tax that scales with the stockpile —
@@ -604,7 +605,11 @@ export class ColonyStore {
         const savings = next.foodSpoiledKg - foodBeforeSpoil * nextRate;
         if (savings >= 1000) {
           lines.push(
-            `🦠 порча еды в это окно: ~${Math.round(next.foodSpoiledKg).toLocaleString('ru-RU')} кг — ещё один продсклад сократил бы потери примерно на ${Math.round(savings).toLocaleString('ru-RU')} кг/окно`,
+            t('app.projectionWarningSpoilage', {
+              lost: fmt(Math.round(next.foodSpoiledKg)),
+              savings: fmt(Math.round(savings)),
+              unit: t('app.projectionWindowUnit'),
+            }),
           );
         }
       }

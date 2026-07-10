@@ -1,10 +1,9 @@
 // Tiny reactive i18n layer for the UI chrome (labels, buttons, panel copy — everything authored
-// directly in these Lit templates). Deliberately NOT wired into colonyStore.ts or the engine: the
-// store's own generated strings (projectionWarnings, cohortWaveWarning, ...) and CSV-sourced names
-// (structures, techs, milestones, storyteller events) stay Russian regardless of this toggle — the
-// store has to stay lit-free (CLI driver, scripts/play.ts) and translating data-authored proper
-// nouns without the surrounding sentence would just produce mixed-language mush. See settings-menu
-// and names.ts (the separate id-keyed lookup for structure/tech/milestone names).
+// directly in these Lit templates). Not wired into the engine: data-authored names (structures,
+// techs, milestones, storyteller events) stay Russian regardless of this toggle, since translating
+// proper nouns in isolation would produce mixed-language mush. The store's own generated warning
+// strings are localized here via t() when they are composed in colonyStore.ts. See settings-menu and
+// names.ts (the separate id-keyed lookup for structure/tech/milestone names).
 //
 // No decorative emoji in these strings, by design (documents/ui/README.md's reference look uses
 // colour-coded LED dots and plain text, never pictographic icons) — status/type is conveyed by
@@ -107,6 +106,11 @@ const RU = {
   'app.commit': 'Коммит ▸ ход',
   'app.footerNote': 'коммит переносит колонию на ~2.17 года бортового времени',
   'app.collapsedNote': '► Колония схлопнулась.',
+  'app.projectionWarningWindow': '⚠ прогноз на это окно: † {n} — {causes}',
+  'app.projectionWarningAfter': '⚠ после посадки этого конвоя, при пустом следующем заказе: † {n} — {causes}',
+  'app.projectionWarningDeficit': '⚠ прогноз: дефицит {resource} ~{v} {unit} после посадки конвоя',
+  'app.projectionWarningSpoilage': '⚠ порча еды в это окно: ~{lost} кг — ещё один продсклад сократил бы потери примерно на {savings} кг/{unit}',
+  'app.projectionWindowUnit': 'ок',
 
   'status.title': 'Статус колонии',
   'status.pop': 'население',
@@ -410,6 +414,11 @@ const EN: Record<keyof typeof RU, string> = {
   'app.commit': 'Commit ▸ window',
   'app.footerNote': 'committing advances the colony ~2.17 years shiptime',
   'app.collapsedNote': '► The colony collapsed.',
+  'app.projectionWarningWindow': '⚠ forecast this window: † {n} — {causes}',
+  'app.projectionWarningAfter': '⚠ after this convoy lands, with an empty next order: † {n} — {causes}',
+  'app.projectionWarningDeficit': '⚠ forecast: deficit {resource} ~{v} {unit} after the convoy lands',
+  'app.projectionWarningSpoilage': '⚠ food spoilage this window: ~{lost} kg — one more food silo would cut losses by about {savings} kg/{unit}',
+  'app.projectionWindowUnit': 'wnd',
 
   'status.title': 'Colony Status',
   'status.pop': 'population',

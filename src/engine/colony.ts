@@ -266,7 +266,9 @@ export function defaultColonyParams(overrides: Partial<ColonyParams> = {}): Colo
     // 0.6 added at full coverage takes water/o2 from their 0.3 base to 0.9, short of the 0.95 ceiling.
     recycleBonusMax: 0.6,
     recycleCeiling: 0.95,
-    popEnergyPerCapita: 0.05,
+    // D-059 baseline habitat heat + life-support loads are much larger than the old toy value;
+    // 0.25 kW/capita keeps a 20-person base block meaningfully power-hungry instead of nearly free.
+    popEnergyPerCapita: 0.25,
     catalog: defaultCatalog(),
     launch: defaultLaunchParams(),
     startPads: 5,

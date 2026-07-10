@@ -2413,7 +2413,7 @@ describe('D-097 #6: energyDemand reports TRUE draw, not generation+deficit', () 
     const r = commitWindow(s, emptyOrder());
     expect(r.energyDeficit).toBe(0); // fully covered
     expect(r.energyDemand).toBeLessThan(r.energyGen); // the old formula would have asserted equality here
-    expect(r.energyDemand).toBeCloseTo(0.05 * 10, 1); // popEnergyPerCapita × pop — the true draw
+    expect(r.energyDemand).toBeCloseTo(0.25 * 10, 1); // popEnergyPerCapita × pop — the true draw
   });
 
   it('a colony genuinely undersupplied still reports demand correctly (deficit>0 branch unaffected)', () => {

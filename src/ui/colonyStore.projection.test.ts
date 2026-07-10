@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { ColonyStore, type KV } from './colonyStore';
+import { i18n } from './i18n';
 import {
   defaultColonyParams,
   newColony,
@@ -94,6 +95,21 @@ describe('ColonyStore.projection() / projectionWarnings() (roadmap-1)', () => {
     expect(warnings.length).toBeGreaterThan(0);
     expect(warnings[0]).toContain('прогноз на это окно');
     expect(warnings[0]).toContain('†');
+  });
+
+  it('projectionWarnings uses the active UI language for warning text', () => {
+    const prevLang = i18n.get();
+    i18n.set('en');
+    try {
+      const store = new ColonyStore(defaultColonyParams({ pop0: 1000, startStockWindows: 0.3 }), memKV());
+      const warnings = store.projectionWarnings();
+      expect(warnings.length).toBeGreaterThan(0);
+      expect(warnings[0]).toContain('⚠ forecast this window');
+      expect(warnings[0]).toContain('starvation');
+      expect(warnings[0]).toContain('†');
+    } finally {
+      i18n.set(prevLang);
+    }
   });
 
   it('projectionWarnings names the AFTER-landing shortfall for a draft ordering more colonists than life support covers', () => {

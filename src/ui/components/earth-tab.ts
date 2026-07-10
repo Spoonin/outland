@@ -17,12 +17,12 @@ const bn = (v: number): string => {
 };
 
 const TABS = [
-  { id: 'logi', key: 'earth.tabLogi' },
+  { id: 'people', key: 'earth.tabPeople' },
   { id: 'life', key: 'earth.tabLife' },
   { id: 'mat', key: 'earth.tabMat' },
-  { id: 'tech', key: 'earth.tabTech' },
-  { id: 'people', key: 'earth.tabPeople' },
   { id: 'import', key: 'earth.tabImport' },
+  { id: 'logi', key: 'earth.tabLogi' },
+  { id: 'tech', key: 'earth.tabTech' },
   { id: 'ttree', key: 'earth.tabTtree' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
