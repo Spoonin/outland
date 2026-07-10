@@ -31,7 +31,9 @@ import {
   foodCapacity,
   recycleBonusCapacity,
   birthRateMult,
+  sickBedCapacity,
 } from './structures';
+import { TECH_BY_ID } from './techs';
 
 const ord = (partial: Partial<EarthOrder>): EarthOrder => ({ ...emptyOrder(), ...partial });
 
@@ -1732,7 +1734,7 @@ describe('D-088 tech gate scaffold (P0)', () => {
     expect(techGateMet('some_tech', ['some_tech'])).toBe(true);
   });
 
-  it('every PRE-P1 structure ships techGate-free — only the D-089..D-096 tech-tree structures are gated', () => {
+  it('every PRE-P1 structure ships techGate-free — only the D-089..D-097 tech-tree structures are gated', () => {
     const gated = [
       'excavator', 'ice_mine', 'co2_capture', 'electrolyzer', 'mre_plant', // D-089 (P1)
       'sinter_plant', 'habitat_regolith', 'silo_regolith', // D-090 (P2 core)
@@ -1742,6 +1744,7 @@ describe('D-088 tech gate scaffold (P0)', () => {
       'shield_berm', // D-094 (radiation)
       'fusion_plant', 'blss_module', 'maternity_complex', // D-095 (P6)
       'chip_fab', 'api_plant', 'pgm_refinery', // D-096 (P7)
+      'hospital', // D-097 #7
     ];
     for (const s of Object.values(STRUCT_BY_ID)) {
       if (gated.includes(s.id)) expect(s.techGate).toBeTruthy();
@@ -2312,10 +2315,14 @@ describe('D-095 P6: city scale (fusion_plant, blss_module, maternity_complex)', 
     expect(s.milestones.pop_1000).toBeDefined();
   });
 
-  it('all five new milestones are registered with a subsidyBonus (real scale, not luck/automatic)', () => {
-    for (const id of ['fusion_online', 'pop_1000', 'pop_10000', 'pop_50000', 'pop_100000'] as const) {
+  it('all five new milestones are registered with a subsidy bonus, flat or percentage (D-097 #5 switched pop_50000/pop_100000 to %)', () => {
+    for (const id of ['fusion_online', 'pop_1000', 'pop_10000'] as const) {
       const spec = MILESTONES.find((m) => m.id === id);
       expect(spec?.subsidyBonus).toBeGreaterThan(0);
+    }
+    for (const id of ['pop_50000', 'pop_100000'] as const) {
+      const spec = MILESTONES.find((m) => m.id === id);
+      expect(spec?.subsidyBonusPct).toBeGreaterThan(0);
     }
   });
 });
@@ -2477,5 +2484,169 @@ describe('D-097 #2: chronic dose visibility — avgRadiationDose + one-shot radi
     expect(loaded.radiationAlarmed).toBe(true);
     const r = commitWindow(loaded, emptyOrder());
     expect(r.radiationAlarmNew).toBe(false); // already alarmed before reload — no duplicate note
+  });
+});
+
+// D-097 #1 (playtest-7 finding): the tech tree sprints through 9 of 14 techs by window 13 (money is
+// never the gate), then goes DEAD until the population-gated endgame techs (fusion/pgm/pharma/
+// semiconductors, minPop 300-500) — half a century of play with nothing new to reach for.
+// `agrotech`/`deep_drilling` (minPop 100) fill that gap, reusing existing channels (farmMult,
+// industryOutput banking) rather than adding new engine plumbing — zero new Structure fields.
+describe('D-097 #1: agrotech (farmYieldMult) + deep_drilling (iceDepletionMult) fill the tech-tree dead zone', () => {
+  it('agrotech and deep_drilling are gated at minPop 100 — squarely in the W15-60 gap, not the opening sprint', () => {
+    expect(TECH_BY_ID.agrotech.minPop).toBe(100);
+    expect(TECH_BY_ID.deep_drilling.minPop).toBe(100);
+    expect(TECH_BY_ID.deep_drilling.prereqTech).toBe('isru_extraction'); // needs ice_mine's own gate
+  });
+
+  it('agrotech multiplies farm output via the SAME farmMult channel storyteller blight already throttles — no new plumbing', () => {
+    const build = (owned: string[]) => {
+      const s = newColony(defaultColonyParams({ pop0: 150, startStockWindows: 5, eventChanceCap: 0 }));
+      s.built = { solar_plant: 4, farm: 2 };
+      s.condition = { solar_plant: 1, farm: 1 };
+      s.stocks.spares = 100_000; // isolate from wear, same fix as every other chain test in this file
+      s.techs = owned;
+      return s;
+    };
+    const without = commitWindow(build([]), emptyOrder());
+    const withAgrotech = commitWindow(build(['agrotech']), emptyOrder());
+    expect(withAgrotech.structDiag.farm!.outputKg).toBeCloseTo(without.structDiag.farm!.outputKg * 1.3, 0);
+  });
+
+  it('deep_drilling banks HALF of ice_mine\'s real output into industryOutput (deposit reads as lasting longer), but the ACTUAL kg mined this window is untouched', () => {
+    const build = (owned: string[]) => {
+      const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 5, eventChanceCap: 0 }));
+      s.built = { solar_plant: 3, ice_mine: 1 };
+      s.condition = { solar_plant: 1, ice_mine: 1 };
+      s.stocks.spares = 100_000;
+      s.techs = owned;
+      return s;
+    };
+    const withoutS = build([]);
+    const withS = build(['isru_extraction', 'deep_drilling']);
+    const rWithout = commitWindow(withoutS, emptyOrder());
+    const rWith = commitWindow(withS, emptyOrder());
+    // real yield this window is identical — deep_drilling doesn't touch actual production
+    expect(rWith.structDiag.ice_mine!.outputKg).toBeCloseTo(rWithout.structDiag.ice_mine!.outputKg, 0);
+    // but the depletion counter banked only half as much
+    expect(withS.industryOutput.ice_mine).toBeCloseTo(withoutS.industryOutput.ice_mine! * 0.5, 0);
+  });
+
+  it('deep_drilling makes the deposit read as depleting slower over many windows (industryMult stays higher for longer)', () => {
+    const build = (owned: string[]) => {
+      const s = newColony(defaultColonyParams({ pop0: 100, startStockWindows: 30, eventChanceCap: 0 }));
+      s.built = { solar_plant: 3, ice_mine: 1 };
+      s.condition = { solar_plant: 1, ice_mine: 1 };
+      s.stocks.spares = 100_000;
+      s.techs = owned;
+      return s;
+    };
+    const without = build([]);
+    const withDD = build(['isru_extraction', 'deep_drilling']);
+    let rWithout, rWithDD;
+    for (let i = 0; i < 15; i++) {
+      rWithout = commitWindow(without, emptyOrder());
+      rWithDD = commitWindow(withDD, emptyOrder());
+    }
+    expect(rWithDD!.structDiag.ice_mine!.runFrac).toBeGreaterThan(rWithout!.structDiag.ice_mine!.runFrac);
+  });
+});
+
+// D-097 #5 (playtest-7 finding): a flat $12-20B late-tier milestone bonus reads as noise once a
+// city-scale colony is already spending $30B/window on import alone — pop_50000/pop_100000 switch
+// to a percentage of the CURRENT effective budget, and a new bulk_autonomy_city milestone rewards
+// holding balk self-sufficiency at city scale (≥1000) specifically, distinct from the original
+// bulk_autonomy (which fires for an outpost of any size, including a 20-person one).
+describe('D-097 #5: late-tier milestones pay a percentage of the current budget, not a flat sum', () => {
+  it('pop_50000/pop_100000 carry subsidyBonusPct, not a flat subsidyBonus — later rung pays a bigger cut', () => {
+    const p50k = MILESTONES.find((m) => m.id === 'pop_50000')!;
+    const p100k = MILESTONES.find((m) => m.id === 'pop_100000')!;
+    expect(p50k.subsidyBonus).toBeUndefined();
+    expect(p50k.subsidyBonusPct).toBeGreaterThan(0);
+    expect(p100k.subsidyBonus).toBeUndefined();
+    expect(p100k.subsidyBonusPct).toBeGreaterThan(p50k.subsidyBonusPct!);
+  });
+
+  it('firing a percentage milestone adds exactly pct × the budget AT THAT MOMENT to subsidyBonus', () => {
+    const s = newColony(
+      defaultColonyParams({ pop0: 50_000, startStockWindows: 20, eventChanceCap: 0, illnessProb: 0, popEnergyPerCapita: 0 }),
+    );
+    // pre-seed every LOWER milestone a fresh 50k-pop colony would ALSO trigger this same window
+    // (first_landing/pop_100/pop_1000/pop_10000/buffer_2) — isolates pop_50000's own contribution
+    for (const id of ['first_landing', 'pop_100', 'pop_1000', 'pop_10000', 'buffer_2'] as const) s.milestones[id] = 0;
+    const budgetBefore = s.p.M + s.subsidyBonus;
+    const r = commitWindow(s, emptyOrder());
+    expect(r.milestones).toEqual(['pop_50000']); // confirms nothing else snuck in
+    const pct = MILESTONES.find((m) => m.id === 'pop_50000')!.subsidyBonusPct!;
+    expect(s.subsidyBonus).toBeCloseTo(budgetBefore * pct, -3); // exact fraction, large-number rounding only
+  });
+
+  it('bulk_autonomy_city needs BOTH bulk_autonomy\'s own condition AND pop ≥ 1000 — a small self-sufficient outpost triggers bulk_autonomy but never the city rung', () => {
+    const small = selfSufficient100(); // pop 100, fully self-sufficient by construction
+    const rSmall = commitWindow(small, emptyOrder());
+    expect(rSmall.milestones).toContain('bulk_autonomy');
+    expect(rSmall.milestones).not.toContain('bulk_autonomy_city');
+
+    // same self-sufficiency SHAPE, scaled ~10× for a 1000-person colony
+    const big = newColony(
+      defaultColonyParams({ pop0: 1000, startStockWindows: 5, catalog: noPharmaSpoilCatalog(), illnessProb: 0, eventChanceCap: 0 }),
+    );
+    big.built = { solar_plant: 150, farm: 10, water_recycler: 40, o2_generator: 50 };
+    big.condition = Object.fromEntries(Object.keys(big.built).map((id) => [id, 1]));
+    big.stocks.spares = 10_000_000;
+    const rBig = commitWindow(big, emptyOrder());
+    expect(rBig.milestones).toContain('bulk_autonomy'); // the original criterion is scale-blind
+    expect(rBig.milestones).toContain('bulk_autonomy_city'); // AND the city-scale one, now that pop ≥ 1000
+  });
+});
+
+// D-097 #7 (playtest-7 finding): at pop 800-1000, a real playthrough needed 13 medbays (65 beds)
+// against ~100 sickened in one epidemic hit — medicine scaled linearly and expensively (1 medbay ≈
+// 50 people). `hospital` is a genuine economy-of-scale answer: 50 beds/unit (10× medbay's 5) at a
+// better $/bed AND opsCrew/bed ratio, reusing the SAME generic `sickBedCapacity()` medbay already
+// feeds — zero new engine code, same pattern as habitat_regolith/silo_regolith (D-090).
+describe('D-097 #7: hospital — city-scale medicine (better $/bed and opsCrew/bed than medbay)', () => {
+  it('hospital is gated by demographics (reused tech, same city-scale tier as maternity_complex)', () => {
+    const s = newColony(defaultColonyParams({ pop0: 400, startStockWindows: 5 }));
+    expect(prereqMet(s, 'hospital')).toBe(false);
+    s.techs.push('higher_education', 'demographics'); // demographics' own prereqTech chain
+    expect(prereqMet(s, 'hospital')).toBe(true);
+  });
+
+  it('hospital beats medbay on both $/bed and opsCrew/bed — the economy-of-scale claim, checked in numbers', () => {
+    const hospital = STRUCT_BY_ID.hospital;
+    const medbay = STRUCT_BY_ID.medbay;
+    const hospitalCostPerBed = hospital.capex / hospital.sickBeds!;
+    const medbayCostPerBed = medbay.capex / medbay.sickBeds!;
+    const hospitalCrewPerBed = (hospital.opsCrew ?? 0) / hospital.sickBeds!;
+    const medbayCrewPerBed = (medbay.opsCrew ?? 0) / medbay.sickBeds!;
+    expect(hospitalCostPerBed).toBeLessThan(medbayCostPerBed);
+    expect(hospitalCrewPerBed).toBeLessThan(medbayCrewPerBed);
+  });
+
+  it('sickBedCapacity sums hospital alongside medbay/base_block — the SAME generic function, no new engine code', () => {
+    expect(sickBedCapacity({})).toBe(0);
+    expect(sickBedCapacity({ hospital: 1 })).toBe(50);
+    expect(sickBedCapacity({ hospital: 2, medbay: 3 })).toBe(2 * 50 + 3 * 5);
+  });
+
+  it('4 hospitals (200 beds) treat a 1000-pop epidemic exactly as fully as the 40 medbays (200 beds) it used to take', () => {
+    const seed = seedForEvent('epidemic');
+    const withMedbays = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    withMedbays.built = { solar_plant: 3, medbay: 40 };
+    withMedbays.condition = { solar_plant: 1, medbay: 1 };
+    withMedbays.stocks.pharma = 100_000;
+    const rMedbays = commitWindow(withMedbays, emptyOrder());
+
+    const withHospitals = newColony(defaultColonyParams({ pop0: 1000, startStockWindows: 5, seed, ...ALWAYS_FIRE }));
+    withHospitals.built = { solar_plant: 6, hospital: 4 }; // 200 beds, same as 40 medbays — 1/10th the unit count
+    withHospitals.condition = { solar_plant: 1, hospital: 1 };
+    withHospitals.stocks.pharma = 100_000;
+    const rHospitals = commitWindow(withHospitals, emptyOrder());
+
+    expect(rHospitals.event?.sickened).toBe(rMedbays.event?.sickened); // same seed → same people fall sick
+    expect(rHospitals.event?.treated).toBe(rHospitals.event?.sickened); // fully covered, same as the medbay case
+    expect(rHospitals.event?.covered).toBe(true);
+    expect(rHospitals.event?.deaths).toBe(rMedbays.event?.deaths); // identical medical outcome
   });
 });

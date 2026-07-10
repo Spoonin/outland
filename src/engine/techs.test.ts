@@ -7,11 +7,13 @@
 import { describe, it, expect } from 'vitest';
 import { TECHS, TECH_BY_ID, techMods, techBuyable } from './techs';
 
-describe('V8 tech tree — P1/P2/P3/P5/P6/P7 content (D-089/D-090/D-091/D-093/D-095/D-096)', () => {
-  it('the fourteen techs are loaded — thirteen pure `techGate` ("none"), plus robotics (opsCrewMult, D-092)', () => {
-    expect(TECHS).toHaveLength(14);
+describe('V8 tech tree — P1/P2/P3/P5/P6/P7 content (D-089/D-090/D-091/D-093/D-095/D-096/D-097)', () => {
+  it('the sixteen techs are loaded — thirteen pure `techGate` ("none"), plus robotics/agrotech/deep_drilling (real techMods() hooks)', () => {
+    expect(TECHS).toHaveLength(16);
     expect(Object.keys(TECH_BY_ID).sort()).toEqual([
+      'agrotech',
       'closed_loop',
+      'deep_drilling',
       'demographics',
       'education',
       'electrolysis',
@@ -26,9 +28,12 @@ describe('V8 tech tree — P1/P2/P3/P5/P6/P7 content (D-089/D-090/D-091/D-093/D-
       'robotics',
       'semiconductors',
     ]);
-    const gateOnly = TECHS.filter((t) => t.id !== 'robotics');
+    const realEffect = ['robotics', 'agrotech', 'deep_drilling'];
+    const gateOnly = TECHS.filter((t) => !realEffect.includes(t.id));
     expect(gateOnly.every((t) => t.effect === 'none')).toBe(true);
     expect(TECH_BY_ID.robotics.effect).toBe('opsCrewMult');
+    expect(TECH_BY_ID.agrotech.effect).toBe('farmYieldMult');
+    expect(TECH_BY_ID.deep_drilling.effect).toBe('iceDepletionMult');
   });
 
   it('techMods(owned) is still the neutral bundle even WITH the real "none" techs owned — effect "none" is a true no-op', () => {

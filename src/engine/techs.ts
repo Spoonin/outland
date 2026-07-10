@@ -14,6 +14,10 @@ export type TechEffect =
   | 'repairRateMult' // multiplies D-084's repairRate (robo-repair)
   | 'unlockStructure' // gates a structures.csv row behind this tech (e.g. fusion)
   | 'refuelStage3' // reserve rung beyond D-068's two-stage refuel ladder
+  | 'farmYieldMult' // D-097 #1: multiplies every food-producing structure's output (folded into the
+  // existing farmMult channel structureFlows already threads through, D-063's blight — genMult-pattern reuse)
+  | 'iceDepletionMult' // D-097 #1: multiplies how much of ice_mine's ACTUAL output banks into its
+  // own depletion counter (D-089) — <1 makes the deposit last longer without touching real yield
   | 'none'; // D-089: a pure gate — the tech's only effect is structures.csv's OWN `techGate`
   // column pointing back at this id (D-088); nothing for techMods() to fold in. Used by every P1
   // tech (isru_extraction/electrolysis/regolith_metallurgy) — see D-088 "Альтернативы" for why
@@ -61,6 +65,9 @@ export interface TechMods {
   lifeExpectancyBonus: number; // added to D-083's lifeExpectancy
   repairRateMult: number; // D-084's repairRate multiplier
   unlockedStructures: ReadonlySet<string>;
+  farmYieldMult: number; // D-097 #1: multiplier on every food-producing structure's output
+  iceDepletionMult: number; // D-097 #1: multiplier on how much of ice_mine's output banks into
+  // its own depletion counter (<1 → deposit lasts longer without changing the real kg mined)
 }
 
 export function techMods(techs: readonly string[]): TechMods {
@@ -68,6 +75,8 @@ export function techMods(techs: readonly string[]): TechMods {
   let cureProbBonus = 0;
   let lifeExpectancyBonus = 0;
   let repairRateMult = 1;
+  let farmYieldMult = 1;
+  let iceDepletionMult = 1;
   const unlockedStructures = new Set<string>();
   for (const id of techs) {
     const t = TECH_BY_ID[id];
@@ -90,11 +99,25 @@ export function techMods(techs: readonly string[]): TechMods {
         break;
       case 'refuelStage3':
         break; // reserve — no gameplay hook yet (D-067/068)
+      case 'farmYieldMult':
+        farmYieldMult *= t.magnitude;
+        break;
+      case 'iceDepletionMult':
+        iceDepletionMult *= t.magnitude;
+        break;
       case 'none':
         break; // D-089: pure techGate, nothing to fold in
     }
   }
-  return { opsCrewMult, cureProbBonus, lifeExpectancyBonus, repairRateMult, unlockedStructures };
+  return {
+    opsCrewMult,
+    cureProbBonus,
+    lifeExpectancyBonus,
+    repairRateMult,
+    unlockedStructures,
+    farmYieldMult,
+    iceDepletionMult,
+  };
 }
 
 /** Whether `id` can be bought right now (roadmap-2 scaffold) — same shape as the R&D ladder's own

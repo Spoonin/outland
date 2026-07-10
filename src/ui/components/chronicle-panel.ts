@@ -2,6 +2,7 @@ import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
 import { STRUCT_BY_ID, MILESTONES, type ColonyReport, type MilestoneId, type MortalityCause, type WindowEvent } from '../../engine';
+import { tokens } from '../theme';
 
 const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 
@@ -27,7 +28,12 @@ const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 function milestoneLabel(id: MilestoneId): string {
   const m = MILESTONE_BY_ID.get(id);
   const bonus = m?.subsidyBonus;
-  return `${m?.name ?? id}${bonus ? ` · субсидия +${money(bonus)}/окно` : ''}`;
+  // D-097 #5: percentage milestones don't know their $ amount until they actually fire (it's a
+  // fraction of the budget AT THAT MOMENT) — so the checklist names the rate, not a dollar figure
+  // (the dollar figure the player actually got is implicit in the budget line right after).
+  const pct = m?.subsidyBonusPct;
+  const bonusText = bonus ? ` · субсидия +${money(bonus)}/окно` : pct ? ` · субсидия +${Math.round(pct * 100)}%` : '';
+  return `${m?.name ?? id}${bonusText}`;
 }
 
 /** Per-window causality report + history (D-061): last window expanded, past windows a
@@ -49,66 +55,82 @@ export class ChroniclePanel extends LitElement {
     this.unsub = undefined;
   }
 
-  static styles = css`
-    :host {
-      display: block;
-      margin: 0.75rem 0;
-    }
-    .entry {
-      background: #14141a;
-      border: 1px solid #2a2a34;
-      border-radius: 6px;
-      padding: 0.6rem 0.85rem;
-      margin-bottom: 0.4rem;
-      font-size: 0.85rem;
-    }
-    .entry.quiet {
-      padding: 0.35rem 0.85rem;
-    }
-    .row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      cursor: pointer;
-    }
-    .win {
-      font-weight: 600;
-      opacity: 0.85;
-    }
-    .oneline {
-      opacity: 0.75;
-    }
-    .neg {
-      color: #d96a6a;
-    }
-    .warn {
-      color: #d1b65a;
-    }
-    .ok {
-      color: #5ad17a;
-    }
-    .section {
-      margin-top: 0.4rem;
-      line-height: 1.5;
-    }
-    .struct {
-      opacity: 0.85;
-    }
-    .struct .frac {
-      opacity: 0.6;
-      font-size: 0.78rem;
-    }
-    .toggle {
-      opacity: 0.55;
-      cursor: pointer;
-      font-size: 0.8rem;
-      margin: 0.3rem 0;
-      user-select: none;
-    }
-    .toggle:hover {
-      opacity: 0.85;
-    }
-  `;
+  static styles = [
+    tokens,
+    css`
+      :host {
+        display: block;
+        margin: 0 0 16px;
+      }
+      .panel-label {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        color: var(--c-text-dim);
+        text-transform: uppercase;
+        font-family: var(--font-head);
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .entry {
+        background: var(--c-panel);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        padding: 0.6rem 0.85rem;
+        margin-bottom: 0.4rem;
+        font-size: 0.85rem;
+      }
+      .entry.quiet {
+        padding: 0.35rem 0.85rem;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.6rem;
+        cursor: pointer;
+      }
+      .win {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        color: var(--c-text-ts);
+        flex: none;
+      }
+      .oneline {
+        color: var(--c-text-log);
+      }
+      .neg {
+        color: var(--c-red);
+      }
+      .warn {
+        color: var(--c-amber);
+      }
+      .ok {
+        color: var(--c-green);
+      }
+      .section {
+        margin-top: 0.4rem;
+        line-height: 1.5;
+        color: var(--c-text-log);
+      }
+      .struct {
+        color: var(--c-text-note);
+      }
+      .struct .frac {
+        color: var(--c-text-dim2);
+        font-size: 0.78rem;
+      }
+      .toggle {
+        color: var(--c-text-dim2);
+        cursor: pointer;
+        font-size: 0.8rem;
+        margin: 0.3rem 0;
+        user-select: none;
+      }
+      .toggle:hover {
+        color: var(--c-text-dim);
+      }
+    `,
+  ];
 
   private landedLine(r: ColonyReport): string {
     const parts: string[] = [];
@@ -196,11 +218,11 @@ export class ChroniclePanel extends LitElement {
   }
 
   private oneLine(r: ColonyReport): TemplateResult {
-    if (this.isQuiet(r)) return html`<span class="oneline">окно ${r.window} — тихо</span>`;
+    if (this.isQuiet(r)) return html`<span class="oneline">тихо</span>`;
     const bits: string[] = [];
     if (r.mortality > 0) bits.push(`† ${r.mortality}`);
     bits.push(...this.eventTags(r));
-    return html`<span class=${r.mortality > 0 ? 'neg' : 'warn'}>окно ${r.window}: ${bits.join(' · ')}</span>`;
+    return html`<span class=${r.mortality > 0 ? 'neg' : 'warn'}>${bits.join(' · ')}</span>`;
   }
 
   private detail(r: ColonyReport): TemplateResult {
@@ -264,7 +286,7 @@ export class ChroniclePanel extends LitElement {
           this.expanded = next;
         }}
       >
-        <span class="win">окно ${r.window}</span>
+        <span class="win">[W${r.window}]</span>
         ${!isOpen ? this.oneLine(r) : nothing}
       </div>
       ${isOpen ? this.detail(r) : nothing}
@@ -280,6 +302,7 @@ export class ChroniclePanel extends LitElement {
     const last = chronicle[chronicle.length - 1]!;
     const rest = chronicle.slice(0, -1).slice().reverse();
     return html`
+      <div class="panel-label">Хроника</div>
       ${this.entryCard(last, true)}
       ${rest.length
         ? html`<div class="toggle" @click=${() => (this.historyOpen = !this.historyOpen)}>

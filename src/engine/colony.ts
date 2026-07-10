@@ -688,7 +688,9 @@ export type MilestoneId =
   | 'pop_10000'
   | 'pop_50000'
   | 'pop_100000'
-  | 'first_local_chip'; // D-096 (P7): first chip_fab — the finale-boss import (D-045's chips) cracks
+  | 'first_local_chip' // D-096 (P7): first chip_fab — the finale-boss import (D-045's chips) cracks
+  | 'bulk_autonomy_city'; // D-097 #5: bulk_autonomy's own condition, but only once pop ≥ 1000 — a
+  // city holding balk self-sufficiency is a different feat than a 20-person outpost doing the same
 
 export interface MilestoneSpec {
   id: MilestoneId;
@@ -698,6 +700,10 @@ export interface MilestoneSpec {
   // economic fact (Earth funds a proven colony more), not a "reward" banner; still no win state,
   // still a checklist first (D-064) — reserved for milestones that demonstrate genuine SCALE, not
   // early/automatic/luck ones (first landing, first birth, surviving an event get none).
+  subsidyBonusPct?: number; // D-097 #5: fraction of the CURRENT effective budget (p.M + accumulated
+  // subsidyBonus, at the moment this fires), converted to a flat $ addition the same way subsidyBonus
+  // is — a fixed $12-20B late-tier bonus reads as noise against a city spending $30B/window on
+  // import alone; a percentage stays meaningful at any scale. Mutually exclusive with subsidyBonus.
 }
 
 /** Order matches D-064's decision text. `zero_import` is the "finale-boss" — full independence
@@ -718,16 +724,22 @@ export const MILESTONES: readonly MilestoneSpec[] = [
   { id: 'local_fabrication', name: 'Местная фабрикация', icon: '🏭', subsidyBonus: 2.5e9 },
   { id: 'local_spares', name: 'Местный ЗИП', icon: '🔧', subsidyBonus: 2.5e9 },
   // D-095 (P6): city scale — fusion closes the last eternal-fuel energy dependency (nuclear still
-  // needs fuel forever); the pop rungs mark path-to-100k.md's own checkpoints, escalating bonuses
-  // (later rungs represent a MUCH bigger demonstrated colony, same "real scale" criterion as above).
+  // needs fuel forever); the pop rungs mark path-to-100k.md's own checkpoints. pop_1000/10000 keep
+  // FLAT bonuses (still meaningful against a mid-game budget); pop_50000/100000 switch to a
+  // PERCENTAGE (D-097 #5, playtest-7 finding) — a flat $12-20B reads as noise once a city-scale
+  // colony is already spending $30B/window on import alone, a percentage doesn't.
   { id: 'fusion_online', name: 'Термояд онлайн', icon: '☀️🔮', subsidyBonus: 4.0e9 },
   { id: 'pop_1000', name: '1 000 колонистов', icon: '👥', subsidyBonus: 5.0e9 },
   { id: 'pop_10000', name: '10 000 колонистов', icon: '👥', subsidyBonus: 8.0e9 },
-  { id: 'pop_50000', name: '50 000 колонистов', icon: '👥', subsidyBonus: 12.0e9 },
-  { id: 'pop_100000', name: '100 000 колонистов', icon: '👥', subsidyBonus: 20.0e9 },
+  { id: 'pop_50000', name: '50 000 колонистов', icon: '👥', subsidyBonusPct: 0.15 },
+  { id: 'pop_100000', name: '100 000 колонистов', icon: '👥', subsidyBonusPct: 0.25 },
   // D-096 (P7): the finale-boss milestone — chips (D-045's hardest black node) gets a local source
   // for the first time, same subsidyBonus criterion as every other local_* milestone, top tier.
   { id: 'first_local_chip', name: 'Первый местный чип', icon: '💾', subsidyBonus: 5.0e9 },
+  // D-097 #5: bulk_autonomy's own condition, but only once pop ≥ 1000 — holding balk
+  // self-sufficiency at CITY scale is a different feat than a 20-person outpost doing the same;
+  // percentage bonus for the same "flat reads as noise at scale" reason as the pop rungs above.
+  { id: 'bulk_autonomy_city', name: 'Балк-автономия города (1000+)', icon: '🌾🏙', subsidyBonusPct: 0.10 },
 ];
 
 // N₂ included: habitat hull leak → N₂ shortage → mortality (V7); no habitats → leak=0 → no effect
@@ -989,6 +1001,10 @@ export function commitWindow(
   const effP: ColonyParams = mods.lifeExpectancyBonus !== 0
     ? { ...p, lifeExpectancy: p.lifeExpectancy + mods.lifeExpectancyBonus }
     : p;
+  // D-097 #1: agrotech folds into the SAME farmMult channel structureFlows already threads through
+  // for storyteller blight — a boost (agrotech) and a throttle (blight) are the same multiplier,
+  // just pulling opposite directions, so no new plumbing is needed in structures.ts.
+  farmMult *= mods.farmYieldMult;
 
   // this window's shipment (empty if the order was infeasible — nothing goes out)
   const shipped = emptyStocks(0);
@@ -1121,10 +1137,14 @@ export function commitWindow(
   // D-089: bank this window's ACTUAL output (already industryMult-scaled) into the cumulative
   // counter industryMult reads back NEXT window — only for types that actually deplete/ramp, so
   // industryOutput doesn't grow for every ordinary producer that never reads it back.
+  // D-097 #1: deep_drilling banks LESS of ice_mine's real output into its OWN depletion counter
+  // (mods.iceDepletionMult < 1) — the deposit reads as lasting longer without touching the actual
+  // kg mined this window (that number stays honest — see structDiag.outputKg on the report).
   for (const id of Object.keys(sf.diag)) {
     const spec = STRUCT_BY_ID[id];
     if (!spec || (!spec.depletionScale && !spec.rampScale)) continue;
-    s.industryOutput[id] = (s.industryOutput[id] ?? 0) + sf.diag[id].outputKg;
+    const bankMult = id === 'ice_mine' ? mods.iceDepletionMult : 1;
+    s.industryOutput[id] = (s.industryOutput[id] ?? 0) + sf.diag[id].outputKg * bankMult;
   }
 
   // life-support + structure consumption + spares upkeep; arrivals + structure production
@@ -1359,8 +1379,12 @@ export function commitWindow(
       milestonesThis.push(id);
       // D-076: a qualifying milestone permanently raises the subsidy baseline — Earth funds a
       // colony that's demonstrated real scale/viability more than a fresh outpost.
-      const bonus = MILESTONES.find((m) => m.id === id)?.subsidyBonus;
-      if (bonus) s.subsidyBonus += bonus;
+      const spec = MILESTONES.find((m) => m.id === id);
+      if (spec?.subsidyBonus) s.subsidyBonus += spec.subsidyBonus;
+      // D-097 #5: a percentage bonus is computed off the CURRENT effective budget at the moment it
+      // fires, then folded into subsidyBonus as a flat amount — same storage as every other bonus,
+      // just a scale-aware way to CALCULATE it.
+      if (spec?.subsidyBonusPct) s.subsidyBonus += (p.M + s.subsidyBonus) * spec.subsidyBonusPct;
     }
   };
   // buffer gauge measured once per REAL window (the simulating guard stops the recursion — the
@@ -1377,6 +1401,7 @@ export function commitWindow(
   if ((s.built.fusion_plant ?? 0) > 0) mark('fusion_online'); // D-095
   if ((s.built.chip_fab ?? 0) > 0) mark('first_local_chip'); // D-096
   if (bulkAutonomyOk) mark('bulk_autonomy');
+  if (bulkAutonomyOk && s.pop >= 1000) mark('bulk_autonomy_city'); // D-097 #5
   if (buffer !== undefined && buffer >= 2) mark('buffer_2');
   if ((s.built.mre_plant ?? 0) > 0) mark('local_metals'); // D-089
   if ((s.built.sinter_plant ?? 0) > 0) mark('local_construction'); // D-090

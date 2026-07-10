@@ -2,6 +2,7 @@ import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import type { ColonyStatus, ResourceLine, DemographySnapshot } from '../colonyStore';
 import { STRUCT_BY_ID, type Stocks, type ColonyReport } from '../../engine';
+import { tokens } from '../theme';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -10,7 +11,6 @@ const ICON: Record<string, string> = {
   regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
   composite: '🧱', components: '🛠️', // D-090 (P2): regolith construction — importable, not localOnly
 };
-const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
 /** Net flow rate — rounding a SMALL rate (e.g. n2 leak barely offset by production, ~1.6 kg/ок)
  * to the nearest whole kg used to read as "−2/ок" next to a "28125.7 ок" cover computed from the
@@ -26,7 +26,10 @@ const dkg = (v: number): string => {
   return (v >= 0 ? '+' : '−') + text;
 };
 
-/** Header dashboard: window/pop/fleet/wear + ALL resource stocks with per-window net & runway. */
+/** Header dashboard: pop/fleet/wear + ALL resource stocks with per-window net & runway, styled as
+ * a mission-console systems panel (documents/ui/README.md) — each resource is a status tile with
+ * an LED coloured by flow health, echoing the design's Colony Systems grid. Window/year/buffer/
+ * budget live in colony-app's header + gauge row now, so this panel doesn't repeat them. */
 @customElement('colony-status')
 export class ColonyStatusPanel extends LitElement {
   @property({ attribute: false }) status!: ColonyStatus;
@@ -40,67 +43,116 @@ export class ColonyStatusPanel extends LitElement {
   /** Roadmap-2: age structure + forecasts (buckets, expected old-age deaths, kids maturing soon). */
   @property({ attribute: false }) demography?: DemographySnapshot;
 
-  static styles = css`
-    :host {
-      display: block;
-    }
-    .top {
-      display: flex;
-      gap: 1.5rem;
-      flex-wrap: wrap;
-      align-items: baseline;
-      margin-bottom: 0.75rem;
-    }
-    .pop {
-      font-size: 1.6rem;
-      font-weight: 700;
-    }
-    .dim {
-      opacity: 0.6;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-      gap: 0.3rem 1rem;
-    }
-    .cell {
-      font-size: 0.85rem;
-      border-bottom: 1px solid #1e1e26;
-      padding-bottom: 2px;
-    }
-    .name {
-      opacity: 0.75;
-    }
-    .stock {
-      font-weight: 600;
-    }
-    .flow {
-      font-size: 0.78rem;
-    }
-    .up {
-      color: #5ad17a;
-    }
-    .down {
-      color: #d1b65a;
-    }
-    .crit {
-      color: #d96a6a;
-    }
-    .agebars {
-      display: flex;
-      align-items: flex-end;
-      gap: 3px;
-      height: 28px;
-      margin: 0.2rem 0;
-    }
-    .agebar {
-      flex: 1;
-      background: #3a3a46;
-      border-radius: 2px 2px 0 0;
-      min-height: 2px;
-      max-width: 22px;
-    }
-  `;
+  static styles = [
+    tokens,
+    css`
+      :host {
+        display: block;
+      }
+      .panel {
+        background: var(--c-panel);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .panel-label {
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        color: var(--c-text-dim);
+        text-transform: uppercase;
+        font-family: var(--font-head);
+        font-weight: 600;
+        margin-bottom: 12px;
+      }
+      .top {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        align-items: baseline;
+        margin-bottom: 0.75rem;
+      }
+      .pop {
+        font-family: var(--font-head);
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--c-text-bright);
+      }
+      .dim {
+        color: var(--c-text-dim);
+        font-size: 0.85rem;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 8px;
+      }
+      .cell {
+        padding: 10px;
+        background: var(--c-bg);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius-sm);
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .cell .row1 {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .cell .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .cell .name {
+        font-family: var(--font-head);
+        font-weight: 600;
+        font-size: 12.5px;
+        color: var(--c-text);
+        text-transform: capitalize;
+      }
+      .cell .stock {
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--c-text-bright);
+      }
+      .cell .flow {
+        font-size: 11px;
+      }
+      .up {
+        color: var(--c-green);
+      }
+      .down {
+        color: var(--c-amber);
+      }
+      .crit {
+        color: var(--c-red);
+      }
+      .agebars {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 28px;
+        margin: 0.2rem 0;
+      }
+      .agebar {
+        flex: 1;
+        background: var(--c-border-hover);
+        border-radius: 2px 2px 0 0;
+        min-height: 2px;
+        max-width: 22px;
+      }
+      details summary {
+        list-style: none;
+      }
+      details summary::-webkit-details-marker {
+        display: none;
+      }
+    `,
+  ];
 
   private transitLine(): TemplateResult | typeof nothing {
     const t = this.inTransit;
@@ -121,7 +173,7 @@ export class ColonyStatusPanel extends LitElement {
     const maxCount = Math.max(1, ...d.buckets.map((b) => b.count));
     const showForecast = d.expectedOldAgeDeaths >= 0.5 || d.maturingSoon > 0;
     // D-097 #2: dose is a fact about the past (like avgAge), never a per-colonist telegraph (D-063)
-    const doseColor = d.avgRadiationDose >= 2 ? '#d96a6a' : d.avgRadiationDose >= 1 ? '#d1b65a' : '#5ad17a';
+    const doseColor = d.avgRadiationDose >= 2 ? 'var(--c-red)' : d.avgRadiationDose >= 1 ? 'var(--c-amber)' : 'var(--c-green)';
     return html`
       <div class="agebars">
         ${d.buckets.map(
@@ -150,10 +202,14 @@ export class ColonyStatusPanel extends LitElement {
     const draining = r.net < 0;
     const critical = draining && r.windows < 1;
     const flowCls = !draining ? 'up' : critical ? 'crit' : 'down';
+    const dotColor = !draining ? 'var(--c-green)' : critical ? 'var(--c-red)' : 'var(--c-amber)';
     const cover = Number.isFinite(r.windows) ? ` · ${r.windows.toFixed(1)} ок` : '';
     return html`<div class="cell">
-      <span>${ICON[r.kind] ?? ''} <span class="name">${r.kind}</span></span>
-      <span class="stock"> ${kg(r.stock)}</span>
+      <div class="row1">
+        <span class="dot" style="background:${dotColor}"></span>
+        <span class="name">${ICON[r.kind] ?? ''} ${r.kind}</span>
+      </div>
+      <span class="stock">${kg(r.stock)} кг</span>
       <div class="flow ${flowCls}">${dkg(r.net)}/ок${draining ? cover : ''}</div>
     </div>`;
   }
@@ -165,9 +221,9 @@ export class ColonyStatusPanel extends LitElement {
     const s = this.status;
     const industrial = s?.resources.filter((r) => r.localOnly) ?? [];
     if (industrial.length === 0) return nothing;
-    return html`<details style="margin-top:0.4rem">
+    return html`<details style="margin-top:0.6rem">
       <summary class="dim" style="cursor:pointer">⚙️ промышленные стоки (ISRU)</summary>
-      <div class="grid" style="margin-top:0.3rem">${industrial.map((r) => this.cell(r))}</div>
+      <div class="grid" style="margin-top:0.5rem">${industrial.map((r) => this.cell(r))}</div>
     </details>`;
   }
 
@@ -175,56 +231,54 @@ export class ColonyStatusPanel extends LitElement {
     const s = this.status;
     if (!s) return nothing;
     return html`
-      <div class="top">
-        <div class="pop">👥 ${s.pop.toLocaleString('ru-RU')}</div>
-        ${s.pop > 0 ? html`<div class="dim">
-          💪 труд ${s.workforce.toLocaleString('ru-RU')}${s.kids > 0 ? ` · 🧒 ${s.kids}` : ''}${s.sick > 0
-            ? html` · 🤒 <b style="color:${s.sick <= s.sickBeds ? '#d1b65a' : '#d96a6a'}">${s.sick}</b>` : ''}
-          · 🛏 койки ${s.sickBeds}
-        </div>` : ''}
-        <div class="dim">окно <b>${s.window}</b> · год ~${s.year}</div>
-        <div class="dim">
-          🛫 classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (ст. ${s.refuelStage})` : ''}
+      <div class="panel">
+        <div class="panel-label">Статус колонии</div>
+        <div class="top">
+          <div class="pop">👥 ${s.pop.toLocaleString('ru-RU')}</div>
+          ${s.pop > 0 ? html`<div class="dim">
+            💪 труд ${s.workforce.toLocaleString('ru-RU')}${s.kids > 0 ? ` · 🧒 ${s.kids}` : ''}${s.sick > 0
+              ? html` · 🤒 <b style="color:${s.sick <= s.sickBeds ? 'var(--c-amber)' : 'var(--c-red)'}">${s.sick}</b>` : ''}
+            · 🛏 койки ${s.sickBeds}
+          </div>` : ''}
+          <div class="dim">
+            🛫 classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (ст. ${s.refuelStage})` : ''}
+          </div>
+          <div class="dim">
+            🛠 износ
+            <b style="color:${s.avgCondition >= 0.8 ? 'var(--c-green)' : s.avgCondition >= 0.5 ? 'var(--c-amber)' : 'var(--c-red)'}"
+              >${(s.avgCondition * 100).toFixed(0)}%</b
+            >
+            · ЗИП
+            <b style="color:${s.sparesCoverage >= 1 ? 'var(--c-green)' : 'var(--c-red)'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
+            ${this.lastReport && this.lastReport.repairSpentKg > 0 && this.repairInfo && this.repairInfo.upkeep > 0
+              ? html`· <b style="color:var(--c-green)"
+                  >🔧 ремонт +${(this.repairInfo.rate * (this.lastReport.repairSpentKg / this.repairInfo.upkeep) * 100).toFixed(1)}%</b
+                >`
+              : nothing}
+            ${s.crewCoverage < 1 ? html`· экипаж
+            <b style="color:var(--c-red)">${(s.crewCoverage * 100).toFixed(0)}%</b>` : nothing}
+            ${s.shieldCoverage < 1 ? html`· 🛡 радиац. защита
+            <b style="color:var(--c-red)">${(s.shieldCoverage * 100).toFixed(0)}%</b>` : nothing}
+          </div>
+          ${s.housingCapacity > 0 ? html`<div class="dim">
+            🏠 жильё
+            <b style="color:${s.pop <= s.housingCapacity * 0.9 ? 'var(--c-green)' : s.pop <= s.housingCapacity ? 'var(--c-amber)' : 'var(--c-red)'}"
+              >${s.pop.toLocaleString('ru-RU')} / ${s.housingCapacity.toLocaleString('ru-RU')}</b
+            >
+            ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} кг/окно` : ''}
+          </div>` : ''}
+          <div class="dim">
+            🍞 склад
+            <b style="color:var(--c-text)">${kg(s.resources.find((r) => r.kind === 'food')?.stock ?? 0)} / ${kg(s.foodCapacityTotal)}</b>
+            · 💧 склад
+            <b style="color:var(--c-text)">${kg(s.resources.find((r) => r.kind === 'water')?.stock ?? 0)} / ${kg(s.waterCapacityTotal)}</b>
+          </div>
         </div>
-        <div class="dim">
-          🛠 износ
-          <b style="color:${s.avgCondition >= 0.8 ? '#5ad17a' : s.avgCondition >= 0.5 ? '#d1b65a' : '#d96a6a'}"
-            >${(s.avgCondition * 100).toFixed(0)}%</b>
-          · ЗИП
-          <b style="color:${s.sparesCoverage >= 1 ? '#5ad17a' : '#d96a6a'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
-          ${this.lastReport && this.lastReport.repairSpentKg > 0 && this.repairInfo && this.repairInfo.upkeep > 0
-            ? html`· <b style="color:#5ad17a"
-                >🔧 ремонт +${(this.repairInfo.rate * (this.lastReport.repairSpentKg / this.repairInfo.upkeep) * 100).toFixed(1)}%</b
-              >`
-            : nothing}
-          ${s.crewCoverage < 1 ? html`· экипаж
-          <b style="color:#d96a6a">${(s.crewCoverage * 100).toFixed(0)}%</b>` : nothing}
-          ${s.shieldCoverage < 1 ? html`· 🛡 радиац. защита
-          <b style="color:#d96a6a">${(s.shieldCoverage * 100).toFixed(0)}%</b>` : nothing}
-        </div>
-        ${s.housingCapacity > 0 ? html`<div class="dim">
-          🏠 жильё
-          <b style="color:${s.pop <= s.housingCapacity * 0.9 ? '#5ad17a' : s.pop <= s.housingCapacity ? '#d1b65a' : '#d96a6a'}"
-            >${s.pop.toLocaleString('ru-RU')} / ${s.housingCapacity.toLocaleString('ru-RU')}</b>
-          ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} кг/окно` : ''}
-        </div>` : ''}
-        <div class="dim">
-          🍞 склад
-          <b>${kg(s.resources.find((r) => r.kind === 'food')?.stock ?? 0)} / ${kg(s.foodCapacityTotal)}</b>
-          · 💧 склад
-          <b>${kg(s.resources.find((r) => r.kind === 'water')?.stock ?? 0)} / ${kg(s.waterCapacityTotal)}</b>
-        </div>
-        <div class="dim">
-          🛡 без завоза
-          <b style="color:${s.buffer >= 2 ? '#5ad17a' : s.buffer >= 1 ? '#d1b65a' : '#d96a6a'}"
-            >${s.buffer}${s.bufferSaturated ? '+' : ''} ок</b>
-        </div>
-        <div class="dim">субсидия ${money(s.budget)}/окно</div>
+        ${this.demographyBlock()}
+        ${this.transitLine()}
+        <div class="grid" style="margin-top:0.75rem">${s.resources.filter((r) => !r.localOnly).map((r) => this.cell(r))}</div>
+        ${this.industrialStocks()}
       </div>
-      ${this.demographyBlock()}
-      ${this.transitLine()}
-      <div class="grid">${s.resources.filter((r) => !r.localOnly).map((r) => this.cell(r))}</div>
-      ${this.industrialStocks()}
     `;
   }
 }

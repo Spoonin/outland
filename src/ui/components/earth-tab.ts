@@ -2,6 +2,7 @@ import { LitElement, html, css, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
 import { padClassFor, type ResourceKind, type TechSpec } from '../../engine';
+import { tokens } from '../theme';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -45,96 +46,108 @@ export class EarthTab extends LitElement {
     this.unsub = undefined;
   }
 
-  static styles = css`
-    :host {
-      display: block;
-      border-top: 1px solid #2a2a34;
-      margin-top: 1rem;
-      padding-top: 1rem;
-    }
-    .tabs {
-      display: flex;
-      gap: 0.25rem;
-      flex-wrap: wrap;
-      margin-bottom: 1rem;
-    }
-    .tabs button {
-      font: inherit;
-      background: #1a1a22;
-      color: #b8b8c0;
-      border: 1px solid #2a2a34;
-      border-bottom: none;
-      border-radius: 5px 5px 0 0;
-      padding: 0.4rem 0.9rem;
-      cursor: pointer;
-    }
-    .tabs button.active {
-      background: #24242e;
-      color: #fff;
-      border-color: #44444f;
-    }
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 0.6rem;
-    }
-    .card {
-      background: #16161c;
-      border: 1px solid #2a2a34;
-      border-radius: 6px;
-      padding: 0.6rem 0.8rem;
-    }
-    .card .h {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.9rem;
-      margin-bottom: 0.4rem;
-    }
-    .card .v {
-      font-weight: 600;
-    }
-    input[type='range'] {
-      width: 100%;
-    }
-    .sub {
-      font-size: 0.75rem;
-      opacity: 0.5;
-    }
-    .summary {
-      margin-top: 1rem;
-      padding: 0.75rem 1rem;
-      background: #14141a;
-      border: 1px solid #2a2a34;
-      border-radius: 6px;
-      font-size: 0.9rem;
-    }
-    .summary .line {
-      display: flex;
-      justify-content: space-between;
-    }
-    .neg {
-      color: #d96a6a;
-    }
-    .ok {
-      color: #5ad17a;
-    }
-    button.commit {
-      font: inherit;
-      margin-top: 0.6rem;
-      background: #14361f;
-      color: #d8f0d8;
-      border: 1px solid #5ad17a;
-      padding: 0.5rem 1.25rem;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    button.commit:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-      border-color: #555;
-      color: #999;
-    }
-  `;
+  static styles = [
+    tokens,
+    css`
+      :host {
+        display: block;
+        border-top: 2px solid var(--c-border);
+        margin-top: 1rem;
+        padding-top: 1rem;
+        font-family: var(--font-mono);
+      }
+      .tabs {
+        display: flex;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+      .tabs button {
+        font: inherit;
+        font-family: var(--font-head);
+        font-weight: 600;
+        font-size: 0.75rem;
+        letter-spacing: 0.04em;
+        background: var(--c-panel);
+        color: var(--c-text-dim);
+        border: 1px solid var(--c-border);
+        border-bottom: none;
+        border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+        padding: 0.4rem 0.9rem;
+        cursor: pointer;
+      }
+      .tabs button.active {
+        background: var(--c-panel-hover);
+        color: var(--c-text-bright);
+        border-color: var(--c-border-hover);
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 8px;
+      }
+      .card {
+        background: var(--c-panel);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+      }
+      .card .h {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.9rem;
+        margin-bottom: 0.4rem;
+        color: var(--c-text);
+      }
+      .card .v {
+        font-weight: 600;
+        color: var(--c-text-bright);
+      }
+      input[type='range'] {
+        width: 100%;
+        accent-color: var(--c-green);
+      }
+      .sub {
+        font-size: 0.75rem;
+        color: var(--c-text-dim2);
+      }
+      .summary {
+        margin-top: 1rem;
+        padding: 0.75rem 1rem;
+        background: var(--c-panel);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius);
+        font-size: 0.9rem;
+      }
+      .summary .line {
+        display: flex;
+        justify-content: space-between;
+      }
+      .neg {
+        color: var(--c-red);
+      }
+      .ok {
+        color: var(--c-green);
+      }
+      button.commit {
+        font: inherit;
+        font-family: var(--font-mono);
+        margin-top: 0.6rem;
+        background: var(--c-commit-bg);
+        color: var(--c-commit-text);
+        border: 1px solid var(--c-commit-border);
+        padding: 0.5rem 1.25rem;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      button.commit:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        border-color: #555;
+        color: #999;
+      }
+    `,
+  ];
 
   private resCard(r: ResourceKind, max: number, step: number): TemplateResult {
     const store = this.store;
@@ -148,7 +161,7 @@ export class EarthTab extends LitElement {
     const auto = (r === 'spares' && store.autoSparesEnabled) || (r === 'pharma' && store.autoPharmaEnabled);
     return html`<div class="card">
       <div class="h">
-        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)} кг${auto ? ' (авто)' : ''}</span>
+        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)}${auto ? ' (авто)' : ''}</span>
       </div>
       <input
         type="range"
@@ -212,7 +225,7 @@ export class EarthTab extends LitElement {
               : `${money(perHead)}/чел (без учёта доставки) · прибудут через окно (лаг) · вес + вечный шлейф потребления`}
           </div>
           ${store.colonists > 0 ? html`<div class="sub">≈ ${money(perHead * store.colonists)} за позицию (без доставки)</div>` : nothing}
-          ${store.cohortWaveWarning() ? html`<div class="sub" style="color:#d1b65a">${store.cohortWaveWarning()}</div>` : nothing}
+          ${store.cohortWaveWarning() ? html`<div class="sub" style="color:var(--c-amber)">${store.cohortWaveWarning()}</div>` : nothing}
         </div>
       </div>`;
     }
@@ -273,7 +286,7 @@ export class EarthTab extends LitElement {
         @input=${(e: Event) => store.setPad(tech, Number((e.target as HTMLInputElement).value))} />
       <div class="sub">
         ${money(priceNow)}/площадка · содержание ${(spec.padMaintFrac * 100).toFixed(0)}%/окно ·
-        payload ${kg(spec.payload)} кг · риск взрыва ${(spec.explodeProb * 100).toFixed(2)}%/пуск. ${sub}
+        payload ${kg(spec.payload)} · риск взрыва ${(spec.explodeProb * 100).toFixed(2)}%/пуск. ${sub}
       </div>
       ${built > 0
         ? html`<label class="sub" style="display:block;margin-top:.3rem;cursor:pointer">
