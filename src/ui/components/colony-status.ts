@@ -3,6 +3,7 @@ import { customElement, property } from 'lit/decorators.js';
 import type { ColonyStatus, ResourceLine, DemographySnapshot } from '../colonyStore';
 import { STRUCT_BY_ID, type Stocks, type ColonyReport } from '../../engine';
 import { tokens } from '../theme';
+import { t } from '../i18n';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -155,13 +156,14 @@ export class ColonyStatusPanel extends LitElement {
   ];
 
   private transitLine(): TemplateResult | typeof nothing {
-    const t = this.inTransit;
-    if (!t) return nothing;
+    const inTransit = this.inTransit;
+    if (!inTransit) return nothing;
     const parts: string[] = [];
-    if (t.colonists > 0) parts.push(`🧑‍🚀 ${t.colonists}`);
-    for (const [k, v] of Object.entries(t.stocks)) if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? k} ${kg(v!)}`);
-    for (const [id, n] of Object.entries(t.structures)) if ((n ?? 0) > 0) parts.push(`${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id}×${n}`);
-    return html`<div class="dim">🚀 в пути (придёт след. окно): ${parts.length ? parts.join(' · ') : 'пусто'}</div>`;
+    if (inTransit.colonists > 0) parts.push(`🧑‍🚀 ${inTransit.colonists}`);
+    for (const [k, v] of Object.entries(inTransit.stocks)) if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? k} ${kg(v!)}`);
+    for (const [id, n] of Object.entries(inTransit.structures))
+      if ((n ?? 0) > 0) parts.push(`${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id}×${n}`);
+    return html`<div class="dim">${t('status.transit')} ${parts.length ? parts.join(' · ') : t('status.empty')}</div>`;
   }
 
   /** Roadmap-2: a compact 5-bucket age bar chart + the forecast line beneath it. Bar height is
@@ -180,18 +182,16 @@ export class ColonyStatusPanel extends LitElement {
           (b) => html`<div
             class="agebar"
             style="height:${Math.max(2, (b.count / maxCount) * 28)}px"
-            title="${b.label} лет: ${b.count}"
+            title="${b.label} ${t('status.years')}: ${b.count}"
           ></div>`,
         )}
       </div>
       ${showForecast
-        ? html`<div class="dim">
-            ⏳ ~${d.expectedOldAgeDeaths.toFixed(1)} смертей от старости за 3 ок · 🎓 +${d.maturingSoon} в труд
-          </div>`
+        ? html`<div class="dim">${t('status.oldAgeForecast', { n: d.expectedOldAgeDeaths.toFixed(1), m: d.maturingSoon })}</div>`
         : nothing}
       ${d.avgRadiationDose >= 0.1
         ? html`<div class="dim">
-            ☢ средняя накопленная доза: <b style="color:${doseColor}">${d.avgRadiationDose.toFixed(2)} Зв</b>
+            ${t('status.avgDose')}: <b style="color:${doseColor}">${d.avgRadiationDose.toFixed(2)} ${t('status.sv')}</b>
           </div>`
         : nothing}
     `;
@@ -203,14 +203,14 @@ export class ColonyStatusPanel extends LitElement {
     const critical = draining && r.windows < 1;
     const flowCls = !draining ? 'up' : critical ? 'crit' : 'down';
     const dotColor = !draining ? 'var(--c-green)' : critical ? 'var(--c-red)' : 'var(--c-amber)';
-    const cover = Number.isFinite(r.windows) ? ` · ${r.windows.toFixed(1)} ок` : '';
+    const cover = Number.isFinite(r.windows) ? ` · ${r.windows.toFixed(1)} ${t('status.wnd')}` : '';
     return html`<div class="cell">
       <div class="row1">
         <span class="dot" style="background:${dotColor}"></span>
         <span class="name">${ICON[r.kind] ?? ''} ${r.kind}</span>
       </div>
-      <span class="stock">${kg(r.stock)} кг</span>
-      <div class="flow ${flowCls}">${dkg(r.net)}/ок${draining ? cover : ''}</div>
+      <span class="stock">${kg(r.stock)} ${t('status.kg')}</span>
+      <div class="flow ${flowCls}">${dkg(r.net)}/${t('status.wnd')}${draining ? cover : ''}</div>
     </div>`;
   }
 
@@ -222,7 +222,7 @@ export class ColonyStatusPanel extends LitElement {
     const industrial = s?.resources.filter((r) => r.localOnly) ?? [];
     if (industrial.length === 0) return nothing;
     return html`<details style="margin-top:0.6rem">
-      <summary class="dim" style="cursor:pointer">⚙️ промышленные стоки (ISRU)</summary>
+      <summary class="dim" style="cursor:pointer">${t('status.industrial')}</summary>
       <div class="grid" style="margin-top:0.5rem">${industrial.map((r) => this.cell(r))}</div>
     </details>`;
   }
@@ -232,45 +232,45 @@ export class ColonyStatusPanel extends LitElement {
     if (!s) return nothing;
     return html`
       <div class="panel">
-        <div class="panel-label">Статус колонии</div>
+        <div class="panel-label">${t('status.title')}</div>
         <div class="top">
           <div class="pop">👥 ${s.pop.toLocaleString('ru-RU')}</div>
           ${s.pop > 0 ? html`<div class="dim">
-            💪 труд ${s.workforce.toLocaleString('ru-RU')}${s.kids > 0 ? ` · 🧒 ${s.kids}` : ''}${s.sick > 0
+            💪 ${t('status.labor')} ${s.workforce.toLocaleString('ru-RU')}${s.kids > 0 ? ` · 🧒 ${s.kids}` : ''}${s.sick > 0
               ? html` · 🤒 <b style="color:${s.sick <= s.sickBeds ? 'var(--c-amber)' : 'var(--c-red)'}">${s.sick}</b>` : ''}
-            · 🛏 койки ${s.sickBeds}
+            · 🛏 ${t('status.beds')} ${s.sickBeds}
           </div>` : ''}
           <div class="dim">
-            🛫 classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (ст. ${s.refuelStage})` : ''}
+            🛫 classic ${s.pads.classic}${s.refuelStage > 0 ? ` · refuel ${s.pads.refuel} (${t('status.stage')} ${s.refuelStage})` : ''}
           </div>
           <div class="dim">
-            🛠 износ
+            🛠 ${t('status.wear')}
             <b style="color:${s.avgCondition >= 0.8 ? 'var(--c-green)' : s.avgCondition >= 0.5 ? 'var(--c-amber)' : 'var(--c-red)'}"
               >${(s.avgCondition * 100).toFixed(0)}%</b
             >
-            · ЗИП
+            · ${t('status.spares')}
             <b style="color:${s.sparesCoverage >= 1 ? 'var(--c-green)' : 'var(--c-red)'}">${(s.sparesCoverage * 100).toFixed(0)}%</b>
             ${this.lastReport && this.lastReport.repairSpentKg > 0 && this.repairInfo && this.repairInfo.upkeep > 0
               ? html`· <b style="color:var(--c-green)"
-                  >🔧 ремонт +${(this.repairInfo.rate * (this.lastReport.repairSpentKg / this.repairInfo.upkeep) * 100).toFixed(1)}%</b
+                  >🔧 ${t('status.repair')} +${(this.repairInfo.rate * (this.lastReport.repairSpentKg / this.repairInfo.upkeep) * 100).toFixed(1)}%</b
                 >`
               : nothing}
-            ${s.crewCoverage < 1 ? html`· экипаж
+            ${s.crewCoverage < 1 ? html`· ${t('status.crew')}
             <b style="color:var(--c-red)">${(s.crewCoverage * 100).toFixed(0)}%</b>` : nothing}
-            ${s.shieldCoverage < 1 ? html`· 🛡 радиац. защита
+            ${s.shieldCoverage < 1 ? html`· 🛡 ${t('status.radShield')}
             <b style="color:var(--c-red)">${(s.shieldCoverage * 100).toFixed(0)}%</b>` : nothing}
           </div>
           ${s.housingCapacity > 0 ? html`<div class="dim">
-            🏠 жильё
+            🏠 ${t('status.housing')}
             <b style="color:${s.pop <= s.housingCapacity * 0.9 ? 'var(--c-green)' : s.pop <= s.housingCapacity ? 'var(--c-amber)' : 'var(--c-red)'}"
               >${s.pop.toLocaleString('ru-RU')} / ${s.housingCapacity.toLocaleString('ru-RU')}</b
             >
-            ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} кг/окно` : ''}
+            ${s.n2LeakKgPerWindow > 0 ? html`· N₂ −${Math.round(s.n2LeakKgPerWindow).toLocaleString('ru-RU')} ${t('status.kgPerWnd')}` : ''}
           </div>` : ''}
           <div class="dim">
-            🍞 склад
+            🍞 ${t('status.stock')}
             <b style="color:var(--c-text)">${kg(s.resources.find((r) => r.kind === 'food')?.stock ?? 0)} / ${kg(s.foodCapacityTotal)}</b>
-            · 💧 склад
+            · 💧 ${t('status.stock')}
             <b style="color:var(--c-text)">${kg(s.resources.find((r) => r.kind === 'water')?.stock ?? 0)} / ${kg(s.waterCapacityTotal)}</b>
           </div>
         </div>

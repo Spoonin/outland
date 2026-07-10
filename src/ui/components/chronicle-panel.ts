@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
 import { STRUCT_BY_ID, MILESTONES, type ColonyReport, type MilestoneId, type MortalityCause, type WindowEvent } from '../../engine';
 import { tokens } from '../theme';
+import { i18n, t } from '../i18n';
 
 const MILESTONE_BY_ID = new Map(MILESTONES.map((m) => [m.id, m]));
 
@@ -13,26 +14,29 @@ const ICON: Record<string, string> = {
   regolith: '🪨', hydrogen: '💠', co2: '💨', // D-089 (P1): local ISRU intermediates
   composite: '🧱', components: '🛠️', // D-090 (P2): regolith construction — importable, not localOnly
 };
-/** Shared with the debrief (D-064) — one Russian label per named mortality cause (D-061/D-063). */
-export const CAUSE_LABEL: Partial<Record<MortalityCause, string>> = {
-  food: 'голод', water: 'жажда', o2: 'нехватка O₂', n2: 'удушье (N₂)', energy: 'браунаут ЖО',
-  illness: 'болезнь', old_age: 'старость',
-  breach: 'декомпрессия', radiation: 'радиация', crash: 'крушение при посадке',
-};
+/** Shared with the debrief (D-064) — bilingual label per named mortality cause (D-061/D-063). */
+export function causeLabel(c: MortalityCause): string {
+  return t(`cause.${c}` as Parameters<typeof t>[0]);
+}
 const kg = (v: number) => Math.round(v).toLocaleString('ru-RU');
 const pct = (v: number) => Math.round(v * 100) + '%';
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 
 /** D-076: milestone name, plus the subsidy bump if this one carries one — stated as a dry economic
- * fact ("субсидия +$3B"), not a congratulatory reward banner (D-036/D-064 tone). */
+ * fact ("субсидия +$3B"), not a congratulatory reward banner (D-036/D-064 tone). Milestone NAMES
+ * stay Russian (CSV/engine data, see i18n.ts) — only the surrounding subsidy phrase translates. */
 function milestoneLabel(id: MilestoneId): string {
   const m = MILESTONE_BY_ID.get(id);
   const bonus = m?.subsidyBonus;
   // D-097 #5: percentage milestones don't know their $ amount until they actually fire (it's a
   // fraction of the budget AT THAT MOMENT) — so the checklist names the rate, not a dollar figure
   // (the dollar figure the player actually got is implicit in the budget line right after).
-  const pct = m?.subsidyBonusPct;
-  const bonusText = bonus ? ` · субсидия +${money(bonus)}/окно` : pct ? ` · субсидия +${Math.round(pct * 100)}%` : '';
+  const bonusPct = m?.subsidyBonusPct;
+  const bonusText = bonus
+    ? t('chronicle.subsidyBonus', { v: money(bonus) })
+    : bonusPct
+      ? t('chronicle.subsidyBonusPct', { v: Math.round(bonusPct * 100) })
+      : '';
   return `${m?.name ?? id}${bonusText}`;
 }
 
@@ -45,14 +49,18 @@ export class ChroniclePanel extends LitElement {
   @state() private expanded = new Set<number>();
   @state() private historyOpen = false;
   private unsub?: () => void;
+  private unsubI18n?: () => void;
 
   willUpdate(): void {
     if (!this.unsub && this.store) this.unsub = this.store.subscribe(() => (this.tick = this.tick + 1));
+    if (!this.unsubI18n) this.unsubI18n = i18n.subscribe(() => (this.tick = this.tick + 1));
   }
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this.unsub?.();
     this.unsub = undefined;
+    this.unsubI18n?.();
+    this.unsubI18n = undefined;
   }
 
   static styles = [
@@ -135,13 +143,13 @@ export class ChroniclePanel extends LitElement {
   private landedLine(r: ColonyReport): string {
     const parts: string[] = [];
     for (const [k, v] of Object.entries(r.landed.stocks)) {
-      if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? ''} ${k} +${kg(v!)} кг`);
+      if ((v ?? 0) > 0) parts.push(`${ICON[k] ?? ''} ${k} +${kg(v!)} ${t('status.kg')}`);
     }
-    if (r.landed.colonists > 0) parts.push(`🧑‍🚀 +${r.landed.colonists} колонистов`);
+    if (r.landed.colonists > 0) parts.push(t('chronicle.colonistsLanded', { n: r.landed.colonists }));
     for (const [id, n] of Object.entries(r.landed.structures)) {
       if ((n ?? 0) > 0) parts.push(`${STRUCT_BY_ID[id]?.icon ?? ''} +${n} ${STRUCT_BY_ID[id]?.name ?? id}`);
     }
-    return parts.length ? `с Земли: ${parts.join(' · ')}` : 'с Земли: ничего не прибыло';
+    return parts.length ? t('chronicle.fromEarth', { list: parts.join(' · ') }) : t('chronicle.fromEarthEmpty');
   }
 
   /** Storyteller event (D-063), stated as a dry fact — no forecast, this is what already happened. */
@@ -177,25 +185,26 @@ export class ChroniclePanel extends LitElement {
   private eventTags(r: ColonyReport): string[] {
     const ev: string[] = [];
     if (r.event) ev.push(this.eventLabel(r.event));
-    if (r.explosions.classic) ev.push(`💥 взрыв на площадке: −${r.explosions.classic} classic`);
-    if (r.explosions.refuel) ev.push(`💥 взрыв на площадке: −${r.explosions.refuel} refuel`);
-    if (r.capped) ev.push('⚠ часть завоза не влезла в пропускную способность');
-    if (r.built.length) ev.push(`🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
-    if (r.demolished.length) ev.push(`🔧 демонтировано: ${r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}`);
-    if (r.repairSpentKg > 0) ev.push(`🔧 ремонт: потрачено ${kg(r.repairSpentKg)} кг ЗИПа сверх обслуживания (D-084)`);
+    if (r.explosions.classic) ev.push(t('chronicle.explosion', { n: r.explosions.classic, tech: 'classic' }));
+    if (r.explosions.refuel) ev.push(t('chronicle.explosion', { n: r.explosions.refuel, tech: 'refuel' }));
+    if (r.capped) ev.push(t('chronicle.capped'));
+    if (r.built.length) ev.push(t('chronicle.built', { list: r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') }));
+    if (r.demolished.length)
+      ev.push(t('chronicle.demolished', { list: r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') }));
+    if (r.repairSpentKg > 0) ev.push(t('chronicle.repairSpentD084', { v: kg(r.repairSpentKg) }));
     if (r.foodSpoiledKg > 0 || r.pharmaSpoiledKg > 0) {
       const parts: string[] = [];
-      if (r.foodSpoiledKg > 0) parts.push(`еда −${kg(r.foodSpoiledKg)} кг`);
-      if (r.pharmaSpoiledKg > 0) parts.push(`фарма −${kg(r.pharmaSpoiledKg)} кг`);
-      ev.push(`🦠 порча: ${parts.join(', ')}`);
+      if (r.foodSpoiledKg > 0) parts.push(t('chronicle.spoiledFood', { v: kg(r.foodSpoiledKg) }));
+      if (r.pharmaSpoiledKg > 0) parts.push(t('chronicle.spoiledPharma', { v: kg(r.pharmaSpoiledKg) }));
+      ev.push(t('chronicle.spoiled', { list: parts.join(', ') }));
     }
-    if (r.births > 0) ev.push(`🐣 рождения: +${r.births}`);
+    if (r.births > 0) ev.push(t('chronicle.births', { n: r.births }));
     // D-097 #2: fires ONCE, the window the colony's mean chronic dose first crosses the alarm
     // threshold — a fact the medical service reports about the past, not a telegraphed fate (D-063)
     if (r.radiationAlarmNew) {
-      ev.push(`🩺 медслужба: устойчивый рост случаев раннего старения — накопленная доза персонала (${r.avgRadiationDose.toFixed(2)} Зв) требует внимания`);
+      ev.push(t('chronicle.radiationAlarm', { v: r.avgRadiationDose.toFixed(2) }));
     }
-    for (const id of r.milestones) ev.push(`★ майлстоун: ${milestoneLabel(id)}`);
+    for (const id of r.milestones) ev.push(t('chronicle.milestone', { v: milestoneLabel(id) }));
     return ev;
   }
 
@@ -218,9 +227,9 @@ export class ChroniclePanel extends LitElement {
   }
 
   private oneLine(r: ColonyReport): TemplateResult {
-    if (this.isQuiet(r)) return html`<span class="oneline">тихо</span>`;
+    if (this.isQuiet(r)) return html`<span class="oneline">${t('chronicle.quiet')}</span>`;
     const bits: string[] = [];
-    if (r.mortality > 0) bits.push(`† ${r.mortality}`);
+    if (r.mortality > 0) bits.push(t('chronicle.died', { n: r.mortality }));
     bits.push(...this.eventTags(r));
     return html`<span class=${r.mortality > 0 ? 'neg' : 'warn'}>${bits.join(' · ')}</span>`;
   }
@@ -233,20 +242,22 @@ export class ChroniclePanel extends LitElement {
       <div class="section">${this.landedLine(r)}</div>
       ${r.mortality > 0
         ? html`<div class="section neg">
-            † погибло ${r.mortality}${causes.length
-              ? `: ${causes.map(([c, n]) => `${CAUSE_LABEL[c] ?? c} (${n})`).join(', ')}`
+            ${t('chronicle.died', { n: r.mortality })}${causes.length
+              ? `: ${causes.map(([c, n]) => `${causeLabel(c)} (${n})`).join(', ')}`
               : ''}
           </div>`
         : nothing}
       ${this.eventTags(r)
-        .filter((t) => !t.startsWith('🏗') && !t.startsWith('🔧') && !t.startsWith('🐣') && !t.startsWith('★'))
-        .map((t) => html`<div class="section warn">${t}</div>`)}
+        .filter((tag) => !tag.startsWith('🏗') && !tag.startsWith('🔧') && !tag.startsWith('🐣') && !tag.startsWith('★'))
+        .map((tag) => html`<div class="section warn">${tag}</div>`)}
       ${r.built.length || r.demolished.length || r.repairSpentKg > 0 || r.births > 0 || r.milestones.length
         ? html`<div class="section ok">
-            ${r.built.length ? `🏗 построено: ${r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}` : ''}
-            ${r.demolished.length ? ` 🔧 демонтировано: ${r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ')}` : ''}
-            ${r.repairSpentKg > 0 ? ` 🔧 ремонт: потрачено ${kg(r.repairSpentKg)} кг ЗИПа сверх обслуживания` : ''}
-            ${r.births > 0 ? ` 🐣 рождения: +${r.births}` : ''}
+            ${r.built.length ? t('chronicle.built', { list: r.built.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') }) : ''}
+            ${r.demolished.length
+              ? ` ${t('chronicle.demolished', { list: r.demolished.map((id) => STRUCT_BY_ID[id]?.name ?? id).join(', ') })}`
+              : ''}
+            ${r.repairSpentKg > 0 ? ` ${t('chronicle.repairSpent', { v: kg(r.repairSpentKg) })}` : ''}
+            ${r.births > 0 ? ` ${t('chronicle.births', { n: r.births })}` : ''}
             ${r.milestones.map((id) => ` ★ ${milestoneLabel(id)}`).join(' ·')}
           </div>`
         : nothing}
@@ -254,20 +265,22 @@ export class ChroniclePanel extends LitElement {
         ? html`<div class="section struct">
             ${structs.map(
               ([id, d]) => html`<div>
-                ${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id} — выпуск
+                ${STRUCT_BY_ID[id]?.icon ?? ''} ${STRUCT_BY_ID[id]?.name ?? id} — ${t('chronicle.structOutput')}
                 <b>${pct(d.runFrac)}</b>
                 <span class="frac"
-                  >(состояние ${pct(d.condition)} × энергия ${pct(d.energyFrac)} × входы ${pct(d.inputFrac)})</span
+                  >${t('chronicle.structFrac', { cond: pct(d.condition), energy: pct(d.energyFrac), input: pct(d.inputFrac) })}</span
                 >
               </div>`,
             )}
           </div>`
         : nothing}
       <div class="section" style="opacity:.65">
-        ⚡ энергия ${kg(r.energyGen)} / ${kg(r.energyDemand)}${eShort ? html` <span class="neg">браунаут −${kg(r.energyDeficit)}</span>` : ''}
-        · 🔧 ЗИП покрытие ${pct(r.sparesCoverage)}
-        ${r.n2LeakKg > 0 ? html`· 🌫️ утечка N₂ −${kg(r.n2LeakKg)} кг/окно` : nothing}
-        · автономия по массе (окно) ${pct(r.autonomyByMass)}
+        ${t('chronicle.footerEnergy', { gen: kg(r.energyGen), dem: kg(r.energyDemand) })}${eShort
+          ? html` <span class="neg">${t('chronicle.footerBrownout', { v: kg(r.energyDeficit) })}</span>`
+          : ''}
+        · ${t('chronicle.footerSpares', { v: pct(r.sparesCoverage) })}
+        ${r.n2LeakKg > 0 ? html`· ${t('chronicle.footerLeak', { v: kg(r.n2LeakKg) })}` : nothing}
+        · ${t('chronicle.footerAutonomy', { v: pct(r.autonomyByMass) })}
       </div>
     `;
   }
@@ -302,11 +315,11 @@ export class ChroniclePanel extends LitElement {
     const last = chronicle[chronicle.length - 1]!;
     const rest = chronicle.slice(0, -1).slice().reverse();
     return html`
-      <div class="panel-label">Хроника</div>
+      <div class="panel-label">${t('chronicle.title')}</div>
       ${this.entryCard(last, true)}
       ${rest.length
         ? html`<div class="toggle" @click=${() => (this.historyOpen = !this.historyOpen)}>
-            ${this.historyOpen ? '▾' : '▸'} прошлые окна (${rest.length})
+            ${this.historyOpen ? '▾' : '▸'} ${t('chronicle.pastWindows', { n: rest.length })}
           </div>`
         : nothing}
       ${this.historyOpen ? rest.map((r) => this.entryCard(r, false)) : nothing}

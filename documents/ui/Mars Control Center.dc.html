@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #070d0b; }
+  @keyframes blinkPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.28; } }
+  @keyframes ledGlow { 0%, 100% { box-shadow: 0 0 0 rgba(255,90,60,0); } 50% { box-shadow: 0 0 6px 1px rgba(255,90,60,0.8); } }
+</style>
+</helmet>
+
+<div style="width:100%; min-height:100vh; box-sizing:border-box; background:#070d0b; color:#dfeee7; font-family:'IBM Plex Mono', monospace; padding:clamp(14px,3vw,32px); background-image:radial-gradient(circle at 15% 0%, rgba(47,214,138,0.05), transparent 55%);" data-screen-label="Main Dashboard">
+
+  <div style="display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:16px; border-bottom:2px solid #1e352d; padding-bottom:16px; margin-bottom:22px;">
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <div style="display:flex; align-items:baseline; gap:10px;">
+        <div style="font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:clamp(20px,2.6vw,30px); letter-spacing:0.06em; color:#eafaf1;">OUTLAND COMMAND</div>
+        <div style="font-family:'IBM Plex Mono', monospace; font-size:11px; color:#4d6a5e; letter-spacing:0.04em;">v2.3.1</div>
+      </div>
+      <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase;">Mars Colonization Authority &middot; Control Center &middot; Callsign CS-04 / Ares Basin</div>
+      <div style="font-size:10.5px; letter-spacing:0.05em; color:#4d6a5e; text-transform:uppercase;">Scenario feed: {{ scenarioLabel }}</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:22px; flex-wrap:wrap;">
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px;">
+        <div style="font-size:11px; color:#7fa596; letter-spacing:0.08em;">WINDOW</div>
+        <div style="font-size:18px; color:#eafaf1; font-weight:500;">{{ data.window }} &middot; {{ data.year }}</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; padding:6px 12px; background:#0d1a16; border:1px solid #1e352d; border-radius:3px;">
+        <div style="width:8px; height:8px; border-radius:50%; background:#2fd68a;"></div>
+        <div style="font-size:11px; letter-spacing:0.06em; color:#bfe6d6;">{{ labels.uplink }}</div>
+      </div>
+      <sc-if value="{{ hasAlerts }}">
+        <div style="display:flex; align-items:center; gap:8px; padding:6px 12px; background:rgba(255,90,60,0.12); border:1px solid #7a3326; border-radius:3px; animation:{{ pulseAnim }};">
+          <div style="width:8px; height:8px; border-radius:50%; background:#ff5a3c;"></div>
+          <div style="font-size:11px; letter-spacing:0.06em; color:#ffb8a8;">{{ alertCount }} {{ labels.alertsWord }}</div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
+
+    <div style="flex:1 1 260px; background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:16px; display:flex; flex-direction:column; align-items:center; gap:10px;">
+      <div style="align-self:flex-start; font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ labels.autonomy }}</div>
+      <div style="position:relative; width:140px; height:140px;">
+        <div style="position:absolute; inset:0; border-radius:50%; background: conic-gradient(#2fd68a {{ data.autonomyPct }}%, #182a24 0);"></div>
+        <div style="position:absolute; inset:12px; border-radius:50%; background:#0d1a16;"></div>
+        <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+          <div style="font-size:26px; font-weight:600; color:#eafaf1;">{{ data.autonomyPctStr }}%</div>
+          <div style="font-size:9px; color:#5f8272; letter-spacing:0.05em;">POP {{ data.population }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1 1 260px; background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:16px; display:flex; flex-direction:column; gap:10px;">
+      <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ labels.energy }}</div>
+      <div style="display:flex; justify-content:space-between; font-size:20px; color:#eafaf1;">
+        <span>{{ data.energyGen }} <span style="font-size:11px; color:#5f8272;">kW gen</span></span>
+        <span>{{ data.energyDemand }} <span style="font-size:11px; color:#5f8272;">kW dem</span></span>
+      </div>
+      <div style="height:14px; background:#182a24; border-radius:2px; overflow:hidden; border:1px solid #1e352d;">
+        <div style="height:100%; width:{{ energyPct }}%; background:{{ energyColor }}; animation:{{ energyAnim }};"></div>
+      </div>
+      <div style="font-size:12px; color:{{ energyColor }};">{{ energyStatusText }}</div>
+    </div>
+
+    <div style="flex:1 1 260px; background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:16px; display:flex; flex-direction:column; gap:10px;">
+      <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ labels.throughput }}</div>
+      <div style="display:flex; justify-content:space-between; font-size:20px; color:#eafaf1;">
+        <span>{{ data.massUsedStr }} <span style="font-size:11px; color:#5f8272;">kg used</span></span>
+        <span>{{ data.massCapStr }} <span style="font-size:11px; color:#5f8272;">kg cap</span></span>
+      </div>
+      <div style="height:14px; background:#182a24; border-radius:2px; overflow:hidden; border:1px solid #1e352d;">
+        <div style="height:100%; width:{{ massPct }}%; background:{{ massColor }}; animation:{{ massAnim }};"></div>
+      </div>
+      <div style="font-size:12px; color:#5f8272;">{{ labels.effPerKg }}: <span style="color:#dfeee7;">${{ data.effPerKg }}</span> &middot; K {{ data.launchKStr }} kg/wnd</div>
+    </div>
+
+  </div>
+
+  <div style="background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:16px; margin-bottom:16px; display:flex; flex-wrap:wrap; gap:20px; justify-content:space-between;">
+    <div style="flex:2 1 320px; display:flex; flex-direction:column; gap:8px;">
+      <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ labels.budget }}</div>
+      <div style="position:relative; height:16px; background:#182a24; border-radius:2px; border:1px solid #1e352d;">
+        <div style="height:100%; width:{{ spendPct }}%; background:{{ spendColor }};"></div>
+        <div style="position:absolute; top:-3px; left:{{ realPct }}%; width:2px; height:22px; background:#ffb020;"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:#7fa596; flex-wrap:wrap; gap:8px;">
+        <span>{{ labels.plannedSpend }}: <b style="color:{{ spendColor }};">${{ data.spendPlannedStr }}</b></span>
+        <span>{{ labels.subsidyNominal }}: ${{ data.budgetMStr }}</span>
+        <span style="color:#ffb020;">{{ labels.subsidyReal }}: ${{ data.budgetRealStr }} (&minus;{{ data.erosionPct }}%)</span>
+      </div>
+    </div>
+    <div style="flex:1 1 220px; display:flex; flex-direction:column; gap:6px; font-size:12px; color:#7fa596;">
+      <div>{{ labels.importCost }}: <b style="color:#dfeee7;">${{ data.importFStr }}</b></div>
+      <div>F/M: <b style="color:#dfeee7;">{{ data.fmRatio }}</b></div>
+      <div>{{ labels.inflation }}: <b style="color:#dfeee7;">{{ data.inflationPct }}%/wnd</b></div>
+      <sc-if value="{{ data.colonistsTransit }}">
+        <div style="color:#ffb020;">{{ labels.inTransit }}: {{ data.colonistsTransit }}</div>
+      </sc-if>
+    </div>
+  </div>
+
+  <sc-if value="{{ hasAlerts }}">
+    <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px;">
+      <sc-for list="{{ alertChips }}" as="a" hint-placeholder-count="2">
+        <div style="display:flex; align-items:center; gap:8px; padding:8px 12px; background:rgba(255,90,60,0.1); border:1px solid #7a3326; border-radius:3px; font-size:12px; color:#ffb8a8; animation:{{ a.anim }};">
+          <div style="width:6px; height:6px; border-radius:50%; background:#ff5a3c; flex:none;"></div>
+          <span>{{ a.text }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:16px; margin-bottom:16px;">
+    <div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+      <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ labels.systems }}</div>
+      <div style="display:flex; gap:14px; flex-wrap:wrap; font-size:10px; color:#5f8272;">
+        <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#2fd68a; margin-right:5px;"></span>{{ labels.stLocal }}</span>
+        <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#ffb020; margin-right:5px;"></span>{{ labels.stBuildable }}</span>
+        <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#ff5a3c; margin-right:5px;"></span>{{ labels.stImport }}</span>
+        <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#8b8296; margin-right:5px;"></span>{{ labels.stBlack }}</span>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px;">
+      <sc-for list="{{ nodes }}" as="node" hint-placeholder-count="16">
+        <div onClick="{{ node.onClick }}" style="cursor:pointer; padding:10px; background:{{ node.tileBg }}; border:1px solid {{ node.tileBorder }}; border-radius:3px; display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="width:8px; height:8px; border-radius:50%; background:{{ node.ledColor }};"></div>
+            <div style="font-size:9px; color:#4d6a5e;">T{{ node.tier }}</div>
+          </div>
+          <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; color:#dfeee7; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ node.primary }}</div>
+          <sc-if value="{{ node.showSecondary }}">
+            <div style="font-size:10px; color:#5f8272; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ node.secondary }}</div>
+          </sc-if>
+          <div style="font-size:9.5px; letter-spacing:0.04em; color:{{ node.ledColor }}; text-transform:uppercase;">{{ node.statusLabel }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px;">
+
+    <div style="flex:1 1 300px; background:#0d1a16; border:1px solid #2fd68a; border-radius:4px; padding:16px; position:relative;">
+      <div style="position:absolute; top:6px; left:6px; width:10px; height:10px; border-top:2px solid #2fd68a; border-left:2px solid #2fd68a;"></div>
+      <div style="position:absolute; top:6px; right:6px; width:10px; height:10px; border-top:2px solid #2fd68a; border-right:2px solid #2fd68a;"></div>
+      <div style="position:absolute; bottom:6px; left:6px; width:10px; height:10px; border-bottom:2px solid #2fd68a; border-left:2px solid #2fd68a;"></div>
+      <div style="position:absolute; bottom:6px; right:6px; width:10px; height:10px; border-bottom:2px solid #2fd68a; border-right:2px solid #2fd68a;"></div>
+      <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600; margin-bottom:10px;">{{ labels.inspector }}</div>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:16px; color:#eafaf1;">{{ selected.primary }}</div>
+        <sc-if value="{{ selected.showSecondary }}">
+          <div style="font-size:11px; color:#5f8272;">{{ selected.secondary }}</div>
+        </sc-if>
+        <div style="display:flex; gap:16px; font-size:11px; color:#7fa596; margin-top:4px; flex-wrap:wrap;">
+          <span>TIER T{{ selected.tier }}</span>
+          <span style="color:{{ selected.ledColor }};">{{ selected.statusLabel }}</span>
+          <sc-if value="{{ selected.hasMass }}"><span>{{ selected.massStr }} kg/wnd import draw</span></sc-if>
+        </div>
+        <div style="font-size:12px; color:#a8c4b8; line-height:1.5; margin-top:6px;">{{ selected.note }}</div>
+      </div>
+    </div>
+
+    <div style="flex:1 1 300px; background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:16px; display:flex; flex-direction:column; gap:10px;">
+      <div style="font-size:11px; letter-spacing:0.08em; color:#7fa596; text-transform:uppercase; font-family:'Space Grotesk',sans-serif; font-weight:600;">{{ labels.chronicle }}</div>
+      <div style="max-height:190px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; font-size:12px; line-height:1.5;">
+        <sc-for list="{{ events }}" as="ev" hint-placeholder-count="4">
+          <div style="display:flex; gap:8px;">
+            <span style="color:#3d5a4d; flex:none;">[W{{ ev.w }}]</span>
+            <span style="color:#c3ddd0;">{{ ev.text }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; border-top:2px solid #1e352d; padding-top:16px;">
+    <div style="font-size:11px; color:#5f8272; letter-spacing:0.04em;">{{ footerNote }}</div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <button style="font:inherit; background:#0d1a16; color:#dfeee7; border:1px solid #33544a; padding:10px 18px; border-radius:3px; cursor:pointer; letter-spacing:0.05em; font-size:12px;" style-hover="background:#132a25; border-color:#4d6a5e;">{{ labels.reset }}</button>
+      <button style="font:inherit; background:#123d28; color:#d8f5e2; border:1px solid #2fd68a; padding:10px 22px; border-radius:3px; cursor:pointer; letter-spacing:0.05em; font-size:12px; font-weight:600;" style-hover="background:#164a30;">{{ labels.commit }}</button>
+    </div>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 1100},
+  &quot;scenario&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;nominal&quot;, &quot;options&quot;: [&quot;nominal&quot;, &quot;energy_crisis&quot;, &quot;budget_overrun&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Data&quot;},
+  &quot;language&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;en&quot;, &quot;options&quot;: [&quot;en&quot;, &quot;ru&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Display&quot;},
+  &quot;alertPulse&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Display&quot;}
+}">
+const NODES = [
+  { name: 'Fusion Reactor Core', ru: 'Термоядерный реактор', tier: 0, status: 'local', mass: 0,
+    note: { en: 'Primary power source. Self-sufficient since Window 6.', ru: 'Основной источник энергии. Автономен с окна 6.' } },
+  { name: 'Water Reclamation', ru: 'Регенерация воды', tier: 0, status: 'local', mass: 0,
+    note: { en: 'Closed-loop recovery above 98%.', ru: 'Замкнутый цикл, возврат свыше 98%.' } },
+  { name: 'O2 Generation', ru: 'Генерация кислорода', tier: 0, status: 'local', mass: 0,
+    note: { en: 'Electrolysis stack, fully localized.', ru: 'Электролизная установка, полностью локализована.' } },
+  { name: 'Regolith Processing', ru: 'Обработка реголита', tier: 1, status: 'local', mass: 0,
+    note: { en: 'Feeds the print yard and smelter.', ru: 'Питает цех печати и плавильню.' } },
+  { name: 'Ore Smelter', ru: 'Плавильня руды', tier: 1, status: 'buildable', mass: 0,
+    note: { en: 'Needs 40t refractory brick to localize.', ru: 'Для локализации нужно 40т огнеупорного кирпича.' } },
+  { name: '3D-Print Yard', ru: 'Цех печати', tier: 1, status: 'local', mass: 0,
+    note: { en: 'Structural elements, T1 tooling.', ru: 'Конструктивные элементы, оснастка T1.' } },
+  { name: 'Battery Bank', ru: 'Батарейный блок', tier: 1, status: 'buildable', mass: 0,
+    note: { en: 'Cell stacks still imported.', ru: 'Батарейные ячейки пока импортные.' } },
+  { name: 'Habitat Ring A', ru: 'Жилой блок А', tier: 0, status: 'local', mass: 0,
+    note: { en: 'Occupied, radiation-rated.', ru: 'Заселён, радиационная защита в норме.' } },
+  { name: 'Habitat Ring B', ru: 'Жилой блок Б', tier: 1, status: 'buildable', mass: 0,
+    note: { en: 'Frame complete, shielding pending.', ru: 'Каркас готов, защита не установлена.' } },
+  { name: 'Greenhouse Dome 1', ru: 'Оранжерея 1', tier: 0, status: 'local', mass: 0,
+    note: { en: 'Covers 62% of caloric need.', ru: 'Покрывает 62% потребности в калориях.' } },
+  { name: 'Greenhouse Dome 2', ru: 'Оранжерея 2', tier: 1, status: 'buildable', mass: 0,
+    note: { en: 'Awaiting glass panelling.', ru: 'Ожидает стеклопанели.' } },
+  { name: 'Spare Parts Fab', ru: 'Цех ЗИП', tier: 2, status: 'import', mass: 1840,
+    note: { en: 'Precision tooling not yet local.', ru: 'Точная оснастка пока не локализована.' } },
+  { name: 'Pharma Synth', ru: 'Фармсинтез', tier: 2, status: 'import', mass: 620,
+    note: { en: 'Catalyst chemistry unresolved.', ru: 'Химия катализаторов не решена.' } },
+  { name: 'Comms Array', ru: 'Антенный комплекс', tier: 0, status: 'local', mass: 0,
+    note: { en: 'High-gain dish, fully autonomous.', ru: 'Остронаправленная антенна, полностью автономна.' } },
+  { name: 'Rover Fleet', ru: 'Парк роверов', tier: 1, status: 'buildable', mass: 0,
+    note: { en: 'Drivetrain local, sensors imported.', ru: 'Привод локальный, сенсоры импортные.' } },
+  { name: 'Medbay', ru: 'Медотсек', tier: 2, status: 'black', mass: 340,
+    note: { en: 'Surgical electronics: unlocalizable.', ru: 'Хирургическая электроника: нелокализуемо.' } },
+];
+
+const SCENARIOS = {
+  nominal: {
+    label: 'NOMINAL', window: 14, year: 2054, population: 386,
+    energyGen: 1240, energyDemand: 1180, autonomyPct: 42.7,
+    budgetM: 18400000, budgetReal: 14200000, erosionPct: 22.8, inflationPct: 3.1,
+    spendPlanned: 16100000, importF: 9650000,
+    massUsed: 21400, massCap: 26000, effPerKg: 412, launchK: 26000,
+    colonistsTransit: 0, overBudget: false, massCapped: false,
+    alerts: [],
+    events: [
+      { w: 14, en: 'Habitat Ring A radiation shielding passed final inspection.', ru: 'Радиационная защита жилого блока А прошла финальную инспекцию.' },
+      { w: 13, en: 'Greenhouse Dome 1 yield up 6% after nutrient mix change.', ru: 'Урожайность оранжереи 1 выросла на 6% после смены питательной смеси.' },
+      { w: 12, en: 'Ore Smelter foundation poured; localization ETA 3 windows.', ru: 'Залит фундамент плавильни; локализация через 3 окна.' },
+      { w: 11, en: 'Comms array weathered dust storm with no downtime.', ru: 'Антенный комплекс пережил пыльную бурю без простоя.' },
+    ],
+    nodeOverrides: {},
+  },
+  energy_crisis: {
+    label: 'ENERGY CRISIS', window: 15, year: 2054, population: 388,
+    energyGen: 980, energyDemand: 1180, autonomyPct: 39.1,
+    budgetM: 18400000, budgetReal: 14100000, erosionPct: 23.4, inflationPct: 3.1,
+    spendPlanned: 15800000, importF: 9400000,
+    massUsed: 20100, massCap: 26000, effPerKg: 409, launchK: 26000,
+    colonistsTransit: 0, overBudget: false, massCapped: false,
+    alerts: [
+      { en: 'ENERGY DEFICIT \u2212200 kW \u2014 brownout risk within 2 windows', ru: 'ДЕФИЦИТ ЭНЕРГИИ \u2212200 кВт \u2014 риск отключений через 2 окна' },
+      { en: 'Fusion core offline for fuel-rod swap; solar+battery covering 83% of demand', ru: 'Реактор отключён для замены ТВЭЛ; солнце+батареи покрывают 83%' },
+    ],
+    events: [
+      { w: 15, en: 'Fusion Reactor Core taken offline for scheduled fuel-rod swap.', ru: 'Термоядерный реактор отключён для плановой замены ТВЭЛ.' },
+      { w: 15, en: 'Emergency import of enriched fuel rods approved.', ru: 'Одобрен экстренный завоз обогащённых ТВЭЛ.' },
+      { w: 14, en: 'Battery bank load-shedding activated on non-critical habitat loads.', ru: 'Батарейный блок ограничил нагрузку на второстепенные контуры.' },
+      { w: 13, en: 'Solar array output down 9% \u2014 seasonal dust accumulation.', ru: 'Выработка солнечных панелей упала на 9% из-за пыли.' },
+    ],
+    nodeOverrides: {
+      'Fusion Reactor Core': { status: 'import', mass: 2100, note: { en: 'Fuel rods depleted \u2014 emergency import running.', ru: 'ТВЭЛ исчерпаны \u2014 идёт экстренный завоз.' } },
+    },
+  },
+  budget_overrun: {
+    label: 'BUDGET OVERRUN', window: 16, year: 2055, population: 391,
+    energyGen: 1260, energyDemand: 1190, autonomyPct: 41.8,
+    budgetM: 18400000, budgetReal: 14000000, erosionPct: 23.9, inflationPct: 3.1,
+    spendPlanned: 21300000, importF: 12900000,
+    massUsed: 26800, massCap: 26000, effPerKg: 481, launchK: 26000,
+    colonistsTransit: 6, overBudget: true, massCapped: true,
+    alerts: [
+      { en: 'PLAN EXCEEDS WINDOW SUBSIDY by $2.9M', ru: 'ПЛАН ПРЕВЫШАЕТ СУБСИДИЮ ОКНА НА $2.9М' },
+      { en: 'MASS OVER THROUGHPUT by 800 kg \u2014 trim manifest or build launch pads', ru: 'МАССА ПРЕВЫШАЕТ ПРОПУСКНУЮ СПОСОБНОСТЬ НА 800 КГ' },
+      { en: 'Materials short: refractory brick, glass panelling', ru: 'НЕХВАТКА МАТЕРИАЛОВ: огнеупорный кирпич, стеклопанели' },
+    ],
+    events: [
+      { w: 16, en: 'Manifest revision rejected at commit \u2014 over budget by $2.9M.', ru: 'Ведомость отклонена при коммите \u2014 превышение на $2.9М.' },
+      { w: 16, en: 'Ore Smelter localization delayed pending refractory brick shipment.', ru: 'Локализация плавильни задержана \u2014 ждём кирпич.' },
+      { w: 15, en: 'Greenhouse Dome 2 glass panelling order flagged unaffordable.', ru: 'Заказ стеклопанелей для оранжереи 2 признан непосильным.' },
+      { w: 14, en: 'Six colonists queued for next viable launch window.', ru: 'Шесть колонистов в очереди на следующее окно запуска.' },
+    ],
+    nodeOverrides: {
+      'Ore Smelter': { status: 'buildable', mass: 0, note: { en: 'Blocked \u2014 refractory brick shortfall.', ru: 'Блокировано \u2014 нехватка огнеупорного кирпича.' } },
+      'Greenhouse Dome 2': { status: 'buildable', mass: 0, note: { en: 'Blocked \u2014 glass panelling unaffordable this window.', ru: 'Блокировано \u2014 стеклопанели недоступны в этом окне.' } },
+    },
+  },
+};
+
+const LED = { local: '#2fd68a', buildable: '#ffb020', import: '#ff5a3c', black: '#8b8296' };
+const STATUS_WORD = {
+  local: { en: 'LOCAL', ru: 'ЛОКАЛЬНО' },
+  buildable: { en: 'BUILDABLE', ru: 'МОЖНО ПОСТРОИТЬ' },
+  import: { en: 'IMPORT', ru: 'ИМПОРТ' },
+  black: { en: 'BLACK', ru: 'НЕЛОКАЛИЗУЕМО' },
+};
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+
+class Component extends DCLogic {
+  state = { selectedIndex: 0 };
+
+  renderVals() {
+    const scenarioKey = this.props.scenario ?? 'nominal';
+    const scenario = SCENARIOS[scenarioKey] ?? SCENARIOS.nominal;
+    const lang = this.props.language ?? 'en';
+    const isRuPrimary = lang === 'ru';
+    const showSecondary = false;
+    const pulse = this.props.alertPulse ?? true;
+
+    const t = (en, ru) => ({
+      primary: isRuPrimary ? ru : en,
+      secondary: ru,
+      showSecondary,
+    });
+    const label = (en, ru) => (isRuPrimary ? ru : en);
+
+    const labels = {
+      uplink: label('UPLINK NOMINAL', 'СВЯЗЬ: НОРМА'),
+      alertsWord: label('ALERTS', 'ТРЕВОГИ'),
+      autonomy: label('Autonomy (by mass)', 'Автономия (по массе)'),
+      energy: label('Energy Balance', 'Энергобаланс'),
+      throughput: label('Import Throughput', 'Пропускная способность'),
+      effPerKg: label('eff. $/kg', 'эфф. $/кг'),
+      budget: label('Import Budget Ledger', 'Бюджетная ведомость'),
+      plannedSpend: label('Planned spend', 'Плановые расходы'),
+      subsidyNominal: label('Subsidy (nominal)', 'Субсидия (номинал)'),
+      subsidyReal: label('Subsidy (real)', 'Субсидия (реальная)'),
+      importCost: label('Import cost F', 'Стоимость завоза F'),
+      inflation: label('Inflation', 'Инфляция'),
+      inTransit: label('Colonists in transit', 'Колонисты в пути'),
+      systems: label('Colony Systems \u2014 Localization Status', 'Системы колонии \u2014 статус локализации'),
+      stLocal: label('Local', 'Локально'),
+      stBuildable: label('Buildable', 'Можно построить'),
+      stImport: label('Import', 'Импорт'),
+      stBlack: label('Black', 'Нелокализуемо'),
+      inspector: label('Selected System', 'Выбранная система'),
+      chronicle: label('Chronicle', 'Хроника'),
+      reset: label('Reset Simulation', 'Сброс симуляции'),
+      commit: label('Commit \u25b8 Next Window', 'Коммит \u25b8 следующее окно'),
+    };
+
+    const nodes = NODES.map((n, i) => {
+      const ov = scenario.nodeOverrides[n.name];
+      const status = ov?.status ?? n.status;
+      const mass = ov?.mass ?? n.mass;
+      const note = ov?.note ?? n.note;
+      const l = t(n.name, n.ru);
+      const selected = i === this.state.selectedIndex;
+      return {
+        name: n.name, tier: n.tier, status, mass, note,
+        primary: l.primary, secondary: l.secondary, showSecondary: l.showSecondary,
+        ledColor: LED[status],
+        statusLabel: isRuPrimary ? STATUS_WORD[status].ru : STATUS_WORD[status].en,
+        tileBg: selected ? '#132a25' : '#0d1a16',
+        tileBorder: selected ? LED[status] : '#1e352d',
+        onClick: () => this.setState({ selectedIndex: i }),
+      };
+    });
+
+    const sel = nodes[this.state.selectedIndex] ?? nodes[0];
+    const selNote = isRuPrimary ? sel.note.ru : sel.note.en;
+
+    const alertChips = scenario.alerts.map((a) => ({
+      text: isRuPrimary ? a.ru : a.en,
+      anim: pulse ? 'blinkPulse 2.2s ease-in-out infinite' : 'none',
+    }));
+
+    const events = scenario.events.map((e) => ({
+      w: e.w,
+      text: isRuPrimary ? e.ru : e.en,
+    }));
+
+    const energyDeficit = scenario.energyGen < scenario.energyDemand;
+    const energyPct = Math.min(100, (scenario.energyGen / scenario.energyDemand) * 100);
+    const massPct = Math.min(100, (scenario.massUsed / scenario.massCap) * 100);
+    const spendPct = Math.min(100, (scenario.spendPlanned / (scenario.budgetM * 1.3)) * 100);
+    const realPct = Math.min(100, (scenario.budgetReal / (scenario.budgetM * 1.3)) * 100);
+
+    return {
+      data: {
+        window: scenario.window, year: scenario.year, population: scenario.population,
+        energyGen: fmt(scenario.energyGen), energyDemand: fmt(scenario.energyDemand),
+        autonomyPctStr: scenario.autonomyPct.toFixed(1),
+        autonomyPct: scenario.autonomyPct,
+        budgetMStr: fmt(scenario.budgetM), budgetRealStr: fmt(scenario.budgetReal),
+        erosionPct: scenario.erosionPct.toFixed(1), inflationPct: scenario.inflationPct.toFixed(1),
+        spendPlannedStr: fmt(scenario.spendPlanned), importFStr: fmt(scenario.importF),
+        fmRatio: (scenario.importF / scenario.budgetM).toFixed(2),
+        massUsedStr: fmt(scenario.massUsed), massCapStr: fmt(scenario.massCap),
+        effPerKg: fmt(scenario.effPerKg), launchKStr: fmt(scenario.launchK),
+        colonistsTransit: scenario.colonistsTransit,
+      },
+      labels,
+      scenarioLabel: scenario.label,
+      hasAlerts: scenario.alerts.length > 0,
+      alertCount: scenario.alerts.length,
+      pulseAnim: pulse && scenario.alerts.length > 0 ? 'blinkPulse 2.2s ease-in-out infinite' : 'none',
+      alertChips,
+      energyPct,
+      energyColor: energyDeficit ? '#ff5a3c' : '#2fd68a',
+      energyAnim: energyDeficit && pulse ? 'blinkPulse 2.2s ease-in-out infinite' : 'none',
+      energyStatusText: energyDeficit
+        ? (isRuPrimary ? `ДЕФИЦИТ \u2212${fmt(scenario.energyDemand - scenario.energyGen)} кВт` : `DEFICIT \u2212${fmt(scenario.energyDemand - scenario.energyGen)} kW`)
+        : (isRuPrimary ? `ПРОФИЦИТ +${fmt(scenario.energyGen - scenario.energyDemand)} кВт` : `SURPLUS +${fmt(scenario.energyGen - scenario.energyDemand)} kW`),
+      massPct,
+      massColor: scenario.massCapped ? '#ff5a3c' : '#2fd68a',
+      massAnim: scenario.massCapped && pulse ? 'blinkPulse 2.2s ease-in-out infinite' : 'none',
+      spendPct,
+      spendColor: scenario.overBudget ? '#ff5a3c' : '#2fd68a',
+      realPct,
+      nodes,
+      selected: {
+        primary: sel.primary, secondary: sel.secondary, showSecondary: sel.showSecondary,
+        tier: sel.tier, ledColor: sel.ledColor, statusLabel: sel.statusLabel,
+        hasMass: sel.mass > 0, massStr: fmt(sel.mass), note: selNote,
+      },
+      events,
+      footerNote: isRuPrimary
+        ? `Окно ${scenario.window} завершится через ~2.2 года бортового времени`
+        : `Window ${scenario.window} closes in ~2.2 years shiptime`,
+    };
+  }
+}
+</script>
+</body>
+</html>

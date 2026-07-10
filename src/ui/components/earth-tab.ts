@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
 import { padClassFor, type ResourceKind, type TechSpec } from '../../engine';
 import { tokens } from '../theme';
+import { i18n, t } from '../i18n';
 
 const ICON: Record<string, string> = {
   food: '🍞', water: '💧', o2: '🫧', n2: '🌫️',
@@ -12,16 +13,16 @@ const ICON: Record<string, string> = {
   composite: '🧱', components: '🛠️', // D-090 (P2): regolith construction — importable, not localOnly
 };
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
-const kg = (v: number) => Math.round(v).toLocaleString('en-US') + ' кг';
+const kg = (v: number) => Math.round(v).toLocaleString('en-US') + ' ' + t('status.kg');
 
 const TABS = [
-  { id: 'logi', label: '🛫 Логистика' },
-  { id: 'life', label: '🍞 Жизнеобеспечение' },
-  { id: 'mat', label: '🔩 Материалы' },
-  { id: 'tech', label: '🔬 Хайтек' },
-  { id: 'people', label: '🧑‍🚀 Люди' },
-  { id: 'import', label: '📦 Импорт построек' },
-  { id: 'ttree', label: '🌳 Технологии' },
+  { id: 'logi', key: 'earth.tabLogi' },
+  { id: 'life', key: 'earth.tabLife' },
+  { id: 'mat', key: 'earth.tabMat' },
+  { id: 'tech', key: 'earth.tabTech' },
+  { id: 'people', key: 'earth.tabPeople' },
+  { id: 'import', key: 'earth.tabImport' },
+  { id: 'ttree', key: 'earth.tabTtree' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -36,14 +37,18 @@ export class EarthTab extends LitElement {
   @state() private tab: TabId = 'life';
   @state() private tick = 0;
   private unsub?: () => void;
+  private unsubI18n?: () => void;
 
   willUpdate(): void {
     if (!this.unsub && this.store) this.unsub = this.store.subscribe(() => (this.tick = this.tick + 1));
+    if (!this.unsubI18n) this.unsubI18n = i18n.subscribe(() => (this.tick = this.tick + 1));
   }
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this.unsub?.();
     this.unsub = undefined;
+    this.unsubI18n?.();
+    this.unsubI18n = undefined;
   }
 
   static styles = [
@@ -161,7 +166,7 @@ export class EarthTab extends LitElement {
     const auto = (r === 'spares' && store.autoSparesEnabled) || (r === 'pharma' && store.autoPharmaEnabled);
     return html`<div class="card">
       <div class="h">
-        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)}${auto ? ' (авто)' : ''}</span>
+        <span>${ICON[r] ?? ''} ${r}</span><span class="v">${kg(qty)}${auto ? t('earth.auto') : ''}</span>
       </div>
       <input
         type="range"
@@ -172,29 +177,35 @@ export class EarthTab extends LitElement {
         @input=${(e: Event) => store.setRes(r, Number((e.target as HTMLInputElement).value))}
       />
       <div class="sub">
-        товар ${money(earthPerKgNow)}/кг + доставка ~${money(deliveryPerKg)}/кг${spec.tare ? ` (тара ×${shipPerKg.toFixed(2)})` : ''} (${del.tech})${spec.perCapita ? ` · потр. ${spec.perCapita}/чел` : ''}${spec.recycle ? ` · η ${(spec.recycle * 100).toFixed(0)}%` : ''}
+        ${t('earth.priceLine', {
+          price: money(earthPerKgNow),
+          delivery: money(deliveryPerKg),
+          tare: spec.tare ? t('earth.tareSuffix', { v: shipPerKg.toFixed(2) }) : '',
+          tech: del.tech,
+          perCapita: spec.perCapita ? t('earth.perCapitaSuffix', { v: spec.perCapita }) : '',
+          recycle: spec.recycle ? t('earth.recycleSuffix', { v: (spec.recycle * 100).toFixed(0) }) : '',
+        })}
       </div>
-      ${r === 'n2'
-        ? html`<div class="sub">⚠ утечка идёт от жилых модулей (корпус негерметичен), не от населения — «потр./чел» тут ни при чём</div>`
-        : nothing}
+      ${r === 'n2' ? html`<div class="sub">${t('earth.n2Note')}</div>` : nothing}
       ${r === 'spares'
         ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">
             <input type="checkbox" .checked=${store.autoSparesEnabled} @change=${() => store.toggleAutoSpares()} />
-            авто-ЗИП: держать заказ не ниже текущего расхода на обслуживание
+            ${t('earth.autoSparesLabel')}
           </label>
           <div class="sub">
-            излишек сверх обслуживания чинит парк (D-084): ещё +${kg(store.repairInfo().upkeep)}
-            сверху даёт +${(store.repairInfo().rate * 100).toFixed(0)}% износа/окно всем сооружениям —
-            авто-ЗИП сам ремонт не включает (флорит ровно на обслуживание), это отдельное решение
+            ${t('earth.autoSparesNote', {
+              v: kg(store.repairInfo().upkeep),
+              r: (store.repairInfo().rate * 100).toFixed(0),
+            })}
           </div>`
         : nothing}
       ${r === 'pharma'
         ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.3rem">
             <input type="checkbox" .checked=${store.autoPharmaEnabled} @change=${() => store.toggleAutoPharma()} />
-            авто-фарма: держать заказ не ниже ожидаемого расхода (медблоки + лечение болезни)
+            ${t('earth.autoPharmaLabel')}
           </label>`
         : nothing}
-      ${qty > 0 ? html`<div class="sub">≈ ${money(lineCost)} за позицию</div>` : nothing}
+      ${qty > 0 ? html`<div class="sub">${t('earth.lineCost', { v: money(lineCost) })}</div>` : nothing}
     </div>`;
   }
 
@@ -204,10 +215,7 @@ export class EarthTab extends LitElement {
     if (this.tab === 'mat') return html`<div class="cards">${MAT.map((r) => this.resCard(r, 200_000, 5_000))}</div>`;
     if (this.tab === 'tech')
       return html`
-        <div class="sub" style="margin-bottom:.5rem">
-          ⚠ нелокализуемо при колониальном масштабе (D-045) — только завоз. Лёгкое, но дорогое:
-          вечный «земной leg» снабжения. Заводы (полимеры/медблок/RnD) тянут это каждое окно.
-        </div>
+        <div class="sub" style="margin-bottom:.5rem">${t('earth.techWarn')}</div>
         <div class="cards">${TECH.map((r) => this.resCard(r, 50_000, 500))}</div>
       `;
     if (this.tab === 'people') {
@@ -215,28 +223,21 @@ export class EarthTab extends LitElement {
       const perHead = store.colonistPriceNow();
       return html`<div class="cards">
         <div class="card">
-          <div class="h"><span>🧑‍🚀 колонисты</span><span class="v">${store.colonists} / ${max}</span></div>
+          <div class="h"><span>${t('earth.colonistsLabel')}</span><span class="v">${store.colonists} / ${max}</span></div>
           <input type="range" min="0" max=${Math.max(max, 1)} step=${max >= 10 ? 10 : 1} .value=${String(store.colonists)}
             ?disabled=${max === 0}
             @input=${(e: Event) => store.setColonists(Number((e.target as HTMLInputElement).value))} />
           <div class="sub">
-            ${max === 0
-              ? 'нет свободного жилья — постройте хабитат на Марсе или закажите готовую структуру с жильём (📦 Импорт построек)'
-              : `${money(perHead)}/чел (без учёта доставки) · прибудут через окно (лаг) · вес + вечный шлейф потребления`}
+            ${max === 0 ? t('earth.noHousing') : t('earth.perHead', { v: money(perHead) })}
           </div>
-          ${store.colonists > 0 ? html`<div class="sub">≈ ${money(perHead * store.colonists)} за позицию (без доставки)</div>` : nothing}
+          ${store.colonists > 0 ? html`<div class="sub">${t('earth.lineCostNoDelivery', { v: money(perHead * store.colonists) })}</div>` : nothing}
           ${store.cohortWaveWarning() ? html`<div class="sub" style="color:var(--c-amber)">${store.cohortWaveWarning()}</div>` : nothing}
         </div>
       </div>`;
     }
     if (this.tab === 'import')
       return html`
-        <div class="sub" style="margin-bottom:.5rem">
-          Готовые сооружения с Земли: цена — это сложная, дублируемая, космического класса техника
-          (не россыпь металла), плюс доставка по массе. На порядки дороже местной стройки на Марсе,
-          которая обходится только в материалы (D-054) — оправдано лишь для первой партии, пока на
-          Марсе физически нечем строить.
-        </div>
+        <div class="sub" style="margin-bottom:.5rem">${t('earth.importIntro')}</div>
         <div class="cards">${store.structures().map((s) => this.structImportCard(s.id))}</div>
       `;
     if (this.tab === 'ttree') return this.techTree();
@@ -255,23 +256,23 @@ export class EarthTab extends LitElement {
     const prereqOk = store.importPrereqMet(id); // D-075: imports skip the minPop labor gate
     return html`<div class="card">
       <div class="h">
-        <span>${struct.icon} ${struct.name}</span><span class="v">есть ${store.builtCount(id)} · +${qty}</span>
+        <span>${struct.icon} ${struct.name}</span><span class="v">${t('earth.have', { n: store.builtCount(id), m: qty })}</span>
       </div>
       <input type="range" min="0" max="10" step="1" .value=${String(qty)}
         ?disabled=${!prereqOk}
         @input=${(e: Event) => store.setImportQty(id, Number((e.target as HTMLInputElement).value))} />
       <div class="sub">
-        ${money(landedCost)}/шт под ключ (готовая структура ${money(unit.cost)} + доставка ${money(deliveryCost)}, ${kg(unit.mass)}, ${del.tech})
-        ${struct.energy > 0 ? ` · ⚡ средняя мощность +${struct.energy}/окно (среднегодовая)` : ''}
-        ${struct.housing ? ` · жильё +${struct.housing}` : ''}${
+        ${t('earth.turnkeyLine', { price: money(landedCost), cost: money(unit.cost), delivery: money(deliveryCost), mass: kg(unit.mass), tech: del.tech })}
+        ${struct.energy > 0 ? t('earth.avgPower', { v: struct.energy }) : ''}
+        ${struct.housing ? t('earth.housingPlus', { v: struct.housing }) : ''}${
           !prereqOk
             ? struct.techGate && !store.techOwned(struct.techGate)
-              ? ` · 🔒 нужна технология: ${struct.techGate}`
-              : ` · 🔒 нужен сначала: ${struct.prereq}`
+              ? t('earth.needTech', { v: struct.techGate })
+              : t('earth.needFirst', { v: struct.prereq ?? '' })
             : ''
         }
       </div>
-      ${qty > 0 ? html`<div class="sub">≈ ${money(landedCost * qty)} за позицию</div>` : nothing}
+      ${qty > 0 ? html`<div class="sub">${t('earth.lineCost', { v: money(landedCost * qty) })}</div>` : nothing}
     </div>`;
   }
 
@@ -281,19 +282,24 @@ export class EarthTab extends LitElement {
     const built = store.fleet().pads[tech];
     const priceNow = store.padPriceNow(tech); // inflation-adjusted — spec.padCapex alone is the window-0 price
     return html`<div class="card">
-      <div class="h"><span>${title}</span><span class="v">есть ${built} · +${store.padQty(tech)}${store.padScrapQty(tech) ? ` · −${store.padScrapQty(tech)}` : ''}</span></div>
+      <div class="h"><span>${title}</span><span class="v">${t('earth.padHave', { built, add: store.padQty(tech) })}${store.padScrapQty(tech) ? t('earth.padScrapSuffix', { v: store.padScrapQty(tech) }) : ''}</span></div>
       <input type="range" min="0" max="10" step="1" .value=${String(store.padQty(tech))}
         @input=${(e: Event) => store.setPad(tech, Number((e.target as HTMLInputElement).value))} />
       <div class="sub">
-        ${money(priceNow)}/площадка · содержание ${(spec.padMaintFrac * 100).toFixed(0)}%/окно ·
-        payload ${kg(spec.payload)} · риск взрыва ${(spec.explodeProb * 100).toFixed(2)}%/пуск. ${sub}
+        ${t('earth.padLine', {
+          price: money(priceNow),
+          maint: (spec.padMaintFrac * 100).toFixed(0),
+          payload: kg(spec.payload),
+          risk: (spec.explodeProb * 100).toFixed(2),
+          sub,
+        })}
       </div>
       ${built > 0
         ? html`<label class="sub" style="display:block;margin-top:.3rem;cursor:pointer">
-            🔧 утилизировать (стоимость демонтажа ${(store.launch().padScrapCostFrac * 100).toFixed(0)}% капекса):
+            ${t('earth.scrapLabel', { v: (store.launch().padScrapCostFrac * 100).toFixed(0) })}
             <input type="range" min="0" max=${built} step="1" .value=${String(store.padScrapQty(tech))}
               @input=${(e: Event) => store.setPadScrap(tech, Number((e.target as HTMLInputElement).value))} />
-            ${store.padScrapQty(tech)} шт
+            ${store.padScrapQty(tech)} ${t('earth.units')}
           </label>`
         : nothing}
     </div>`;
@@ -305,43 +311,41 @@ export class EarthTab extends LitElement {
     const locked = store.rndLocked; // D-077: campaigns need somebody on Mars to run them
     return html`<div class="card">
       <div class="h">
-        <span>🚀 R&D ${rnd.next.index}/${rnd.total}: ${rnd.next.name}</span>
-        <span class="v">${rnd.stage === 0 ? '🔒' : `ст. ${rnd.stage}`}</span>
+        <span>${t('earth.rndTitle', { i: rnd.next.index, n: rnd.total, name: rnd.next.name })}</span>
+        <span class="v">${rnd.stage === 0 ? '🔒' : t('earth.rndStage', { v: rnd.stage })}</span>
       </div>
       <div class="sub">
-        ${money(rnd.next.cost)} — ${rnd.next.index === 1
-          ? 'многоразовый сверхтяж + демо перекачки топлива на орбите: кампании работают, но тест-эра (60 т, дороже, рискованнее)'
-          : 'серийные танкеры, орбитальное депо, посадка 100 т (сверхзвуковая ретротяга): коммерческая цена $1 000/кг'}
+        ${money(rnd.next.cost)} — ${rnd.next.index === 1 ? t('earth.rndDesc1') : t('earth.rndDesc2')}
       </div>
       ${locked
-        ? html`<div class="sub" style="opacity:.7">🔒 нужен хотя бы один колонист на Марсе — некому вести кампанию</div>`
+        ? html`<div class="sub" style="opacity:.7">${t('earth.rndLockedNote')}</div>`
         : html`<label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
             <input type="checkbox" .checked=${store.unlockRefuelDraft}
-              @change=${() => store.toggleUnlockRefuel()} /> заказать R&D в этом окне
+              @change=${() => store.toggleUnlockRefuel()} /> ${t('earth.rndOrder')}
           </label>`}
     </div>`;
   }
 
   /** Buy-a-tech card (D-088, P0 — by the R&D ladder's own pattern, D-068). */
-  private techCard(t: TechSpec): TemplateResult {
+  private techCard(spec: TechSpec): TemplateResult {
     const store = this.store;
-    const owned = store.techOwned(t.id);
-    const buyable = store.techBuyable(t.id);
-    const selected = store.unlockTechDraft() === t.id;
+    const owned = store.techOwned(spec.id);
+    const buyable = store.techBuyable(spec.id);
+    const selected = store.unlockTechDraft() === spec.id;
     return html`<div class="card">
       <div class="h">
-        <span>${t.icon} ${t.name}</span>
-        <span class="v">${owned ? '✓ куплено' : buyable ? money(store.techPriceNow(t.id)) : '🔒'}</span>
+        <span>${spec.icon} ${spec.name}</span>
+        <span class="v">${owned ? t('earth.techOwned') : buyable ? money(store.techPriceNow(spec.id)) : '🔒'}</span>
       </div>
-      ${t.notes ? html`<div class="sub">${t.notes}</div>` : nothing}
+      ${spec.notes ? html`<div class="sub">${spec.notes}</div>` : nothing}
       ${owned
         ? nothing
         : buyable
           ? html`<label class="sub" style="cursor:pointer;display:block;margin-top:.4rem">
-              <input type="checkbox" .checked=${selected} @change=${() => store.setUnlockTech(t.id)} />
-              заказать в этом окне
+              <input type="checkbox" .checked=${selected} @change=${() => store.setUnlockTech(spec.id)} />
+              ${t('earth.techOrder')}
             </label>`
-          : html`<div class="sub" style="opacity:.7">🔒 нужен пререквизит (тех/структура/население)</div>`}
+          : html`<div class="sub" style="opacity:.7">${t('earth.techLockedNote')}</div>`}
     </div>`;
   }
 
@@ -350,13 +354,10 @@ export class EarthTab extends LitElement {
   private techTree(): TemplateResult {
     const techs = this.store.techs();
     return html`
-      <div class="sub" style="margin-bottom:.5rem">
-        Технологии углубляют играбельную модель к реализму — каждая открывает индустриальную
-        стадию, схлопнутую ради играбельности (documents/tech-tree/). Не больше одной покупки за окно.
-      </div>
+      <div class="sub" style="margin-bottom:.5rem">${t('earth.techTreeIntro')}</div>
       ${techs.length
-        ? html`<div class="cards">${techs.map((t) => this.techCard(t))}</div>`
-        : html`<div class="sub">дерево пока пусто — фундамент готов, контент приходит по фазам P1–P8</div>`}
+        ? html`<div class="cards">${techs.map((spec) => this.techCard(spec))}</div>`
+        : html`<div class="sub">${t('earth.techTreeEmpty')}</div>`}
     `;
   }
 
@@ -364,9 +365,13 @@ export class EarthTab extends LitElement {
     const store = this.store;
     const rnd = store.refuelRnD();
     return html`<div class="cards">
-      ${this.padCard('classic', '🛫 Классические (одноразовые)', 'дёшево построить, ~3 т на грунт, рискованнее')}
+      ${this.padCard('classic', t('earth.padClassic'), t('earth.padClassicSub'))}
       ${rnd.stage > 0
-        ? this.padCard('refuel', `🚀 Орбитальная заправка (ст. ${rnd.stage}/${rnd.total})`, rnd.stage < rnd.total ? 'тест-эра кампаний' : 'серийный флот')
+        ? this.padCard(
+            'refuel',
+            t('earth.padRefuel', { stage: rnd.stage, total: rnd.total }),
+            rnd.stage < rnd.total ? t('earth.padRefuelSubTest') : t('earth.padRefuelSubSerial'),
+          )
         : nothing}
       ${rnd.next ? this.rndCard({ stage: rnd.stage, total: rnd.total, next: rnd.next }) : nothing}
     </div>`;
@@ -379,7 +384,7 @@ export class EarthTab extends LitElement {
     return html`
       <div class="tabs">
         ${TABS.map(
-          (t) => html`<button class=${this.tab === t.id ? 'active' : ''} @click=${() => (this.tab = t.id)}>${t.label}</button>`,
+          (tabDef) => html`<button class=${this.tab === tabDef.id ? 'active' : ''} @click=${() => (this.tab = tabDef.id)}>${t(tabDef.key)}</button>`,
         )}
       </div>
       ${this.body()}

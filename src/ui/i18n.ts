@@ -1,0 +1,500 @@
+// Tiny reactive i18n layer for the UI chrome (labels, buttons, panel copy — everything authored
+// directly in these Lit templates). Deliberately NOT wired into colonyStore.ts or the engine: the
+// store's own generated strings (projectionWarnings, cohortWaveWarning, ...) and CSV-sourced names
+// (structures, techs, milestones, storyteller events) stay Russian regardless of this toggle — the
+// store has to stay lit-free (CLI driver, scripts/play.ts) and translating data-authored proper
+// nouns without the surrounding sentence would just produce mixed-language mush. See settings-menu.
+
+export type Lang = 'en' | 'ru';
+
+type Listener = () => void;
+const STORAGE_KEY = 'outland.lang';
+
+class I18nStore {
+  private lang: Lang = this.load();
+  private listeners = new Set<Listener>();
+
+  private load(): Lang {
+    try {
+      const v = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+      return v === 'en' ? 'en' : 'ru';
+    } catch {
+      return 'ru';
+    }
+  }
+
+  get(): Lang {
+    return this.lang;
+  }
+
+  set(lang: Lang): void {
+    if (this.lang === lang) return;
+    this.lang = lang;
+    try {
+      localStorage.setItem(STORAGE_KEY, lang);
+    } catch {
+      /* non-fatal */
+    }
+    for (const fn of this.listeners) fn();
+  }
+
+  subscribe(fn: Listener): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+}
+
+export const i18n = new I18nStore();
+
+// RU is the canonical key set — EN is typed against it so a missing translation is a build error.
+const RU = {
+  'settings.title': 'Настройки',
+  'settings.language': 'Язык',
+
+  'app.tag': 'колония · Марс',
+  'app.subtitle': 'марсианская колониальная служба · пункт управления',
+  'app.callsign': 'позывной CS-04 · бассейн Эйра',
+  'app.window': 'ОКНО',
+  'app.windowYear': '{window} · год ~{year}',
+  'app.collapsedChip': 'КОЛОНИЯ СХЛОПНУЛАСЬ',
+  'app.debriefChip': 'ДЕБРИФ · ОСТАНОВЛЕНО',
+  'app.uplinkChip': 'СВЯЗЬ: НОРМА',
+  'app.alertOne': '{n} тревога',
+  'app.alertMany': '{n} тревог',
+  'app.gaugeBuffer': 'Запас без завоза',
+  'app.wndUnit': 'ок',
+  'app.gaugeEnergy': 'Энергобаланс',
+  'app.kwGen': 'кВт ген.',
+  'app.kwDem': 'кВт потр.',
+  'app.deficit': 'дефицит −{v} кВт',
+  'app.surplus': 'профицит +{v} кВт',
+  'app.gaugeThroughput': 'Пропускная способность завоза',
+  'app.kgCargo': 'кг груз',
+  'app.kgLimit': 'кг лимит',
+  'app.effPerKg': 'эфф. $/кг',
+  'app.ledgerTitle': 'Бюджетная ведомость',
+  'app.plan': 'план',
+  'app.windowSubsidy': 'субсидия окна',
+  'app.padScrap': 'демонтаж площадок',
+  'app.materialsShort': '⚠ не хватает материалов на стройку: {list}',
+  'app.prereqMissing': '⚠ нет пререквизитов: {list}',
+  'app.materialsInTransit':
+    '({list} уже в пути — сядут к началу следующего окна; стройка станет доступна следующим ходом)',
+  'app.cargoMass': 'масса завоза',
+  'app.totalCost': 'полн. стоимость',
+  'app.bootstrapInTransit':
+    '(первая партия уже в полёте — пока она не села, каждый заказ с грузом должен сам везти колонистов)',
+  'app.autoWho':
+    'ℹ автоматика ({who}) всё равно дошлёт груз в этом окне — оно не засчитается как «🌌 окно без единого завоза» (нужны два подряд пустых окна; на них {who} придётся выключить)',
+  'app.autoSparesWord': 'авто-ЗИП',
+  'app.autoPharmaWord': 'авто-фарма',
+  'app.and': 'и',
+  'app.brownout': 'браунаут − {v} кВт',
+  'app.massCapped': 'масса > пропускной способности — строй площадки или режь завоз',
+  'app.overBudget': 'план дороже субсидии окна',
+  'app.rndBlocked': 'R&D требует высадки — на Марсе ещё никого нет',
+  'app.bootstrapBlocked': 'первая партия должна включать колонистов — груз не летит один',
+  'app.tabEarth': '🌍 Земля — завоз',
+  'app.tabMars': '🔴 Марс — стройка',
+  'app.returnToColony': '‹ Вернуться к колонии',
+  'app.newGame': 'Новая партия',
+  'app.finish': 'Завершить ▸ дебриф',
+  'app.commit': 'Коммит ▸ ход',
+  'app.footerNote': 'коммит переносит колонию на ~2.17 года бортового времени',
+  'app.collapsedNote': '► Колония схлопнулась.',
+
+  'status.title': 'Статус колонии',
+  'status.labor': 'труд',
+  'status.beds': 'койки',
+  'status.stage': 'ст.',
+  'status.wear': 'износ',
+  'status.spares': 'ЗИП',
+  'status.repair': 'ремонт',
+  'status.crew': 'экипаж',
+  'status.radShield': 'радиац. защита',
+  'status.housing': 'жильё',
+  'status.kgPerWnd': 'кг/окно',
+  'status.stock': 'склад',
+  'status.industrial': '⚙️ промышленные стоки (ISRU)',
+  'status.years': 'лет',
+  'status.oldAgeForecast': '⏳ ~{n} смертей от старости за 3 ок · 🎓 +{m} в труд',
+  'status.avgDose': '☢ средняя накопленная доза',
+  'status.sv': 'Зв',
+  'status.transit': '🚀 в пути (придёт след. окно):',
+  'status.empty': 'пусто',
+  'status.kg': 'кг',
+  'status.wnd': 'ок',
+
+  'chronicle.title': 'Хроника',
+  'chronicle.pastWindows': 'прошлые окна ({n})',
+  'chronicle.quiet': 'тихо',
+  'chronicle.fromEarth': 'с Земли: {list}',
+  'chronicle.fromEarthEmpty': 'с Земли: ничего не прибыло',
+  'chronicle.colonistsLanded': '🧑‍🚀 +{n} колонистов',
+  'chronicle.died': '† погибло {n}',
+  'chronicle.capped': '⚠ часть завоза не влезла в пропускную способность',
+  'chronicle.built': '🏗 построено: {list}',
+  'chronicle.demolished': '🔧 демонтировано: {list}',
+  'chronicle.repairSpent': '🔧 ремонт: потрачено {v} кг ЗИПа сверх обслуживания',
+  'chronicle.repairSpentD084': '🔧 ремонт: потрачено {v} кг ЗИПа сверх обслуживания (D-084)',
+  'chronicle.births': '🐣 рождения: +{n}',
+  'chronicle.spoiled': '🦠 порча: {list}',
+  'chronicle.spoiledFood': 'еда −{v} кг',
+  'chronicle.spoiledPharma': 'фарма −{v} кг',
+  'chronicle.explosion': '💥 взрыв на площадке: −{n} {tech}',
+  'chronicle.milestone': '★ майлстоун: {v}',
+  'chronicle.subsidyBonus': ' · субсидия +{v}/окно',
+  'chronicle.subsidyBonusPct': ' · субсидия +{v}%',
+  'chronicle.radiationAlarm':
+    '🩺 медслужба: устойчивый рост случаев раннего старения — накопленная доза персонала ({v} Зв) требует внимания',
+  'chronicle.structOutput': 'выпуск',
+  'chronicle.structFrac': '(состояние {cond} × энергия {energy} × входы {input})',
+  'chronicle.footerEnergy': '⚡ энергия {gen} / {dem}',
+  'chronicle.footerBrownout': 'браунаут −{v}',
+  'chronicle.footerSpares': '🔧 ЗИП покрытие {v}',
+  'chronicle.footerLeak': '🌫️ утечка N₂ −{v} кг/окно',
+  'chronicle.footerAutonomy': 'автономия по массе (окно) {v}',
+
+  'cause.food': 'голод',
+  'cause.water': 'жажда',
+  'cause.o2': 'нехватка O₂',
+  'cause.n2': 'удушье (N₂)',
+  'cause.energy': 'браунаут ЖО',
+  'cause.illness': 'болезнь',
+  'cause.old_age': 'старость',
+  'cause.breach': 'декомпрессия',
+  'cause.radiation': 'радиация',
+  'cause.crash': 'крушение при посадке',
+
+  'earth.tabLogi': '🛫 Логистика',
+  'earth.tabLife': '🍞 Жизнеобеспечение',
+  'earth.tabMat': '🔩 Материалы',
+  'earth.tabTech': '🔬 Хайтек',
+  'earth.tabPeople': '🧑‍🚀 Люди',
+  'earth.tabImport': '📦 Импорт построек',
+  'earth.tabTtree': '🌳 Технологии',
+  'earth.auto': ' (авто)',
+  'earth.priceLine': 'товар {price}/кг + доставка ~{delivery}/кг{tare} ({tech}){perCapita}{recycle}',
+  'earth.tareSuffix': ' (тара ×{v})',
+  'earth.perCapitaSuffix': ' · потр. {v}/чел',
+  'earth.recycleSuffix': ' · η {v}%',
+  'earth.n2Note':
+    '⚠ утечка идёт от жилых модулей (корпус негерметичен), не от населения — «потр./чел» тут ни при чём',
+  'earth.autoSparesLabel': 'авто-ЗИП: держать заказ не ниже текущего расхода на обслуживание',
+  'earth.autoSparesNote':
+    'излишек сверх обслуживания чинит парк (D-084): ещё +{v} сверху даёт +{r}% износа/окно всем сооружениям — авто-ЗИП сам ремонт не включает (флорит ровно на обслуживание), это отдельное решение',
+  'earth.autoPharmaLabel': 'авто-фарма: держать заказ не ниже ожидаемого расхода (медблоки + лечение болезни)',
+  'earth.lineCost': '≈ {v} за позицию',
+  'earth.techWarn':
+    '⚠ нелокализуемо при колониальном масштабе (D-045) — только завоз. Лёгкое, но дорогое: вечный «земной leg» снабжения. Заводы (полимеры/медблок/RnD) тянут это каждое окно.',
+  'earth.colonistsLabel': '🧑‍🚀 колонисты',
+  'earth.noHousing':
+    'нет свободного жилья — постройте хабитат на Марсе или закажите готовую структуру с жильём (📦 Импорт построек)',
+  'earth.perHead': '{v}/чел (без учёта доставки) · прибудут через окно (лаг) · вес + вечный шлейф потребления',
+  'earth.lineCostNoDelivery': '≈ {v} за позицию (без доставки)',
+  'earth.importIntro':
+    'Готовые сооружения с Земли: цена — это сложная, дублируемая, космического класса техника (не россыпь металла), плюс доставка по массе. На порядки дороже местной стройки на Марсе, которая обходится только в материалы (D-054) — оправдано лишь для первой партии, пока на Марсе физически нечем строить.',
+  'earth.have': 'есть {n} · +{m}',
+  'earth.turnkeyLine': '{price}/шт под ключ (готовая структура {cost} + доставка {delivery}, {mass}, {tech})',
+  'earth.avgPower': ' · ⚡ средняя мощность +{v}/окно (среднегодовая)',
+  'earth.housingPlus': ' · жильё +{v}',
+  'earth.needTech': ' · 🔒 нужна технология: {v}',
+  'earth.needFirst': ' · 🔒 нужен сначала: {v}',
+  'earth.padClassic': '🛫 Классические (одноразовые)',
+  'earth.padClassicSub': 'дёшево построить, ~3 т на грунт, рискованнее',
+  'earth.padRefuel': '🚀 Орбитальная заправка (ст. {stage}/{total})',
+  'earth.padRefuelSubTest': 'тест-эра кампаний',
+  'earth.padRefuelSubSerial': 'серийный флот',
+  'earth.padHave': 'есть {built} · +{add}',
+  'earth.padScrapSuffix': ' · −{v}',
+  'earth.padLine': '{price}/площадка · содержание {maint}%/окно · payload {payload} · риск взрыва {risk}%/пуск. {sub}',
+  'earth.scrapLabel': '🔧 утилизировать (стоимость демонтажа {v}% капекса):',
+  'earth.units': 'шт',
+  'earth.rndTitle': '🚀 R&D {i}/{n}: {name}',
+  'earth.rndStage': 'ст. {v}',
+  'earth.rndDesc1':
+    'многоразовый сверхтяж + демо перекачки топлива на орбите: кампании работают, но тест-эра (60 т, дороже, рискованнее)',
+  'earth.rndDesc2':
+    'серийные танкеры, орбитальное депо, посадка 100 т (сверхзвуковая ретротяга): коммерческая цена $1 000/кг',
+  'earth.rndLockedNote': '🔒 нужен хотя бы один колонист на Марсе — некому вести кампанию',
+  'earth.rndOrder': 'заказать R&D в этом окне',
+  'earth.techOwned': '✓ куплено',
+  'earth.techOrder': 'заказать в этом окне',
+  'earth.techLockedNote': '🔒 нужен пререквизит (тех/структура/население)',
+  'earth.techTreeIntro':
+    'Технологии углубляют играбельную модель к реализму — каждая открывает индустриальную стадию, схлопнутую ради играбельности (documents/tech-tree/). Не больше одной покупки за окно.',
+  'earth.techTreeEmpty': 'дерево пока пусто — фундамент готов, контент приходит по фазам P1–P8',
+
+  'mars.built': 'построено',
+  'mars.buildable': 'можно построить',
+  'mars.locked': 'заблокировано',
+  'mars.builtCount': 'построено {n}',
+  'mars.materialsFor': 'материалы (на {n}):',
+  'mars.stockOf': 'склад {v}',
+  'mars.avgPowerLabel': '⚡ средняя мощность:',
+  'mars.avgPowerNote': '(за окно, среднегодовая — без пиков день/ночь)',
+  'mars.power': 'энергия:',
+  'mars.stormVulnerable': '· уязвима к пылевым бурям',
+  'mars.stormProof': '· не зависит от бурь',
+  'mars.output': '· выпуск:',
+  'mars.consumption': '· потр.:',
+  'mars.sparesPerWnd': 'ЗИП {v}/окно',
+  'mars.crewPerUnit': '· экипаж {v}/шт',
+  'mars.housingPlus': '· жильё +{v}',
+  'mars.n2Leak': '· N₂ утечка −{v}/окно',
+  'mars.demolish': '· демонтаж: {crew} чел., рециклинг {pct}%',
+  'mars.industryOutput': '⚙️ выход {pct}% ({why})',
+  'mars.depletion': 'истощение месторождения',
+  'mars.rampup': 'разгон производства (кривая освоения)',
+  'mars.needFirst': 'нужен сначала: {v}',
+  'mars.needPop': 'нужно населения ≥ {v}',
+  'mars.needTech': 'нужна технология: {v}',
+  'mars.demolishLabel': 'демонтировать',
+
+  'debrief.title': 'Дебриф',
+  'debrief.collapsedHeadline': 'Колония схлопнулась на окне {w} (год ~{y}).',
+  'debrief.aliveHeadline': 'Окно {w} (год ~{y}). Колония жива.',
+  'debrief.cause': 'Причина: {v}.',
+  'debrief.preSpiralLabel': 'Запас без завоза перед началом финальной спирали',
+  'debrief.preSpiralNote':
+    'Замер на последнем окне без смертей — сколько пропущенных окон колония пережила бы тогда без единой потери.',
+  'debrief.selfSufficiencyLabel': 'Самодостаточность — при обрыве импорта колония продержалась бы',
+  'debrief.selfSufficiencyNote':
+    'Живой «запас без завоза» на дашборде считает до первых смертей; здесь — до полного коллапса, при отключении завоза прямо сейчас.',
+  'debrief.windowsUnit': 'ок',
+  'debrief.population': 'население',
+  'debrief.autonomyByMass': 'автономия по массе',
+  'debrief.stocks': 'еда/вода/O₂/N₂ (стоки)',
+  'debrief.milestones': 'Майлстоуны',
+  'debrief.windowN': 'окно {v}',
+} as const;
+
+const EN: Record<keyof typeof RU, string> = {
+  'settings.title': 'Settings',
+  'settings.language': 'Language',
+
+  'app.tag': 'colony · Mars',
+  'app.subtitle': 'Mars Colonial Authority · Control Center',
+  'app.callsign': 'callsign CS-04 · Ares Basin',
+  'app.window': 'WINDOW',
+  'app.windowYear': '{window} · year ~{year}',
+  'app.collapsedChip': 'COLONY COLLAPSED',
+  'app.debriefChip': 'DEBRIEF · STOPPED',
+  'app.uplinkChip': 'UPLINK NOMINAL',
+  'app.alertOne': '{n} alert',
+  'app.alertMany': '{n} alerts',
+  'app.gaugeBuffer': 'Buffer w/o Resupply',
+  'app.wndUnit': 'wnd',
+  'app.gaugeEnergy': 'Energy Balance',
+  'app.kwGen': 'kW gen',
+  'app.kwDem': 'kW dem',
+  'app.deficit': 'deficit −{v} kW',
+  'app.surplus': 'surplus +{v} kW',
+  'app.gaugeThroughput': 'Import Throughput',
+  'app.kgCargo': 'kg cargo',
+  'app.kgLimit': 'kg limit',
+  'app.effPerKg': 'eff. $/kg',
+  'app.ledgerTitle': 'Budget Ledger',
+  'app.plan': 'plan',
+  'app.windowSubsidy': 'window subsidy',
+  'app.padScrap': 'pad scrap',
+  'app.materialsShort': '⚠ materials short for construction: {list}',
+  'app.prereqMissing': '⚠ missing prerequisites: {list}',
+  'app.materialsInTransit':
+    '({list} already in transit — lands at the start of next window; construction unlocks the turn after)',
+  'app.cargoMass': 'cargo mass',
+  'app.totalCost': 'total cost',
+  'app.bootstrapInTransit':
+    "(the first shipment is already in flight — until it lands, every order with cargo must carry colonists itself)",
+  'app.autoWho':
+    "ℹ auto-order ({who}) will still ship cargo this window — it won't count as a «🌌 zero-import window» (needs two empty windows in a row; you'll need to turn {who} off for those)",
+  'app.autoSparesWord': 'auto-spares',
+  'app.autoPharmaWord': 'auto-pharma',
+  'app.and': 'and',
+  'app.brownout': 'brownout − {v} kW',
+  'app.massCapped': 'mass exceeds throughput — build more pads or trim the manifest',
+  'app.overBudget': 'plan costs more than the window subsidy',
+  'app.rndBlocked': "R&D needs a landing — nobody's on Mars yet",
+  'app.bootstrapBlocked': "the first shipment must include colonists — cargo doesn't fly alone",
+  'app.tabEarth': '🌍 Earth — resupply',
+  'app.tabMars': '🔴 Mars — construction',
+  'app.returnToColony': '‹ Return to colony',
+  'app.newGame': 'New game',
+  'app.finish': 'Finish ▸ debrief',
+  'app.commit': 'Commit ▸ window',
+  'app.footerNote': 'committing advances the colony ~2.17 years shiptime',
+  'app.collapsedNote': '► The colony collapsed.',
+
+  'status.title': 'Colony Status',
+  'status.labor': 'labor',
+  'status.beds': 'beds',
+  'status.stage': 'stg',
+  'status.wear': 'wear',
+  'status.spares': 'spares',
+  'status.repair': 'repair',
+  'status.crew': 'crew',
+  'status.radShield': 'rad. shield',
+  'status.housing': 'housing',
+  'status.kgPerWnd': 'kg/wnd',
+  'status.stock': 'stock',
+  'status.industrial': '⚙️ industrial stocks (ISRU)',
+  'status.years': 'yr',
+  'status.oldAgeForecast': '⏳ ~{n} old-age deaths in 3 wnd · 🎓 +{m} to workforce',
+  'status.avgDose': '☢ avg accumulated dose',
+  'status.sv': 'Sv',
+  'status.transit': '🚀 in transit (arrives next window):',
+  'status.empty': 'empty',
+  'status.kg': 'kg',
+  'status.wnd': 'wnd',
+
+  'chronicle.title': 'Chronicle',
+  'chronicle.pastWindows': 'past windows ({n})',
+  'chronicle.quiet': 'quiet',
+  'chronicle.fromEarth': 'from Earth: {list}',
+  'chronicle.fromEarthEmpty': 'from Earth: nothing arrived',
+  'chronicle.colonistsLanded': '🧑‍🚀 +{n} colonists',
+  'chronicle.died': '† died {n}',
+  'chronicle.capped': "⚠ some of the shipment didn't fit throughput",
+  'chronicle.built': '🏗 built: {list}',
+  'chronicle.demolished': '🔧 demolished: {list}',
+  'chronicle.repairSpent': '🔧 repair: spent {v} kg of spares beyond upkeep',
+  'chronicle.repairSpentD084': '🔧 repair: spent {v} kg of spares beyond upkeep (D-084)',
+  'chronicle.births': '🐣 births: +{n}',
+  'chronicle.spoiled': '🦠 spoilage: {list}',
+  'chronicle.spoiledFood': 'food −{v} kg',
+  'chronicle.spoiledPharma': 'pharma −{v} kg',
+  'chronicle.explosion': '💥 pad explosion: −{n} {tech}',
+  'chronicle.milestone': '★ milestone: {v}',
+  'chronicle.subsidyBonus': ' · subsidy +{v}/wnd',
+  'chronicle.subsidyBonusPct': ' · subsidy +{v}%',
+  'chronicle.radiationAlarm':
+    '🩺 medical: sustained rise in early-aging cases — accumulated crew dose ({v} Sv) needs attention',
+  'chronicle.structOutput': 'output',
+  'chronicle.structFrac': '(condition {cond} × energy {energy} × inputs {input})',
+  'chronicle.footerEnergy': '⚡ energy {gen} / {dem}',
+  'chronicle.footerBrownout': 'brownout −{v}',
+  'chronicle.footerSpares': '🔧 spares coverage {v}',
+  'chronicle.footerLeak': '🌫️ N₂ leak −{v} kg/wnd',
+  'chronicle.footerAutonomy': 'autonomy by mass (window) {v}',
+
+  'cause.food': 'starvation',
+  'cause.water': 'thirst',
+  'cause.o2': 'O₂ shortage',
+  'cause.n2': 'suffocation (N₂)',
+  'cause.energy': 'life-support brownout',
+  'cause.illness': 'illness',
+  'cause.old_age': 'old age',
+  'cause.breach': 'decompression',
+  'cause.radiation': 'radiation',
+  'cause.crash': 'landing crash',
+
+  'earth.tabLogi': '🛫 Logistics',
+  'earth.tabLife': '🍞 Life Support',
+  'earth.tabMat': '🔩 Materials',
+  'earth.tabTech': '🔬 High-tech',
+  'earth.tabPeople': '🧑‍🚀 People',
+  'earth.tabImport': '📦 Import structures',
+  'earth.tabTtree': '🌳 Technology',
+  'earth.auto': ' (auto)',
+  'earth.priceLine': 'goods {price}/kg + delivery ~{delivery}/kg{tare} ({tech}){perCapita}{recycle}',
+  'earth.tareSuffix': ' (tare ×{v})',
+  'earth.perCapitaSuffix': ' · consum. {v}/person',
+  'earth.recycleSuffix': ' · η {v}%',
+  'earth.n2Note':
+    "⚠ the leak comes from habitat hulls (unsealed), not population — \"consum./person\" doesn't apply here",
+  'earth.autoSparesLabel': 'auto-spares: keep the order at least at current upkeep spend',
+  'earth.autoSparesNote':
+    "surplus beyond upkeep repairs the fleet (D-084): an extra +{v} on top gives +{r}% condition/window to every structure — auto-spares doesn't turn repair on by itself (it only floors at upkeep), that's a separate decision",
+  'earth.autoPharmaLabel': 'auto-pharma: keep the order at least at expected spend (medbays + illness treatment)',
+  'earth.lineCost': '≈ {v} for this line',
+  'earth.techWarn':
+    '⚠ not localizable at colony scale (D-045) — import only. Light but expensive: a permanent "Earth leg" of supply. Factories (polymers/medbay/R&D) draw this every window.',
+  'earth.colonistsLabel': '🧑‍🚀 colonists',
+  'earth.noHousing':
+    'no free housing — build a habitat on Mars or order a turnkey structure with housing (📦 Import structures)',
+  'earth.perHead': '{v}/person (delivery not included) · arrive after one window (lag) · mass + a permanent consumption tail',
+  'earth.lineCostNoDelivery': '≈ {v} for this line (delivery not included)',
+  'earth.importIntro':
+    'Turnkey structures from Earth: the price reflects complex, duplicated, space-rated hardware (not raw metal), plus mass-based delivery. Orders of magnitude pricier than building locally on Mars (materials only, D-054) — worth it only for the first shipment, while Mars has nothing to build with yet.',
+  'earth.have': 'have {n} · +{m}',
+  'earth.turnkeyLine': '{price}/unit turnkey (structure {cost} + delivery {delivery}, {mass}, {tech})',
+  'earth.avgPower': ' · ⚡ avg power +{v}/wnd (yearly average)',
+  'earth.housingPlus': ' · housing +{v}',
+  'earth.needTech': ' · 🔒 needs technology: {v}',
+  'earth.needFirst': ' · 🔒 needs first: {v}',
+  'earth.padClassic': '🛫 Classic (expendable)',
+  'earth.padClassicSub': 'cheap to build, ~3t to surface, riskier',
+  'earth.padRefuel': '🚀 Orbital refuel (stg {stage}/{total})',
+  'earth.padRefuelSubTest': 'test-era campaigns',
+  'earth.padRefuelSubSerial': 'serial fleet',
+  'earth.padHave': 'have {built} · +{add}',
+  'earth.padScrapSuffix': ' · −{v}',
+  'earth.padLine': '{price}/pad · upkeep {maint}%/wnd · payload {payload} · explosion risk {risk}%/launch. {sub}',
+  'earth.scrapLabel': '🔧 decommission (teardown cost {v}% of capex):',
+  'earth.units': 'units',
+  'earth.rndTitle': '🚀 R&D {i}/{n}: {name}',
+  'earth.rndStage': 'stg {v}',
+  'earth.rndDesc1':
+    'reusable super-heavy + on-orbit fuel-transfer demo: campaigns work, but test-era (60t, pricier, riskier)',
+  'earth.rndDesc2':
+    'serial tankers, orbital depot, 100t landings (supersonic retropropulsion): commercial price $1,000/kg',
+  'earth.rndLockedNote': '🔒 needs at least one colonist on Mars — nobody to run the campaign',
+  'earth.rndOrder': 'order R&D this window',
+  'earth.techOwned': '✓ owned',
+  'earth.techOrder': 'order this window',
+  'earth.techLockedNote': '🔒 needs a prerequisite (tech/structure/population)',
+  'earth.techTreeIntro':
+    'Technologies deepen the playable model toward realism — each unlocks an industrial stage collapsed for playability (documents/tech-tree/). At most one purchase per window.',
+  'earth.techTreeEmpty': "tree is empty for now — the foundation is ready, content arrives in phases P1–P8",
+
+  'mars.built': 'built',
+  'mars.buildable': 'buildable',
+  'mars.locked': 'locked',
+  'mars.builtCount': 'built {n}',
+  'mars.materialsFor': 'materials (for {n}):',
+  'mars.stockOf': 'stock {v}',
+  'mars.avgPowerLabel': '⚡ avg power:',
+  'mars.avgPowerNote': '(per window, yearly average — no day/night peaks)',
+  'mars.power': 'power:',
+  'mars.stormVulnerable': '· vulnerable to dust storms',
+  'mars.stormProof': '· storm-independent',
+  'mars.output': '· output:',
+  'mars.consumption': '· consum.:',
+  'mars.sparesPerWnd': 'spares {v}/wnd',
+  'mars.crewPerUnit': '· crew {v}/unit',
+  'mars.housingPlus': '· housing +{v}',
+  'mars.n2Leak': '· N₂ leak −{v}/wnd',
+  'mars.demolish': '· demolish: {crew} crew, recycle {pct}%',
+  'mars.industryOutput': '⚙️ yield {pct}% ({why})',
+  'mars.depletion': 'deposit depletion',
+  'mars.rampup': 'production ramp-up (learning curve)',
+  'mars.needFirst': 'needs first: {v}',
+  'mars.needPop': 'needs population ≥ {v}',
+  'mars.needTech': 'needs technology: {v}',
+  'mars.demolishLabel': 'demolish',
+
+  'debrief.title': 'Debrief',
+  'debrief.collapsedHeadline': 'The colony collapsed at window {w} (year ~{y}).',
+  'debrief.aliveHeadline': 'Window {w} (year ~{y}). Colony alive.',
+  'debrief.cause': 'Cause: {v}.',
+  'debrief.preSpiralLabel': 'Buffer without resupply before the final spiral began',
+  'debrief.preSpiralNote':
+    'Measured at the last window with no deaths — how many missed windows the colony would have survived then without a single loss.',
+  'debrief.selfSufficiencyLabel': 'Self-sufficiency — if imports were cut, the colony would hold out for',
+  'debrief.selfSufficiencyNote':
+    "The live buffer gauge on the dashboard counts to the first deaths; here it's to full collapse, if imports stopped right now.",
+  'debrief.windowsUnit': 'wnd',
+  'debrief.population': 'population',
+  'debrief.autonomyByMass': 'autonomy by mass',
+  'debrief.stocks': 'food/water/O₂/N₂ (stocks)',
+  'debrief.milestones': 'Milestones',
+  'debrief.windowN': 'window {v}',
+};
+
+const DICTS: Record<Lang, Record<keyof typeof RU, string>> = { en: EN, ru: RU };
+
+export function t(key: keyof typeof RU, vars?: Record<string, string | number>): string {
+  let s = DICTS[i18n.get()][key];
+  if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+  return s;
+}
