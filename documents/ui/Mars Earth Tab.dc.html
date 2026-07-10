@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; background: #070d0b; }
+</style>
+</helmet>
+
+<div style="width:100%; min-height:100vh; box-sizing:border-box; background:#070d0b; color:#dfeee7; font-family:'IBM Plex Mono', monospace; padding:clamp(14px,3vw,32px);" data-screen-label="Earth Resupply">
+
+  <!-- Order summary bar -->
+  <div style="background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:14px 16px; margin-bottom:16px; display:flex; flex-wrap:wrap; gap:22px; align-items:center; justify-content:space-between;">
+    <div style="display:flex; gap:26px; flex-wrap:wrap;">
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:10px; letter-spacing:0.07em; color:#7fa596;">{{ labels.orderTotal }}</div>
+        <div style="font-size:19px; font-weight:600; color:{{ budgetColor }};">{{ orderTotalStr }}</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:10px; letter-spacing:0.07em; color:#7fa596;">{{ labels.windowSubsidy }}</div>
+        <div style="font-size:19px; font-weight:600; color:#eafaf1;">{{ subsidyStr }}</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:2px;">
+        <div style="font-size:10px; letter-spacing:0.07em; color:#7fa596;">{{ labels.shipMass }}</div>
+        <div style="font-size:19px; font-weight:600; color:#eafaf1;">{{ massStr }}</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <sc-if value="{{ overBudget }}">
+        <div style="font-size:11px; color:#ffb8a8; background:rgba(255,90,60,0.1); border:1px solid #7a3326; border-radius:3px; padding:6px 11px;">{{ overBudgetStr }}</div>
+      </sc-if>
+      <button onClick="{{ onClearAll }}" style="font:inherit; background:#0d1a16; color:#dfeee7; border:1px solid #33544a; padding:9px 14px; border-radius:3px; cursor:pointer; font-size:12px; letter-spacing:0.05em;" style-hover="background:#132a25;">{{ labels.clear }}</button>
+    </div>
+  </div>
+
+  <!-- Sub-tabs -->
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px;">
+    <sc-for list="{{ tabs }}" as="tb" hint-placeholder-count="7">
+      <button onClick="{{ tb.onClick }}" style="font:inherit; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12px; letter-spacing:0.03em; padding:8px 14px; border-radius:3px; cursor:pointer; background:{{ tb.bg }}; color:{{ tb.color }}; border:1px solid {{ tb.border }};">{{ tb.label }}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ view.hasIntro }}">
+    <div style="font-size:12px; color:#5f8272; line-height:1.5; margin-bottom:14px; max-width:900px;">{{ view.intro }}</div>
+  </sc-if>
+
+  <!-- RESOURCE cards (materials / life / high-tech) -->
+  <sc-if value="{{ view.isResources }}">
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px;">
+      <sc-for list="{{ view.items }}" as="it" hint-placeholder-count="7">
+        <div style="background:#0d1a16; border:1px solid {{ it.border }}; border-radius:4px; padding:14px; display:flex; flex-direction:column; gap:11px;">
+          <div style="display:flex; justify-content:space-between; align-items:baseline;">
+            <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; color:#eafaf1; text-transform:capitalize;">{{ it.name }}</span>
+            <span style="font-size:15px; font-weight:600; color:#eafaf1;">{{ it.qtyStr }}</span>
+          </div>
+
+          <!-- goods vs delivery split -->
+          <div style="display:flex; gap:7px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:6px; padding:4px 9px; background:#0b1512; border:1px solid #14241f; border-radius:3px;">
+              <span style="font-size:10px; color:#5f8272;">{{ labels.goods }}</span>
+              <span style="font-size:11px; color:#c3ddd0;">{{ it.goodsStr }}/kg</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; padding:4px 9px; background:#0b1512; border:1px solid #3a2f18; border-radius:3px;">
+              <span style="font-size:10px; color:#8a7448;">{{ labels.delivery }}</span>
+              <span style="font-size:11px; color:#d9a441;">{{ it.deliveryStr }}/kg</span>
+            </div>
+          </div>
+          <div style="height:5px; border-radius:3px; overflow:hidden; display:flex;">
+            <div style="height:100%; width:{{ it.goodsPct }}%; background:#2fd68a;"></div>
+            <div style="height:100%; width:{{ it.deliveryPct }}%; background:#d9a441;"></div>
+          </div>
+
+          <!-- stepper + presets -->
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center;">
+              <button onClick="{{ it.onMinus }}" style="font:inherit; width:32px; height:32px; background:#0d1a16; color:#dfeee7; border:1px solid #33544a; border-radius:3px 0 0 3px; cursor:pointer; font-size:17px;">&minus;</button>
+              <div style="min-width:96px; height:32px; padding:0 8px; box-sizing:border-box; background:#0b1512; border-top:1px solid #33544a; border-bottom:1px solid #33544a; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600; color:#eafaf1;">{{ it.qtyStr }}</div>
+              <button onClick="{{ it.onPlus }}" style="font:inherit; width:32px; height:32px; background:#123d28; color:#d8f5e2; border:1px solid #2fd68a; border-radius:0 3px 3px 0; cursor:pointer; font-size:17px;">+</button>
+            </div>
+            <div style="display:flex; gap:5px; flex-wrap:wrap;">
+              <sc-for list="{{ it.presets }}" as="p" hint-placeholder-count="4">
+                <button onClick="{{ p.onClick }}" style="font:inherit; font-size:10.5px; padding:5px 9px; background:#0b1512; color:#9fbdb0; border:1px solid #22332c; border-radius:3px; cursor:pointer; letter-spacing:0.03em;" style-hover="border-color:#33544a; color:#dfeee7;">{{ p.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <sc-if value="{{ it.hasCost }}">
+            <div style="font-size:11.5px; color:#7fa596;">{{ labels.landed }}: <b style="color:#eafaf1;">{{ it.lineCostStr }}</b> <span style="color:#4d6a5e;">&middot; {{ it.deliveryShareStr }} {{ labels.isDelivery }}</span></div>
+          </sc-if>
+          <sc-if value="{{ it.hasNote }}">
+            <div style="font-size:11px; color:#5f8272;">{{ it.note }}</div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- STRUCTURE cards (import) -->
+  <sc-if value="{{ view.isStructures }}">
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:12px;">
+      <sc-for list="{{ view.items }}" as="it" hint-placeholder-count="6">
+        <div style="background:#0d1a16; border:1px solid {{ it.border }}; border-radius:4px; padding:15px; display:flex; flex-direction:column; gap:11px; opacity:{{ it.opacity }};">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; color:#eafaf1; line-height:1.2;">{{ it.name }}</span>
+            <span style="font-size:10px; color:#5f8272; background:#0b1512; border:1px solid #14241f; border-radius:3px; padding:3px 8px; white-space:nowrap; flex:none;">{{ it.haveStr }}</span>
+          </div>
+
+          <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+            <div style="display:flex; flex-direction:column; gap:1px;">
+              <div style="font-size:21px; font-weight:600; color:#eafaf1; line-height:1;">{{ it.landedStr }}</div>
+              <div style="font-size:10px; color:#5f8272;">{{ labels.perUnitLanded }}</div>
+            </div>
+            <sc-if value="{{ it.hasPower }}">
+              <div style="font-size:11px; color:#9be3c2; border:1px solid #20423a; border-radius:3px; padding:3px 8px;">+{{ it.powerStr }} kW</div>
+            </sc-if>
+            <sc-if value="{{ it.hasHousing }}">
+              <div style="font-size:11px; color:#7fb0d8; border:1px solid #24384a; border-radius:3px; padding:3px 8px;">+{{ it.housingStr }} {{ labels.housing }}</div>
+            </sc-if>
+          </div>
+
+          <div style="font-size:10.5px; color:#4d6a5e; line-height:1.5; border-top:1px solid #14241f; padding-top:9px;">{{ it.breakdown }}</div>
+
+          <sc-if value="{{ it.locked }}">
+            <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#b7aec2; background:#15121c; border:1px solid #2e2739; border-radius:3px; padding:5px 10px; align-self:flex-start;">
+              <span style="font-size:10px;">&#128274;</span><span>{{ it.lockText }}</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ it.unlocked }}">
+            <div style="display:flex; align-items:center; gap:2px;">
+              <button onClick="{{ it.onMinus }}" style="font:inherit; width:32px; height:32px; background:#0d1a16; color:#dfeee7; border:1px solid #33544a; border-radius:3px 0 0 3px; cursor:pointer; font-size:17px;">&minus;</button>
+              <div style="width:48px; height:32px; background:#0b1512; border-top:1px solid #33544a; border-bottom:1px solid #33544a; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:600; color:#eafaf1;">{{ it.qty }}</div>
+              <button onClick="{{ it.onPlus }}" style="font:inherit; width:32px; height:32px; background:#123d28; color:#d8f5e2; border:1px solid #2fd68a; border-radius:0 3px 3px 0; cursor:pointer; font-size:17px;">+</button>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ it.hasCost }}">
+            <div style="font-size:11.5px; color:#7fa596;">{{ labels.lineTotal }}: <b style="color:{{ budgetColor }};">{{ it.lineCostStr }}</b></div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- PAD cards (logistics) -->
+  <sc-if value="{{ view.isPads }}">
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:12px;">
+      <sc-for list="{{ view.items }}" as="it" hint-placeholder-count="2">
+        <div style="background:#0d1a16; border:1px solid {{ it.border }}; border-radius:4px; padding:15px; display:flex; flex-direction:column; gap:11px; opacity:{{ it.opacity }};">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; color:#eafaf1; line-height:1.2;">{{ it.name }}</span>
+            <span style="font-size:10px; color:#5f8272; background:#0b1512; border:1px solid #14241f; border-radius:3px; padding:3px 8px; white-space:nowrap; flex:none;">{{ it.haveStr }}</span>
+          </div>
+
+          <div style="display:flex; align-items:baseline; gap:6px;">
+            <div style="font-size:21px; font-weight:600; color:#eafaf1; line-height:1;">{{ it.priceStr }}</div>
+            <div style="font-size:10px; color:#5f8272;">{{ labels.perPad }}</div>
+          </div>
+
+          <!-- key stats as chips instead of prose -->
+          <div style="display:flex; gap:7px; flex-wrap:wrap;">
+            <sc-for list="{{ it.stats }}" as="st" hint-placeholder-count="3">
+              <div style="display:flex; flex-direction:column; gap:1px; padding:5px 10px; background:#0b1512; border:1px solid {{ st.border }}; border-radius:3px;">
+                <span style="font-size:9.5px; color:#5f8272; letter-spacing:0.03em;">{{ st.label }}</span>
+                <span style="font-size:12px; color:{{ st.color }}; font-weight:500;">{{ st.value }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ it.locked }}">
+            <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#b7aec2; background:#15121c; border:1px solid #2e2739; border-radius:3px; padding:5px 10px; align-self:flex-start;">
+              <span style="font-size:10px;">&#128274;</span><span>{{ it.lockText }}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ it.unlocked }}">
+            <div style="display:flex; align-items:center; gap:2px;">
+              <button onClick="{{ it.onMinus }}" style="font:inherit; width:32px; height:32px; background:#0d1a16; color:#dfeee7; border:1px solid #33544a; border-radius:3px 0 0 3px; cursor:pointer; font-size:17px;">&minus;</button>
+              <div style="width:48px; height:32px; background:#0b1512; border-top:1px solid #33544a; border-bottom:1px solid #33544a; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:600; color:#eafaf1;">{{ it.qty }}</div>
+              <button onClick="{{ it.onPlus }}" style="font:inherit; width:32px; height:32px; background:#123d28; color:#d8f5e2; border:1px solid #2fd68a; border-radius:0 3px 3px 0; cursor:pointer; font-size:17px;">+</button>
+            </div>
+          </sc-if>
+          <div style="font-size:11px; color:#5f8272; line-height:1.5;">{{ it.note }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- PEOPLE -->
+  <sc-if value="{{ view.isPeople }}">
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:12px;">
+      <div style="background:#0d1a16; border:1px solid #1e352d; border-radius:4px; padding:15px; display:flex; flex-direction:column; gap:11px;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline;">
+          <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; color:#eafaf1;">{{ people.name }}</span>
+          <span style="font-size:15px; font-weight:600; color:#eafaf1;">{{ people.qtyStr }}</span>
+        </div>
+        <sc-if value="{{ people.locked }}">
+          <div style="display:flex; align-items:center; gap:6px; font-size:11px; color:#b7aec2; background:#15121c; border:1px solid #2e2739; border-radius:3px; padding:5px 10px; align-self:flex-start;">
+            <span style="font-size:10px;">&#128274;</span><span>{{ people.lockText }}</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ people.unlocked }}">
+          <div style="display:flex; align-items:center; gap:2px;">
+            <button onClick="{{ people.onMinus }}" style="font:inherit; width:32px; height:32px; background:#0d1a16; color:#dfeee7; border:1px solid #33544a; border-radius:3px 0 0 3px; cursor:pointer; font-size:17px;">&minus;</button>
+            <div style="width:64px; height:32px; background:#0b1512; border-top:1px solid #33544a; border-bottom:1px solid #33544a; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:600; color:#eafaf1;">{{ people.qty }}</div>
+            <button onClick="{{ people.onPlus }}" style="font:inherit; width:32px; height:32px; background:#123d28; color:#d8f5e2; border:1px solid #2fd68a; border-radius:0 3px 3px 0; cursor:pointer; font-size:17px;">+</button>
+          </div>
+          <div style="font-size:11.5px; color:#7fa596;">{{ labels.perHead }}: <b style="color:#eafaf1;">{{ people.perHeadStr }}</b></div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- TECHNOLOGY (locked-heavy) -->
+  <sc-if value="{{ view.isTech }}">
+    <sc-if value="{{ tech.hasBuyable }}">
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:12px; margin-bottom:16px;">
+        <sc-for list="{{ tech.buyable }}" as="it" hint-placeholder-count="2">
+          <div style="background:#0d1a16; border:1px solid {{ it.border }}; border-radius:4px; padding:15px; display:flex; flex-direction:column; gap:9px;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+              <span style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14.5px; color:#eafaf1; line-height:1.2;">{{ it.name }}</span>
+              <span style="font-size:13px; font-weight:600; color:#9be3c2; white-space:nowrap;">{{ it.priceStr }}</span>
+            </div>
+            <div style="font-size:11.5px; color:#8fb3a5; line-height:1.5;">{{ it.note }}</div>
+            <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:#dfeee7; cursor:pointer; margin-top:2px;">
+              <input type="checkbox" onChange="{{ it.onToggle }}" checked="{{ it.selected }}" style="accent-color:#2fd68a; width:15px; height:15px;">
+              {{ labels.orderThisWindow }}
+            </label>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <div style="background:#0b1512; border:1px solid #14241f; border-radius:4px; overflow:hidden;">
+      <div onClick="{{ tech.onToggleLocked }}" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; cursor:pointer;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:13px; color:#8b8296;">{{ tech.caret }}</span>
+          <span style="width:9px; height:9px; border-radius:50%; background:#8b8296;"></span>
+          <span style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:14px; letter-spacing:0.08em; color:#9a93a3; text-transform:uppercase;">{{ labels.locked }}</span>
+          <span style="font-size:11px; color:#5f5866;">({{ tech.lockedCount }})</span>
+        </div>
+        <span style="font-size:10px; color:#5f5866; letter-spacing:0.05em;">{{ tech.lockedHint }}</span>
+      </div>
+      <sc-if value="{{ tech.lockedOpen }}">
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(330px, 1fr)); gap:1px; background:#10201b; border-top:1px solid #14241f;">
+          <sc-for list="{{ tech.locked }}" as="it" hint-placeholder-count="10">
+            <div style="background:#0b1512; padding:13px 15px; display:flex; flex-direction:column; gap:6px;">
+              <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px; color:#9a93a3;">{{ it.name }}</div>
+              <div style="font-size:11px; color:#5f5866; line-height:1.5;">{{ it.note }}</div>
+              <div style="display:flex; align-items:center; gap:6px; font-size:10.5px; color:#b7aec2; background:#15121c; border:1px solid #2e2739; border-radius:3px; padding:4px 9px; align-self:flex-start; margin-top:2px;">
+                <span style="font-size:10px;">&#128274;</span><span>{{ it.lockText }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 1000},
+  &quot;language&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;en&quot;, &quot;options&quot;: [&quot;en&quot;, &quot;ru&quot;], &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Display&quot;},
+  &quot;freeHousing&quot;: {&quot;editor&quot;: &quot;int&quot;, &quot;default&quot;: 0, &quot;min&quot;: 0, &quot;max&quot;: 50, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Data&quot;}
+}">
+const DELIVERY_PER_KG = 51666.6667; // classic pad, from the live pricing
+const SUBSIDY = 18400000;
+const money = (v) => '$' + Math.round(v).toLocaleString('en-US');
+const kg = (v) => Math.round(v).toLocaleString('en-US');
+const bn = (v) => {
+  if (v >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
+  return money(v);
+};
+
+const RES = {
+  life: [
+    { k: 'food', goods: 1, note: { en: 'per-capita staple · 60% recycled on Mars', ru: 'базовый рацион · 60% рециклинга' } },
+    { k: 'water', goods: 0.5, note: { en: 'closed-loop above 98% once recyclers run', ru: 'замкнутый цикл >98% при работе регенерации' } },
+    { k: 'o2', goods: 3, note: null },
+    { k: 'n2', goods: 5, note: { en: 'buffer gas — offsets habitat leak', ru: 'буферный газ — компенсирует утечку' } },
+  ],
+  mat: [
+    { k: 'steel', goods: 2 }, { k: 'metals', goods: 8 }, { k: 'polymers', goods: 40 },
+    { k: 'glass', goods: 3 }, { k: 'spares', goods: 50 }, { k: 'composite', goods: 200 },
+    { k: 'components', goods: 500 },
+  ],
+  tech: [
+    { k: 'pharma', goods: 2000 }, { k: 'chips', goods: 60000 },
+    { k: 'catalyst', goods: 800 }, { k: 'fuel', goods: 15 },
+  ],
+};
+
+const NAMES = {
+  food: { en: 'Food', ru: 'Еда' }, water: { en: 'Water', ru: 'Вода' }, o2: { en: 'O\u2082', ru: 'O\u2082' }, n2: { en: 'N\u2082', ru: 'N\u2082' },
+  steel: { en: 'Steel', ru: 'Сталь' }, metals: { en: 'Metals', ru: 'Металлы' }, polymers: { en: 'Polymers', ru: 'Полимеры' },
+  glass: { en: 'Glass', ru: 'Стекло' }, spares: { en: 'Spares', ru: 'ЗИП' }, composite: { en: 'Composite', ru: 'Композит' },
+  components: { en: 'Components', ru: 'Компоненты' }, pharma: { en: 'Pharma', ru: 'Фарма' }, chips: { en: 'Chips', ru: 'Чипы' },
+  catalyst: { en: 'Catalyst', ru: 'Катализатор' }, fuel: { en: 'Fuel', ru: 'Топливо' },
+};
+
+const STRUCTS = [
+  { id: 'solar', name: { en: 'Solar Power Plant', ru: 'Солнечная электростанция' }, cost: 2e9, mass: 7000, power: 100 },
+  { id: 'waste', name: { en: 'Waste Pad', ru: 'Полигон отходов' }, cost: 1e9, mass: 3000 },
+  { id: 'nuclear', name: { en: 'Nuclear Power Plant', ru: 'Атомная электростанция' }, cost: 10e9, mass: 25000, power: 500, prereq: 'waste' },
+  { id: 'farm', name: { en: 'Farm / Greenhouse', ru: 'Ферма / Оранжерея' }, cost: 3e9, mass: 9000 },
+  { id: 'water', name: { en: 'Life Support: Water Recycling', ru: 'СЖО: Регенерация воды' }, cost: 2e9, mass: 3000 },
+  { id: 'o2', name: { en: 'Life Support: O\u2082 Generator (MOXIE)', ru: 'СЖО: Генератор O\u2082 (MOXIE)' }, cost: 2e9, mass: 2000 },
+  { id: 'metallurgy', name: { en: 'Metallurgy (Steel)', ru: 'Металлургия (Сталь)' }, cost: 4e9, mass: 2000 },
+  { id: 'glassworks', name: { en: 'Glass / Ceramics', ru: 'Стекло / Керамика' }, cost: 3e9, mass: 2000 },
+  { id: 'medbay', name: { en: 'Medbay', ru: 'Медотсек' }, cost: 2e9, mass: 4000, housing: 0 },
+];
+
+const TECHS = [
+  { id: 'isru', name: { en: 'ISRU Extraction (regolith/ice/CO\u2082)', ru: 'Добыча ISRU (реголит/лёд/CO\u2082)' }, price: 4e9, buyable: true,
+    note: { en: 'Unlocks primary extraction: excavator, ice mine, CO\u2082 capture \u2014 raw material from Mars, not Earth.', ru: 'Открывает добычу: экскаватор, ледяная шахта, захват CO\u2082.' } },
+  { id: 'electrolysis', name: { en: 'Water Electrolysis', ru: 'Электролиз воды' }, price: 3e9,
+    note: { en: 'Unlocks the electrolyzer: water \u2192 hydrogen + O\u2082.', ru: 'Открывает электролизёр: вода \u2192 водород + O\u2082.' } },
+  { id: 'mre', name: { en: 'Regolith Metallurgy (MRE)', ru: 'Металлургия реголита (MRE)' }, price: 5e9,
+    note: { en: 'Unlocks the MRE plant: metals from regolith.', ru: 'Открывает завод MRE: металлы из реголита.' } },
+  { id: 'construction', name: { en: 'Regolith Construction', ru: 'Строительство из реголита' }, price: 5e9,
+    note: { en: 'Sintering plant + cheap housing/storage from local composite.', ru: 'Спекание + дешёвое жильё из местного композита.' } },
+  { id: 'fabrication', name: { en: 'Means of Production (Fabrication)', ru: 'Средства производства' }, price: 6e9,
+    note: { en: 'Fabrication + machine shop \u2014 local parts and spares.', ru: 'Цех фабрикации и станков \u2014 местные детали и ЗИП.' } },
+  { id: 'robotics', name: { en: 'Robotics', ru: 'Робототехника' }, price: 6e9,
+    note: { en: 'Robotics bay \u2014 cuts crew demand 30% across every structure.', ru: 'Роботизация \u2014 \u221230% экипажа на всех структурах.' } },
+  { id: 'school', name: { en: 'Education (School)', ru: 'Образование (Школа)' }, price: 2e9,
+    note: { en: 'Trains specialists from the rising generation.', ru: 'Готовит специалистов из нового поколения.' } },
+  { id: 'university', name: { en: 'Higher Education (University)', ru: 'Высшее образование' }, price: 4e9,
+    note: { en: 'Major source of specialists, gates future high-tech.', ru: 'Источник специалистов, открывает хай-тек.' } },
+  { id: 'fusion', name: { en: 'Fusion Power', ru: 'Термоядерная энергия' }, price: 12e9,
+    note: { en: 'GW-scale energy with no perpetual fuel import.', ru: 'ГВт-энергия без вечного импорта топлива.' } },
+  { id: 'blss', name: { en: 'BLSS Closed Loop', ru: 'Замкнутый цикл BLSS' }, price: 8e9,
+    note: { en: 'Pushes water/O\u2082 recycling toward near-total closure.', ru: 'Почти полное замыкание цикла воды/O\u2082.' } },
+];
+
+const TABS = [
+  { id: 'logi', en: 'Logistics', ru: 'Логистика' },
+  { id: 'life', en: 'Life Support', ru: 'Жизнеобеспечение' },
+  { id: 'mat', en: 'Materials', ru: 'Материалы' },
+  { id: 'tech', en: 'High-tech', ru: 'Хай-тек' },
+  { id: 'people', en: 'People', ru: 'Люди' },
+  { id: 'import', en: 'Import structures', ru: 'Импорт структур' },
+  { id: 'ttree', en: 'Technology', ru: 'Технологии' },
+];
+
+class Component extends DCLogic {
+  state = { tab: 'logi', res: {}, imports: {}, pads: { classic: 0 }, colonists: 0, tech: null, techLockedOpen: false };
+
+  renderVals() {
+    const ru = (this.props.language ?? 'en') === 'ru';
+    const housingFree = this.props.freeHousing ?? 0;
+    const L = (o) => (ru ? o.ru : o.en);
+    const S = this.state;
+
+    const labels = {
+      orderTotal: ru ? 'Итого заказ' : 'Order total', windowSubsidy: ru ? 'Субсидия окна' : 'Window subsidy',
+      shipMass: ru ? 'Масса к отправке' : 'Ship mass', clear: ru ? 'Очистить всё' : 'Clear all',
+      goods: ru ? 'товар' : 'goods', delivery: ru ? 'доставка' : 'delivery',
+      landed: ru ? 'С доставкой' : 'Landed', isDelivery: ru ? 'доставка' : 'is delivery',
+      perUnitLanded: ru ? 'за ед. с доставкой' : 'per unit, landed', housing: ru ? 'жильё' : 'housing',
+      lineTotal: ru ? 'Строка' : 'Line total', perPad: ru ? 'за площадку' : 'per pad',
+      perHead: ru ? 'За человека' : 'Per head', orderThisWindow: ru ? 'Заказать в этом окне' : 'Order this window',
+      locked: ru ? 'Заблокировано' : 'Locked',
+    };
+
+    // ---- order totals across all categories ----
+    let total = 0, mass = 0;
+    RES.life.concat(RES.mat, RES.tech).forEach((r) => {
+      const q = S.res[r.k] || 0;
+      total += q * (r.goods + DELIVERY_PER_KG); mass += q;
+    });
+    STRUCTS.forEach((s) => {
+      const q = S.imports[s.id] || 0;
+      total += q * (s.cost + s.mass * DELIVERY_PER_KG); mass += q * s.mass;
+    });
+    total += (S.pads.classic || 0) * 150000000;
+    if (S.tech) { const tsp = TECHS.find((t) => t.id === S.tech); if (tsp) total += tsp.price; }
+
+    const overBudget = total > SUBSIDY;
+
+    const tabs = TABS.map((tb) => {
+      const active = S.tab === tb.id;
+      return {
+        label: ru ? tb.ru : tb.en, onClick: () => this.setState({ tab: tb.id }),
+        bg: active ? '#123d28' : '#0b1512', color: active ? '#d8f5e2' : '#7fa596',
+        border: active ? '#2fd68a' : '#1e352d',
+      };
+    });
+
+    // ---- resource view builder ----
+    const buildRes = (list) => list.map((r) => {
+      const q = S.res[r.k] || 0;
+      const goods = r.goods, landedPerKg = goods + DELIVERY_PER_KG;
+      const lineCost = q * landedPerKg;
+      const goodsPct = (goods / landedPerKg) * 100;
+      const set = (v) => this.setState((s) => ({ res: { ...s.res, [r.k]: Math.max(0, v) } }));
+      const step = 5000;
+      return {
+        name: L(NAMES[r.k]), qtyStr: kg(q) + ' kg', border: q > 0 ? '#2fa06a' : '#1e352d',
+        goodsStr: money(goods), deliveryStr: money(DELIVERY_PER_KG),
+        goodsPct, deliveryPct: 100 - goodsPct,
+        onMinus: () => set(q - step), onPlus: () => set(q + step),
+        presets: [
+          { label: '+10t', onClick: () => set(q + 10000) },
+          { label: '+50t', onClick: () => set(q + 50000) },
+          { label: '+100t', onClick: () => set(q + 100000) },
+          { label: ru ? 'Сброс' : 'Clear', onClick: () => set(0) },
+        ],
+        hasCost: q > 0, lineCostStr: bn(lineCost),
+        deliveryShareStr: Math.round((DELIVERY_PER_KG / landedPerKg) * 100) + '%',
+        hasNote: !!r.note, note: r.note ? L(r.note) : '',
+      };
+    });
+
+    // ---- structures view ----
+    const buildStructs = () => STRUCTS.map((s) => {
+      const q = S.imports[s.id] || 0;
+      const delivery = s.mass * DELIVERY_PER_KG, landed = s.cost + delivery;
+      const prereqOk = !s.prereq || (S.imports[s.prereq] || 0) > 0;
+      const set = (v) => this.setState((st) => ({ imports: { ...st.imports, [s.id]: Math.max(0, Math.min(10, v)) } }));
+      const depName = s.prereq ? L(STRUCTS.find((x) => x.id === s.prereq).name) : '';
+      return {
+        name: L(s.name), haveStr: (ru ? 'есть ' : 'have ') + '0 \u00b7 +' + q,
+        landedStr: bn(landed),
+        breakdown: (ru ? 'структура ' : 'structure ') + bn(s.cost) + ' + ' + (ru ? 'доставка ' : 'delivery ') + bn(delivery) + ' \u00b7 ' + kg(s.mass) + ' kg',
+        hasPower: !!s.power, powerStr: s.power ? kg(s.power) : '',
+        hasHousing: !!s.housing, housingStr: s.housing ? kg(s.housing) : '',
+        locked: !prereqOk, unlocked: prereqOk,
+        lockText: (ru ? 'Сначала: ' : 'Build first: ') + depName,
+        border: q > 0 ? '#2fa06a' : (prereqOk ? '#1e352d' : '#241f2e'),
+        opacity: prereqOk ? 1 : 0.72,
+        qty: q, onMinus: () => set(q - 1), onPlus: () => set(q + 1),
+        hasCost: q > 0, lineCostStr: bn(landed * q),
+      };
+    });
+
+    // ---- pads view ----
+    const buildPads = () => {
+      const q = S.pads.classic || 0;
+      const set = (v) => this.setState((s) => ({ pads: { ...s.pads, classic: Math.max(0, Math.min(10, v)) } }));
+      return [
+        {
+          name: ru ? 'Classic (одноразовая)' : 'Classic (expendable)',
+          haveStr: (ru ? 'есть ' : 'have ') + '5 \u00b7 +' + q,
+          priceStr: bn(150000000), locked: false, unlocked: true,
+          stats: [
+            { label: ru ? 'полезн. нагр.' : 'payload', value: '3,000 kg', color: '#c3ddd0', border: '#14241f' },
+            { label: ru ? 'обслуж.' : 'upkeep', value: '10%/wnd', color: '#c3ddd0', border: '#14241f' },
+            { label: ru ? 'риск взрыва' : 'explode risk', value: '0.25%', color: '#ffb020', border: '#3a2f18' },
+          ],
+          qty: q, onMinus: () => set(q - 1), onPlus: () => set(q + 1),
+          note: ru ? 'дёшево строить, ~3т на поверхность, но рискованнее' : 'cheap to build, ~3t to surface, riskier',
+          border: q > 0 ? '#2fa06a' : '#1e352d', opacity: 1,
+        },
+        {
+          name: ru ? 'R&D 1/2: Дозаправка: демо-кампании' : 'R&D 1/2: Refueling: Demo Campaigns',
+          haveStr: ru ? 'этап 0' : 'stage 0', priceStr: bn(15e9), locked: true, unlocked: false,
+          stats: [
+            { label: ru ? 'полезн. нагр.' : 'payload', value: '60,000 kg', color: '#c3ddd0', border: '#14241f' },
+            { label: ru ? 'многоразовая' : 'reusable', value: ru ? 'да' : 'yes', color: '#9be3c2', border: '#20423a' },
+          ],
+          lockText: ru ? 'Нужен хотя бы один колонист на Марсе' : 'Needs at least one colonist on Mars',
+          note: ru ? 'многоразовый супертяж + демо дозаправки на орбите (тест-эра: 60т, дороже, рискованнее)' : 'reusable super-heavy + on-orbit fuel-transfer demo (test-era: 60t, pricier, riskier)',
+          border: '#241f2e', opacity: 0.72,
+        },
+      ];
+    };
+
+    // ---- people ----
+    const buildPeople = () => {
+      const q = S.colonists;
+      const set = (v) => this.setState({ colonists: Math.max(0, Math.min(housingFree, v)) });
+      return {
+        name: ru ? 'Колонисты' : 'Colonists', qtyStr: q + ' / ' + housingFree,
+        locked: housingFree === 0, unlocked: housingFree > 0,
+        lockText: ru ? 'Нет свободного жилья — постройте жильё на Марсе или закажите модуль с жильём (Импорт структур)' : 'No free housing — build a habitat on Mars or order a turnkey structure with housing (Import structures)',
+        qty: q, onMinus: () => set(q - 1), onPlus: () => set(q + 1),
+        perHeadStr: money(2400000),
+      };
+    };
+
+    // ---- tech ----
+    const buildTech = () => {
+      const buyable = TECHS.filter((t) => t.buyable).map((t) => ({
+        name: L(t.name), priceStr: bn(t.price), note: L(t.note),
+        selected: S.tech === t.id, onToggle: () => this.setState((s) => ({ tech: s.tech === t.id ? null : t.id })),
+        border: S.tech === t.id ? '#2fd68a' : '#1e352d',
+      }));
+      const locked = TECHS.filter((t) => !t.buyable).map((t) => ({
+        name: L(t.name), note: L(t.note),
+        lockText: ru ? 'нужен пререквизит (тех/структура/население)' : 'needs a prerequisite (tech / structure / population)',
+      }));
+      return {
+        hasBuyable: buyable.length > 0, buyable, locked,
+        lockedCount: locked.length, lockedOpen: S.techLockedOpen,
+        caret: S.techLockedOpen ? '\u25be' : '\u25b8',
+        lockedHint: S.techLockedOpen ? (ru ? 'скрыть' : 'collapse') : (ru ? 'показать требования' : 'show requirements'),
+        onToggleLocked: () => this.setState((s) => ({ techLockedOpen: !s.techLockedOpen })),
+      };
+    };
+
+    const intro = {
+      import: ru
+        ? 'Готовые структуры с Земли: цена отражает сложное дублированное космическое оборудование плюс доставку по массе. На порядки дороже, чем строить на Марсе — оправдано только для первой партии, пока Марсу нечем строить.'
+        : 'Turnkey structures from Earth: the price reflects complex, duplicated, space-rated hardware plus mass-based delivery. Orders of magnitude pricier than building locally on Mars — worth it only for the first shipment, while Mars has nothing to build with yet.',
+      ttree: ru
+        ? 'Технологии углубляют модель к реализму — каждая открывает промышленный этап. Не более одной покупки за окно.'
+        : 'Technologies deepen the model toward realism — each unlocks an industrial stage. At most one purchase per window.',
+    };
+
+    let view = { hasIntro: false };
+    if (S.tab === 'life') view = { isResources: true, items: buildRes(RES.life) };
+    else if (S.tab === 'mat') view = { isResources: true, items: buildRes(RES.mat) };
+    else if (S.tab === 'tech') view = { isResources: true, items: buildRes(RES.tech) };
+    else if (S.tab === 'import') view = { isStructures: true, items: buildStructs(), hasIntro: true, intro: intro.import };
+    else if (S.tab === 'logi') view = { isPads: true, items: buildPads() };
+    else if (S.tab === 'people') view = { isPeople: true };
+    else if (S.tab === 'ttree') view = { isTech: true, hasIntro: true, intro: intro.ttree };
+
+    return {
+      labels, tabs, view,
+      orderTotalStr: bn(total), subsidyStr: bn(SUBSIDY), massStr: kg(mass) + ' kg',
+      budgetColor: overBudget ? '#ff5a3c' : '#2fd68a',
+      overBudget, overBudgetStr: (ru ? 'Превышение на ' : 'Over by ') + bn(total - SUBSIDY),
+      onClearAll: () => this.setState({ res: {}, imports: {}, pads: { classic: 0 }, colonists: 0, tech: null }),
+      people: S.tab === 'people' ? buildPeople() : {},
+      tech: S.tab === 'ttree' ? buildTech() : { hasBuyable: false, buyable: [], locked: [], lockedOpen: false },
+    };
+  }
+}
+</script>
+</body>
+</html>

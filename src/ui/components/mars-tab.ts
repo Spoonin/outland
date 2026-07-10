@@ -3,46 +3,11 @@ import { customElement, property, state } from 'lit/decorators.js';
 import type { ColonyStore } from '../colonyStore';
 import { STRUCT_BY_ID, TECH_BY_ID, type Structure } from '../../engine';
 import { tokens } from '../theme';
-import { i18n, t, type I18nKey } from '../i18n';
+import { i18n, t } from '../i18n';
 import { structName, techName } from '../names';
+import { groupOf, GROUP_ORDER, GROUP_LABEL_KEYS, type Group } from '../structGroups';
 
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
-
-/* ---------------------------------------------------------------------------
- * Functional grouping.
- *
- * The engine's Structure has no `category` field, so we derive one. Two options:
- *   (A) add `category` to the Structure type in the engine (cleanest, do this if
- *       you own the engine), then replace `groupOf` with `s.category`.
- *   (B) keep this heuristic + per-id override map (zero engine change).
- *
- * The override map wins; fill it in with real structure ids as needed.
- * ------------------------------------------------------------------------- */
-type Group = 'power' | 'life' | 'infra' | 'industry' | 'population';
-const GROUP_ORDER: Group[] = ['population', 'power', 'life', 'infra', 'industry'];
-const LIFE_RES = new Set(['food', 'water', 'o2', 'n2']);
-const GROUP_LABEL_KEYS: Record<Group, I18nKey> = {
-  power: 'mars.group.power',
-  life: 'mars.group.life',
-  infra: 'mars.group.infra',
-  industry: 'mars.group.industry',
-  population: 'mars.group.population',
-};
-
-const GROUP_OVERRIDE: Record<string, Group> = {
-  // e.g. medbay: 'population', waste_pad: 'infra',
-};
-
-function groupOf(s: Structure): Group {
-  const ov = GROUP_OVERRIDE[s.id];
-  if (ov) return ov;
-  if (s.energy > 0) return 'power';
-  const produces = Object.keys(s.produces);
-  if (produces.some((r) => LIFE_RES.has(r))) return 'life';
-  if (s.housing) return 'population';
-  if (produces.length > 0) return 'industry';
-  return 'infra';
-}
 
 /** LED status: running / buildable-now / short-on-materials / locked. Splits the design's
  * "can't afford" (amber, recoverable) from "locked" (violet, gated) — see the design brief. */
