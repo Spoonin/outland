@@ -109,11 +109,34 @@ export class SettingsMenu extends LitElement {
         background: var(--c-panel-hover);
         color: var(--c-text-bright);
       }
+      button.item {
+        font: inherit;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        width: 100%;
+        margin-top: 12px;
+        text-align: left;
+        background: var(--c-bg);
+        color: var(--c-text);
+        border: 1px solid var(--c-border);
+        border-radius: var(--radius-sm);
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+      button.item:hover {
+        background: var(--c-panel-hover);
+        border-color: var(--c-border-hover);
+      }
     `,
   ];
 
   private setLang(l: Lang): void {
     i18n.set(l);
+  }
+
+  private showBriefing(): void {
+    this.open = false;
+    this.dispatchEvent(new CustomEvent('show-briefing', { bubbles: true, composed: true }));
   }
 
   render() {
@@ -132,6 +155,7 @@ export class SettingsMenu extends LitElement {
                 <button class=${lang === 'ru' ? 'active' : ''} @click=${() => this.setLang('ru')}>RU</button>
               </div>
             </div>
+            <button class="item" @click=${() => this.showBriefing()}>${t('settings.briefing')} ▸</button>
           </div>`
         : nothing}
     `;

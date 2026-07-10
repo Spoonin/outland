@@ -275,6 +275,38 @@ const RU = {
   'debrief.stocks': 'еда/вода/O₂/N₂ (стоки)',
   'debrief.milestones': 'Майлстоуны',
   'debrief.windowN': 'окно {v}',
+
+  'settings.briefing': 'Брифинг миссии',
+
+  'intro.skip': 'пропустить ▸▸',
+  'intro.bootUplink': 'восходящий канал',
+  'intro.bootUplinkSt': 'УСТАНОВЛЕН',
+  'intro.bootRelay': 'ретранслятор DSN',
+  'intro.bootRelaySt': 'НОРМА',
+  'intro.bootTelemetry': 'телеметрия колонии',
+  'intro.bootTelemetrySt': 'НЕТ СИГНАЛА',
+  'intro.bootMandate': 'мандат CS-04',
+  'intro.bootMandateSt': 'ОЖИДАЕТ ПРИНЯТИЯ',
+  'intro.subtitle': 'марсианская колониальная служба',
+  'intro.lede':
+    'Колонии ещё нет. Есть бюджет, ракеты и окно раз в ~26 месяцев. Постройте на Марсе то, что переживёт обрыв снабжения.',
+  'intro.orbitCaption': 'орбиты сближаются раз в ~26 мес — всё снабжение летит в это окно',
+  'intro.orbitEarth': 'Земля',
+  'intro.orbitMars': 'Марс',
+  'intro.directive': 'директива {n}',
+  'intro.dir1head': 'Одно окно — один приказ',
+  'intro.dir1':
+    'Раз в окно вы утверждаете манифест: бюджет, лимит массы, груз, колонисты. Между окнами колония 2,2 года живёт сама.',
+  'intro.dir2head': 'Дефицит убивает',
+  'intro.dir2':
+    'Еда, вода, кислород и энергия расходуются непрерывно. Нехватка любого — смерти. Держите запас на пропущенное окно.',
+  'intro.dir3head': 'Локализуйте производство',
+  'intro.dir3':
+    'Каждый местный килограмм — минус килограмм импорта: вода, еда, металлы, ЗИП — вверх по дереву технологий до стены хайтека.',
+  'intro.dir4head': 'Победного экрана нет',
+  'intro.dir4': 'Только майлстоуны, хроника и один вопрос: сколько окон колония переживёт без Земли?',
+  'intro.start': 'Принять мандат ▸',
+  'intro.return': '‹ Вернуться к пульту',
 } as const;
 
 const EN: Record<keyof typeof RU, string> = {
@@ -500,6 +532,38 @@ const EN: Record<keyof typeof RU, string> = {
   'debrief.stocks': 'food/water/O₂/N₂ (stocks)',
   'debrief.milestones': 'Milestones',
   'debrief.windowN': 'window {v}',
+
+  'settings.briefing': 'Mission briefing',
+
+  'intro.skip': 'skip ▸▸',
+  'intro.bootUplink': 'uplink',
+  'intro.bootUplinkSt': 'ESTABLISHED',
+  'intro.bootRelay': 'DSN relay',
+  'intro.bootRelaySt': 'NOMINAL',
+  'intro.bootTelemetry': 'colony telemetry',
+  'intro.bootTelemetrySt': 'NO SIGNAL',
+  'intro.bootMandate': 'mandate CS-04',
+  'intro.bootMandateSt': 'AWAITING ACCEPTANCE',
+  'intro.subtitle': 'Mars Colonial Authority',
+  'intro.lede':
+    'There is no colony yet. There is a budget, rockets, and a window every ~26 months. Build the thing on Mars that survives losing the supply line.',
+  'intro.orbitCaption': 'the orbits align every ~26 months — everything ships inside that window',
+  'intro.orbitEarth': 'Earth',
+  'intro.orbitMars': 'Mars',
+  'intro.directive': 'directive {n}',
+  'intro.dir1head': 'One window, one order',
+  'intro.dir1':
+    'Once per window you commit a manifest: budget, mass cap, cargo, colonists. Between windows the colony is on its own for 2.2 years.',
+  'intro.dir2head': 'Deficit kills',
+  'intro.dir2':
+    'Food, water, oxygen and energy burn continuously. Run short of any one and people die. Keep a buffer for a missed window.',
+  'intro.dir3head': 'Localize production',
+  'intro.dir3':
+    'Every local kilogram is one less imported: water, food, metals, spares — up the tech tree to the high-tech wall.',
+  'intro.dir4head': 'There is no win screen',
+  'intro.dir4': 'Only milestones, the chronicle, and one question: how many windows would the colony survive without Earth?',
+  'intro.start': 'Accept the mandate ▸',
+  'intro.return': '‹ Back to the console',
 };
 
 const DICTS: Record<Lang, Record<keyof typeof RU, string>> = { en: EN, ru: RU };

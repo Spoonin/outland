@@ -1,6 +1,6 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { ColonyStore } from '../colonyStore';
+import { ColonyStore, SAVE_KEY } from '../colonyStore';
 import { updatePending, applyPendingUpdate } from '../pwa';
 import { tokens, pulse } from '../theme';
 import { i18n, t } from '../i18n';
@@ -9,12 +9,32 @@ import './chronicle-panel';
 import './colony-debrief';
 import './earth-tab';
 import './mars-tab';
+import './mission-briefing';
 import './settings-menu';
 
 const money = (v: number) => '$' + Math.round(v).toLocaleString('en-US');
 const kg = (v: number) => Math.round(v).toLocaleString('en-US');
 // Mirrors engine's BUFFER_LOOKAHEAD (colony.ts) — display-only, sizes the buffer donut's arc.
 const BUFFER_LOOKAHEAD_UI = 12;
+
+// First-contact briefing gate: shown only when the player has neither seen it nor has a save
+// (players from before the briefing existed have a save and are never interrupted). Storage
+// failures fall back to "not seen" — that environment loses its save between reloads anyway.
+const INTRO_SEEN_KEY = 'outland.introSeen';
+function introSeen(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(INTRO_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function hasSave(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(SAVE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
 
 /** v2 root (colony-sim): status + Земля/Марс planning tabs + shared commit footer.
  * Visual system: documents/ui/README.md (mission-control tokens, see ../theme.ts). */
@@ -25,6 +45,8 @@ export class ColonyApp extends LitElement {
   private unsubI18n?: () => void;
   @state() private tick = 0;
   @state() private tab: 'earth' | 'mars' = 'earth';
+  @state() private briefing = !introSeen() && !hasSave();
+  @state() private briefingReplay = false;
 
   connectedCallback(): void {
     super.connectedCallback();
@@ -477,7 +499,7 @@ export class ColonyApp extends LitElement {
               <span class="dot"></span>${t(alertCount === 1 ? 'app.alertOne' : 'app.alertMany', { n: alertCount })}
             </div>`
           : nothing}
-        <settings-menu></settings-menu>
+        <settings-menu @show-briefing=${() => this.openBriefing()}></settings-menu>
       </div>
     </div>`;
   }
@@ -603,8 +625,23 @@ export class ColonyApp extends LitElement {
     if (updatePending()) applyPendingUpdate();
   }
 
+  private openBriefing(): void {
+    this.briefingReplay = true;
+    this.briefing = true;
+  }
+  private closeBriefing(): void {
+    try {
+      localStorage.setItem(INTRO_SEEN_KEY, '1');
+    } catch {
+      /* non-fatal */
+    }
+    this.briefing = false;
+  }
+
   render() {
     void this.tick;
+    if (this.briefing)
+      return html`<mission-briefing .replay=${this.briefingReplay} @dismiss=${() => this.closeBriefing()}></mission-briefing>`;
     const st = this.store.status();
     return html`
       ${this.header()}
